@@ -120,6 +120,9 @@ final class Store {
     private func saveNow(_ id: Note.ID?) {
         saveTask?.cancel()
         guard let note = notes.first(where: { $0.id == id }) else { return }
+        // trash() moves the file before clearing the selection; writing
+        // here would bring it back (and republish it).
+        guard FileManager.default.fileExists(atPath: note.url.path) else { return }
         // On a selection change `text` still holds the old note's text.
         let current = (try? String(contentsOf: note.url, encoding: .utf8)) ?? ""
         guard current != text else { return }
