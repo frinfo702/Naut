@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "ghost": {
+      "source": "frinfo702/skills",
+      "sourceType": "github",
+      "skillPath": "skills/ghost/SKILL.md",
+      "computedHash": "6482d91e98824555929b4062be8598379790be4065ae312ba8f1734f1664bf92"
+    },
+    "monk": {
+      "source": "frinfo702/skills",
+      "sourceType": "github",
+      "skillPath": "skills/monk/SKILL.md",
+      "computedHash": "260af1cbd64218f2e5b0c2d419c0fd1d0024fa7fac0cafba837ea9d7f3467a77"
+    },
+    "rule-of-one": {
+      "source": "frinfo702/skills",
+      "sourceType": "github",
+      "skillPath": "skills/rule-of-one/SKILL.md",
+      "computedHash": "62100f946357c54e4baf02674a950e6f2341bf6deadec512cc5ff273a961b55e"
+    }
+  }
+}

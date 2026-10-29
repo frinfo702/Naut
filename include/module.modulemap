@@ -1,0 +1,4 @@
+module CFolio {
+  header "folio.h"
+  export *
+}
