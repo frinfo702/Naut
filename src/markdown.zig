@@ -152,11 +152,21 @@ pub const Renderer = struct {
             gop.value_ptr.* = 0;
             return buf.items;
         }
-        gop.value_ptr.* += 1;
-        return std.fmt.allocPrint(self.alloc, "{s}-{d}", .{ buf.items, gop.value_ptr.* });
+        // The suffixed form can collide too ("# a-1" then "# a" twice),
+        // so keep counting until it is free, and reserve what we pick.
+        while (true) {
+            gop.value_ptr.* += 1;
+            const candidate = try std.fmt.allocPrint(self.alloc, "{s}-{d}", .{ buf.items, gop.value_ptr.* });
+            const taken = try self.slugs.getOrPut(self.alloc, candidate);
+            if (taken.found_existing) continue;
+            taken.value_ptr.* = 0;
+            return candidate;
+        }
     }
 
-    fn fencedCode(self: *Renderer, w: *Writer, lines: []const []const u8, start: usize, f: Fence) Error!usize {
+    fn fencedCode(self: *Renderer, w: *Writer, lines: []const []const u8, start: usize, fence_: Fence) Error!usize {
+        var f = fence_;
+        f.indent = indentOf(lines[start]);
         var body: std.ArrayList(u8) = .empty;
         var i = start + 1;
         while (i < lines.len) : (i += 1) {
@@ -566,6 +576,7 @@ fn fence(t: []const u8) ?Fence {
     // Backtick fences may not have backticks in the info string, otherwise
     // "```inline```" on its own line would open a block.
     if (c == '`' and std.mem.indexOfScalar(u8, info, '`') != null) return null;
+    // indent is filled in by the caller, which has the untrimmed line.
     return .{ .char = c, .len = n, .indent = 0, .info = info };
 }
 
@@ -602,7 +613,10 @@ fn listMarker(line: []const u8) ?ListMarker {
     if (t[n] != '.' and t[n] != ')') return null;
     if (n + 1 < t.len and t[n + 1] != ' ') return null;
     const number = std.fmt.parseInt(u32, t[0..n], 10) catch return null;
-    return .{ .ordered = true, .number = number, .content = indent + n + 2 };
+    // "1." at the end of a line has no space, so content starts right
+    // after the marker.
+    const space: usize = if (n + 1 < t.len) 1 else 0;
+    return .{ .ordered = true, .number = number, .content = indent + n + 1 + space };
 }
 
 /// `[ ]` or `[x]` at the start of a list item, followed by space or end.
@@ -1050,6 +1064,20 @@ test "markdown: table with alignment" {
             "</thead>\n<tbody>\n" ++
             "<tr><td style=\"text-align:left\"><code>x</code></td><td style=\"text-align:right\">y</td></tr>\n" ++
             "</tbody>\n</table></div>\n");
+}
+
+test "markdown: ordered marker at end of line" {
+    // Regression: content offset pointed past the end of "1.".
+    try expectHtml("1.\nfoo", "<ol>\n<li>foo\n</li>\n</ol>\n");
+}
+
+test "markdown: suffixed slugs stay unique" {
+    try expectHtml("# a-1\n# a\n# a",
+        "<h1 id=\"a-1\">a-1</h1>\n<h1 id=\"a\">a</h1>\n<h1 id=\"a-2\">a</h1>\n");
+}
+
+test "markdown: indented fence content is de-indented" {
+    try expectHtml("  ```\n  x\n    y\n  ```", "<pre><code>x\n  y</code></pre>\n");
 }
 
 test "markdown: hard breaks" {
