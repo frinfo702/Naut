@@ -1,4 +1,4 @@
-module CFolio {
-  header "folio.h"
+module CNaut {
+  header "naut.h"
   export *
 }

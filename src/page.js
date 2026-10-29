@@ -1,7 +1,7 @@
 // Typesets math, highlights code and adds copy buttons. Exposed as
-// folio.typeset(root) so the app can call it again after swapping the
+// naut.typeset(root) so the app can call it again after swapping the
 // content of <main> without reloading the page (no flicker, scroll kept).
-window.folio = {
+window.naut = {
   typeset(root = document) {
     if (window.katex) {
       for (const el of root.querySelectorAll(".math")) {
@@ -22,13 +22,13 @@ window.folio = {
       const button = document.createElement("button");
       button.className = "copy";
       button.ariaLabel = "Copy";
-      button.innerHTML = folio.icons.copy;
+      button.innerHTML = naut.icons.copy;
       button.onclick = async () => {
         await navigator.clipboard.writeText(pre.querySelector("code").innerText);
-        button.innerHTML = folio.icons.check;
+        button.innerHTML = naut.icons.check;
         button.classList.add("done");
         setTimeout(() => {
-          button.innerHTML = folio.icons.copy;
+          button.innerHTML = naut.icons.copy;
           button.classList.remove("done");
         }, 1200);
       };
@@ -42,4 +42,4 @@ window.folio = {
   },
 };
 
-addEventListener("DOMContentLoaded", () => folio.typeset());
+addEventListener("DOMContentLoaded", () => naut.typeset());

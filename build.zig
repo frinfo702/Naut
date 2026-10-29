@@ -16,17 +16,17 @@ pub fn build(b: *std.Build) void {
     const emit_macos_app = b.option(bool, "emit-macos-app", "Build the macOS app bundle") orelse
         (builtin.os.tag == .macos);
 
-    // The Zig package other projects depend on: b.dependency("folio", ...)
-    // then .module("folio").
-    const mod = b.addModule("folio", .{
+    // The Zig package other projects depend on: b.dependency("naut", ...)
+    // then .module("naut").
+    const mod = b.addModule("naut", .{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    // libfolio.a with the C API, for Swift and anyone else with a C FFI.
+    // libnaut.a with the C API, for Swift and anyone else with a C FFI.
     const lib = b.addLibrary(.{
-        .name = "folio",
+        .name = "naut",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/c.zig"),
             .target = target,
@@ -38,7 +38,7 @@ pub fn build(b: *std.Build) void {
     // runtime, so the static library must carry it.
     lib.bundle_compiler_rt = true;
     lib.bundle_ubsan_rt = true;
-    lib.installHeader(b.path("include/folio.h"), "folio.h");
+    lib.installHeader(b.path("include/naut.h"), "naut.h");
     b.installArtifact(lib);
 
     const tests = b.addTest(.{ .root_module = mod, .filters = test_filters });
@@ -56,7 +56,7 @@ pub fn build(b: *std.Build) void {
     });
     xcframework.addFileArg(lib.getEmittedBin());
     xcframework.addDirectoryArg(b.path("include"));
-    xcframework.addArg("macos/CFolio.xcframework");
+    xcframework.addArg("macos/CNaut.xcframework");
     xcframework.setCwd(b.path("."));
     xcframework.has_side_effects = true;
 
@@ -68,15 +68,15 @@ pub fn build(b: *std.Build) void {
 
     // A SwiftPM executable is not an app; wrap it in a minimal bundle so
     // it gets a Dock icon, menu bar and its own preferences domain.
-    const bin = b.fmt("macos/.build/{s}/Folio", .{swift_config});
-    const install_bin = b.addInstallFile(b.path(bin), "Folio.app/Contents/MacOS/Folio");
+    const bin = b.fmt("macos/.build/{s}/Naut", .{swift_config});
+    const install_bin = b.addInstallFile(b.path(bin), "Naut.app/Contents/MacOS/Naut");
     install_bin.step.dependOn(&swift.step);
-    const install_plist = b.addInstallFile(b.path("macos/Info.plist"), "Folio.app/Contents/Info.plist");
+    const install_plist = b.addInstallFile(b.path("macos/Info.plist"), "Naut.app/Contents/Info.plist");
     b.getInstallStep().dependOn(&install_bin.step);
     b.getInstallStep().dependOn(&install_plist.step);
 
     // ponytail: assumes the default zig-out prefix.
-    const run = b.addSystemCommand(&.{ "open", "zig-out/Folio.app" });
+    const run = b.addSystemCommand(&.{ "open", "zig-out/Naut.app" });
     run.setCwd(b.path("."));
     run.step.dependOn(b.getInstallStep());
     b.step("run", "Build and open the macOS app").dependOn(&run.step);

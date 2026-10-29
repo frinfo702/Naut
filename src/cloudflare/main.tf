@@ -18,7 +18,7 @@ variable "account_id" {
 
 variable "name" {
   type    = string
-  default = "folio"
+  default = "naut"
 }
 
 # The token comes from CLOUDFLARE_API_TOKEN so it never lands in tfstate.

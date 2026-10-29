@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @main
-struct FolioApp: App {
+struct NautApp: App {
     @State private var store = Store()
 
     init() {

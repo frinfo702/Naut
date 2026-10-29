@@ -2,7 +2,7 @@
 //!
 //! The app preview and the published web page are the same document. The
 //! app loads it once and then only swaps the inner HTML of `<main>` as the
-//! user types (see `folio.typeset` in page.js), so the stylesheet and
+//! user types (see `naut.typeset` in page.js), so the stylesheet and
 //! scripts here are the single source of truth for how a note looks.
 
 const std = @import("std");

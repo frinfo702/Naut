@@ -30,7 +30,7 @@ const worker_js = @embedFile("cloudflare/worker.js");
 
 /// Name of the Worker and KV namespace we create. Also the Terraform
 /// `name` variable default; keep them in sync.
-pub const resource_name = "folio";
+pub const resource_name = "naut";
 
 pub const Credentials = struct {
     /// 32 hex characters, from the dashboard URL or Account Home.
@@ -42,7 +42,7 @@ pub const Credentials = struct {
 
 pub const Site = struct {
     namespace_id: []const u8,
-    /// e.g. "https://folio.alice.workers.dev". No trailing slash.
+    /// e.g. "https://naut.alice.workers.dev". No trailing slash.
     url: []const u8,
 };
 

@@ -2,18 +2,18 @@
 import PackageDescription
 
 let package = Package(
-    name: "Folio",
+    name: "Naut",
     // Keep in sync with the deployment target in build.zig.
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "FolioKit", targets: ["FolioKit"]),
-        .executable(name: "Folio", targets: ["Folio"]),
+        .library(name: "NautKit", targets: ["NautKit"]),
+        .executable(name: "Naut", targets: ["Naut"]),
     ],
     targets: [
         // Built by `zig build` from the repository root.
-        .binaryTarget(name: "CFolio", path: "CFolio.xcframework"),
-        .target(name: "FolioKit", dependencies: ["CFolio"]),
-        .executableTarget(name: "Folio", dependencies: ["FolioKit"]),
-        .testTarget(name: "FolioKitTests", dependencies: ["FolioKit"]),
+        .binaryTarget(name: "CNaut", path: "CNaut.xcframework"),
+        .target(name: "NautKit", dependencies: ["CNaut"]),
+        .executableTarget(name: "Naut", dependencies: ["NautKit"]),
+        .testTarget(name: "NautKitTests", dependencies: ["NautKit"]),
     ]
 )

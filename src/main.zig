@@ -1,6 +1,6 @@
-//! libfolio: the core of Folio, usable on its own.
+//! libnaut: the core of Naut, usable on its own.
 //!
-//! Folio is a Markdown notes app whose notes can be published to the web
+//! Naut is a Markdown notes app whose notes can be published to the web
 //! with one switch. Everything that is not UI lives here so that the macOS
 //! app is just one consumer: rendering (`markdown`, `page`) and publishing
 //! (`cloudflare`). The C API in c.zig wraps these for Swift.

@@ -38,7 +38,7 @@ struct SettingsView: View {
                         .disabled(store.provisioning || store.accountID.isEmpty || store.apiToken.isEmpty)
                 }
             } footer: {
-                Text("Runs Terraform to create a Worker and a KV namespace named “folio”. Afterwards they are ordinary Cloudflare resources you can change in the dashboard.")
+                Text("Runs Terraform to create a Worker and a KV namespace named “naut”. Afterwards they are ordinary Cloudflare resources you can change in the dashboard.")
                     .foregroundStyle(.secondary)
             }
         }

@@ -1,8 +1,8 @@
-import FolioKit
+import NautKit
 import SwiftUI
 import WebKit
 
-/// The rendered note. Loads libfolio's page template once, then on each
+/// The rendered note. Loads libnaut's page template once, then on each
 /// edit replaces only the contents of `<main>` and re-typesets. Reloading
 /// the page per keystroke would flash white and lose the scroll position.
 struct Preview: NSViewRepresentable {
@@ -49,7 +49,7 @@ struct Preview: NSViewRepresentable {
                 (() => {
                   const main = document.querySelector("main");
                   main.innerHTML = \(json);
-                  folio.typeset(main);
+                  naut.typeset(main);
                 })()
                 """)
         }

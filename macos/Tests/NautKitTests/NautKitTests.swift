@@ -1,7 +1,7 @@
-import FolioKit
+import NautKit
 import Testing
 
-@Test func rendersMarkdownThroughLibfolio() {
+@Test func rendersMarkdownThroughLibnaut() {
     #expect(Markdown.html("**日本語**") == "<p><strong>日本語</strong></p>\n")
 }
 

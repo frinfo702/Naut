@@ -1,24 +1,24 @@
-import CFolio
+import CNaut
 import Foundation
 
-/// Rendering. Pure functions over libfolio; safe from any thread.
+/// Rendering. Pure functions over libnaut; safe from any thread.
 public enum Markdown {
     /// An HTML fragment: the contents of `<main>`.
     public static func html(_ source: String) -> String {
-        withBytes(source) { take(folio_render_html($0, $1)) }
+        withBytes(source) { take(naut_render_html($0, $1)) }
     }
 
     /// A complete page with styles and scripts. Published pages want the
     /// outline sidebar (`toc`); the app draws its own.
     public static func page(_ source: String, title: String, toc: Bool) -> String {
         withBytes(title) { titlePtr, titleLen in
-            var opts = folio_page_options_s(title: titlePtr, title_len: titleLen, toc: toc)
-            return withBytes(source) { take(folio_render_page($0, $1, &opts)) }
+            var opts = naut_page_options_s(title: titlePtr, title_len: titleLen, toc: toc)
+            return withBytes(source) { take(naut_render_page($0, $1, &opts)) }
         }
     }
 
     public static func outline(_ source: String) -> [Heading] {
-        let json = withBytes(source) { take(folio_outline_json($0, $1)) }
+        let json = withBytes(source) { take(naut_outline_json($0, $1)) }
         return (try? JSONDecoder().decode([Heading].self, from: Data(json.utf8))) ?? []
     }
 }
@@ -55,28 +55,28 @@ public struct Cloudflare: Sendable {
     /// Terraform state and must survive between runs.
     public func provision(workdir: URL) async throws -> Site {
         let path = workdir.path
-        let json = try await run { cf, out in folio_cloudflare_provision(cf, path, out) }
+        let json = try await run { cf, out in naut_cloudflare_provision(cf, path, out) }
         return try JSONDecoder().decode(Site.self, from: Data(json.utf8))
     }
 
     public func put(_ site: Site, key: String, value: String) async throws {
         _ = try await run { cf, out in
-            withBytes(value) { folio_cloudflare_put(cf, site.namespaceID, key, $0, $1, out) }
+            withBytes(value) { naut_cloudflare_put(cf, site.namespaceID, key, $0, $1, out) }
         }
     }
 
     public func delete(_ site: Site, key: String) async throws {
-        _ = try await run { cf, out in folio_cloudflare_delete(cf, site.namespaceID, key, out) }
+        _ = try await run { cf, out in naut_cloudflare_delete(cf, site.namespaceID, key, out) }
     }
 
     private func run(
-        _ body: @escaping @Sendable (UnsafePointer<folio_cloudflare_s>, UnsafeMutablePointer<folio_string_s>) -> Bool
+        _ body: @escaping @Sendable (UnsafePointer<naut_cloudflare_s>, UnsafeMutablePointer<naut_string_s>) -> Bool
     ) async throws -> String {
         try await Task.detached { [accountID, apiToken] in
             try accountID.withCString { account in
                 try apiToken.withCString { token in
-                    var cf = folio_cloudflare_s(account_id: account, api_token: token)
-                    var out = folio_string_s()
+                    var cf = naut_cloudflare_s(account_id: account, api_token: token)
+                    var out = naut_string_s()
                     let ok = body(&cf, &out)
                     let message = take(out)
                     guard ok else { throw PublishError(message: message) }
@@ -100,8 +100,8 @@ private func withBytes<R>(_ string: String, _ body: (UnsafePointer<CChar>?, Int)
 }
 
 /// Copy a library-owned string into Swift and free it.
-private func take(_ s: folio_string_s) -> String {
-    defer { folio_string_free(s) }
+private func take(_ s: naut_string_s) -> String {
+    defer { naut_string_free(s) }
     guard let ptr = s.ptr, s.len > 0 else { return "" }
     return String(decoding: UnsafeRawBufferPointer(start: ptr, count: s.len), as: UTF8.self)
 }

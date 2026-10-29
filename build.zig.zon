@@ -1,7 +1,7 @@
 .{
-    .name = .folio,
+    .name = .naut,
     .version = "0.1.0",
-    .fingerprint = 0x9bea0cc6e736846f, // Changing this has security and trust implications.
+    .fingerprint = 0xb688c6ad17f120a5, // Changing this has security and trust implications.
     .minimum_zig_version = "0.17.0",
     .dependencies = .{},
     .paths = .{

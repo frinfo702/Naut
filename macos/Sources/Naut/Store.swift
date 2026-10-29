@@ -1,5 +1,5 @@
 import AppKit
-import FolioKit
+import NautKit
 import Observation
 import Security
 
@@ -23,7 +23,7 @@ final class Store {
 
     /// ponytail: a fixed folder. Make it a setting when someone wants
     /// their notes in iCloud Drive or a Git repo.
-    let folder = URL.documentsDirectory.appending(path: "Folio", directoryHint: .isDirectory)
+    let folder = URL.documentsDirectory.appending(path: "Naut", directoryHint: .isDirectory)
 
     private(set) var notes: [Note] = []
 
@@ -57,7 +57,7 @@ final class Store {
     var filteredNotes: [Note] {
         guard !query.isEmpty else { return notes }
         // ponytail: reads every file per keystroke. Fine for hundreds of
-        // notes; index in libfolio if it ever isn't.
+        // notes; index in libnaut if it ever isn't.
         return notes.filter { note in
             note.name.localizedCaseInsensitiveContains(query)
                 || ((try? String(contentsOf: note.url, encoding: .utf8))?.localizedCaseInsensitiveContains(query) ?? false)
@@ -161,7 +161,7 @@ final class Store {
     }
 
     func provision() {
-        let workdir = URL.applicationSupportDirectory.appending(path: "Folio/terraform", directoryHint: .isDirectory)
+        let workdir = URL.applicationSupportDirectory.appending(path: "Naut/terraform", directoryHint: .isDirectory)
         provisioning = true
         error = nil
         Task {
@@ -222,9 +222,9 @@ final class Store {
     // MARK: -
 
     static let welcome = """
-        # Welcome to Folio
+        # Welcome to Naut
 
-        Notes are Markdown files in `~/Documents/Folio`. Edit on the left, read on the right.
+        Notes are Markdown files in `~/Documents/Naut`. Edit on the left, read on the right.
 
         ## Math
 
@@ -260,7 +260,7 @@ final class Store {
 enum Keychain {
     private static var query: [String: Any] { [
         kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: "com.frinfo702.folio",
+        kSecAttrService as String: "com.frinfo702.naut",
         kSecAttrAccount as String: "cloudflare-api-token",
     ] }
 

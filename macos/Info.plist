@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>Folio</string>
+	<string>Naut</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.frinfo702.folio</string>
+	<string>com.frinfo702.naut</string>
 	<key>CFBundleExecutable</key>
-	<string>Folio</string>
+	<string>Naut</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
