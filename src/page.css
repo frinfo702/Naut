@@ -9,6 +9,7 @@
   --surface: #1a1b1a;
   --surface-raised: #1f201f;
   --line: #2c2d2b;
+  --guide: #3e3f3c;
 
   /* Text */
   --fg: #f1f1ee;
@@ -38,6 +39,7 @@
     --surface: #f3f3f0;
     --surface-raised: #ecece8;
     --line: #e0e0db;
+    --guide: #cfcfca;
     --fg: #161715;
     --fg-body: #3b3d39;
     --fg-dim: #7a7c76;
@@ -96,15 +98,15 @@ nav.toc .title { display: block; color: var(--fg); margin-bottom: 8px; }
 
 /* Tree connectors, drawn like the guides in a file tree. */
 nav.toc ul { list-style: none; margin: 0 0 0 8px; padding: 0; }
-nav.toc li { position: relative; padding: 4px 0 4px 26px; }
+nav.toc li { position: relative; margin: 0; padding: 4px 0 4px 26px; }
 nav.toc li::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0;
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--guide);
 }
 nav.toc li:last-child::before { bottom: auto; height: 1.0em; }
 nav.toc li::after {
   content: ""; position: absolute; left: 0; top: 1.0em; width: 10px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--guide);
 }
 
 /* Type -------------------------------------------------------------- */
