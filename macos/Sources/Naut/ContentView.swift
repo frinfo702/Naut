@@ -51,14 +51,15 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private func toolbar(_ note: Note) -> some ToolbarContent {
         ToolbarItemGroup {
+            PublishButton(note: note, openSettings: { openSettings() })
+
+            // Last, so it sits at the trailing edge like other panel toggles.
             Button {
                 withAnimation(.snappy(duration: Metrics.toggleDuration)) { store.showEditor.toggle() }
             } label: {
                 Label("Editor", systemImage: "sidebar.squares.left")
             }
             .help(store.showEditor ? "Hide Editor (⌘E)" : "Show Editor (⌘E)")
-
-            PublishButton(note: note, openSettings: { openSettings() })
         }
     }
 }
