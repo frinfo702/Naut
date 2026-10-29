@@ -18,6 +18,12 @@
       default = pkgs.mkShellNoCC {
         packages = [pkgs.zig pkgs.terraform];
       };
+
+      # Terraform is unfree, so it isn't in the binary cache and builds from
+      # source (10+ minutes). CI only needs Zig; Terraform has its own job.
+      ci = pkgs.mkShellNoCC {
+        packages = [pkgs.zig];
+      };
     }) inputs.nixpkgs.legacyPackages;
   };
 }

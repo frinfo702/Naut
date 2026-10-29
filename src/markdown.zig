@@ -963,8 +963,7 @@ test "markdown: japanese heading id" {
 }
 
 test "markdown: paragraph inlines" {
-    try expectHtml("a **b** *c* `d` ~~e~~ ***f***",
-        "<p>a <strong>b</strong> <em>c</em> <code>d</code> <del>e</del> <strong><em>f</em></strong></p>\n");
+    try expectHtml("a **b** *c* `d` ~~e~~ ***f***", "<p>a <strong>b</strong> <em>c</em> <code>d</code> <del>e</del> <strong><em>f</em></strong></p>\n");
 }
 
 test "markdown: intraword underscore is literal" {
@@ -980,18 +979,15 @@ test "markdown: raw html is escaped" {
 }
 
 test "markdown: javascript links are neutralised" {
-    try expectHtml("[x](javascript:alert(1)) [y](https://a.b) [z](./c:d)",
-        "<p><a href=\"#\">x</a> <a href=\"https://a.b\">y</a> <a href=\"./c:d\">z</a></p>\n");
+    try expectHtml("[x](javascript:alert(1)) [y](https://a.b) [z](./c:d)", "<p><a href=\"#\">x</a> <a href=\"https://a.b\">y</a> <a href=\"./c:d\">z</a></p>\n");
 }
 
 test "markdown: images and autolinks" {
-    try expectHtml("![a *b*](i.png \"t\") <https://x.y>",
-        "<p><img src=\"i.png\" alt=\"a b\" title=\"t\"> <a href=\"https://x.y\">https://x.y</a></p>\n");
+    try expectHtml("![a *b*](i.png \"t\") <https://x.y>", "<p><img src=\"i.png\" alt=\"a b\" title=\"t\"> <a href=\"https://x.y\">https://x.y</a></p>\n");
 }
 
 test "markdown: inline math and dollars" {
-    try expectHtml("$a<b$ costs $5 and $10",
-        "<p><math><mrow><mi>a</mi><mo>&lt;</mo><mi>b</mi></mrow></math> costs $5 and $10</p>\n");
+    try expectHtml("$a<b$ costs $5 and $10", "<p><math><mrow><mi>a</mi><mo>&lt;</mo><mi>b</mi></mrow></math> costs $5 and $10</p>\n");
 }
 
 test "markdown: display math" {
@@ -999,10 +995,9 @@ test "markdown: display math" {
 }
 
 test "markdown: fenced code" {
-    try expectHtml("```zig foo\nconst a = 1 < 2;\n\n```\n```math\nx\n```\n```nope\nif\n```",
-        "<pre><code class=\"language-zig\"><span class=\"hl-kw\">const</span> a = <span class=\"hl-num\">1</span> &lt; <span class=\"hl-num\">2</span>;\n</code></pre>\n" ++
-            "<div class=\"math\"><math display=\"block\"><mrow><mi>x</mi></mrow></math></div>\n" ++
-            "<pre><code class=\"language-nope\">if</code></pre>\n");
+    try expectHtml("```zig foo\nconst a = 1 < 2;\n\n```\n```math\nx\n```\n```nope\nif\n```", "<pre><code class=\"language-zig\"><span class=\"hl-kw\">const</span> a = <span class=\"hl-num\">1</span> &lt; <span class=\"hl-num\">2</span>;\n</code></pre>\n" ++
+        "<div class=\"math\"><math display=\"block\"><mrow><mi>x</mi></mrow></math></div>\n" ++
+        "<pre><code class=\"language-nope\">if</code></pre>\n");
 }
 
 test "markdown: unclosed fence runs to end" {
@@ -1058,12 +1053,11 @@ test "markdown: blockquote nests blocks" {
 }
 
 test "markdown: table with alignment" {
-    try expectHtml("| a | b |\n|:--|--:|\n| `x` | y |\n",
-        "<div class=\"table\"><table>\n<thead>\n" ++
-            "<tr><th style=\"text-align:left\">a</th><th style=\"text-align:right\">b</th></tr>\n" ++
-            "</thead>\n<tbody>\n" ++
-            "<tr><td style=\"text-align:left\"><code>x</code></td><td style=\"text-align:right\">y</td></tr>\n" ++
-            "</tbody>\n</table></div>\n");
+    try expectHtml("| a | b |\n|:--|--:|\n| `x` | y |\n", "<div class=\"table\"><table>\n<thead>\n" ++
+        "<tr><th style=\"text-align:left\">a</th><th style=\"text-align:right\">b</th></tr>\n" ++
+        "</thead>\n<tbody>\n" ++
+        "<tr><td style=\"text-align:left\"><code>x</code></td><td style=\"text-align:right\">y</td></tr>\n" ++
+        "</tbody>\n</table></div>\n");
 }
 
 test "markdown: ordered marker at end of line" {
@@ -1072,8 +1066,7 @@ test "markdown: ordered marker at end of line" {
 }
 
 test "markdown: suffixed slugs stay unique" {
-    try expectHtml("# a-1\n# a\n# a",
-        "<h1 id=\"a-1\">a-1</h1>\n<h1 id=\"a\">a</h1>\n<h1 id=\"a-2\">a</h1>\n");
+    try expectHtml("# a-1\n# a\n# a", "<h1 id=\"a-1\">a-1</h1>\n<h1 id=\"a\">a</h1>\n<h1 id=\"a-2\">a</h1>\n");
 }
 
 test "markdown: indented fence content is de-indented" {

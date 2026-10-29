@@ -613,16 +613,36 @@ fn writeStyled(w: *Writer, variant: Variant, c: u8) Writer.Error!void {
 
     const exception: ?u21 = switch (variant) {
         .double_struck => switch (c) {
-            'C' => 0x2102, 'H' => 0x210D, 'N' => 0x2115, 'P' => 0x2119,
-            'Q' => 0x211A, 'R' => 0x211D, 'Z' => 0x2124, else => null,
+            'C' => 0x2102,
+            'H' => 0x210D,
+            'N' => 0x2115,
+            'P' => 0x2119,
+            'Q' => 0x211A,
+            'R' => 0x211D,
+            'Z' => 0x2124,
+            else => null,
         },
         .script => switch (c) {
-            'B' => 0x212C, 'E' => 0x2130, 'F' => 0x2131, 'H' => 0x210B, 'I' => 0x2110,
-            'L' => 0x2112, 'M' => 0x2133, 'R' => 0x211B, 'e' => 0x212F, 'g' => 0x210A,
-            'o' => 0x2134, else => null,
+            'B' => 0x212C,
+            'E' => 0x2130,
+            'F' => 0x2131,
+            'H' => 0x210B,
+            'I' => 0x2110,
+            'L' => 0x2112,
+            'M' => 0x2133,
+            'R' => 0x211B,
+            'e' => 0x212F,
+            'g' => 0x210A,
+            'o' => 0x2134,
+            else => null,
         },
         .fraktur => switch (c) {
-            'C' => 0x212D, 'H' => 0x210C, 'I' => 0x2111, 'R' => 0x211C, 'Z' => 0x2128, else => null,
+            'C' => 0x212D,
+            'H' => 0x210C,
+            'I' => 0x2111,
+            'R' => 0x211C,
+            'Z' => 0x2128,
+            else => null,
         },
         else => null,
     };
@@ -651,84 +671,206 @@ fn sym(kind: @FieldType(Symbol, "kind"), text: []const u8) Symbol {
 
 const symbols: std.StaticStringMap(Symbol) = .initComptime(.{
     // Greek lowercase: italic identifiers.
-    .{ "alpha", sym(.ident, "α") },     .{ "beta", sym(.ident, "β") },         .{ "gamma", sym(.ident, "γ") },
-    .{ "delta", sym(.ident, "δ") },     .{ "epsilon", sym(.ident, "ϵ") },      .{ "varepsilon", sym(.ident, "ε") },
-    .{ "zeta", sym(.ident, "ζ") },      .{ "eta", sym(.ident, "η") },          .{ "theta", sym(.ident, "θ") },
-    .{ "vartheta", sym(.ident, "ϑ") },  .{ "iota", sym(.ident, "ι") },         .{ "kappa", sym(.ident, "κ") },
-    .{ "lambda", sym(.ident, "λ") },    .{ "mu", sym(.ident, "μ") },           .{ "nu", sym(.ident, "ν") },
-    .{ "xi", sym(.ident, "ξ") },        .{ "pi", sym(.ident, "π") },           .{ "varpi", sym(.ident, "ϖ") },
-    .{ "rho", sym(.ident, "ρ") },       .{ "varrho", sym(.ident, "ϱ") },       .{ "sigma", sym(.ident, "σ") },
-    .{ "varsigma", sym(.ident, "ς") },  .{ "tau", sym(.ident, "τ") },          .{ "upsilon", sym(.ident, "υ") },
-    .{ "phi", sym(.ident, "ϕ") },       .{ "varphi", sym(.ident, "φ") },       .{ "chi", sym(.ident, "χ") },
-    .{ "psi", sym(.ident, "ψ") },       .{ "omega", sym(.ident, "ω") },
+    .{ "alpha", sym(.ident, "α") },
+    .{ "beta", sym(.ident, "β") },
+    .{ "gamma", sym(.ident, "γ") },
+    .{ "delta", sym(.ident, "δ") },
+    .{ "epsilon", sym(.ident, "ϵ") },
+    .{ "varepsilon", sym(.ident, "ε") },
+    .{ "zeta", sym(.ident, "ζ") },
+    .{ "eta", sym(.ident, "η") },
+    .{ "theta", sym(.ident, "θ") },
+    .{ "vartheta", sym(.ident, "ϑ") },
+    .{ "iota", sym(.ident, "ι") },
+    .{ "kappa", sym(.ident, "κ") },
+    .{ "lambda", sym(.ident, "λ") },
+    .{ "mu", sym(.ident, "μ") },
+    .{ "nu", sym(.ident, "ν") },
+    .{ "xi", sym(.ident, "ξ") },
+    .{ "pi", sym(.ident, "π") },
+    .{ "varpi", sym(.ident, "ϖ") },
+    .{ "rho", sym(.ident, "ρ") },
+    .{ "varrho", sym(.ident, "ϱ") },
+    .{ "sigma", sym(.ident, "σ") },
+    .{ "varsigma", sym(.ident, "ς") },
+    .{ "tau", sym(.ident, "τ") },
+    .{ "upsilon", sym(.ident, "υ") },
+    .{ "phi", sym(.ident, "ϕ") },
+    .{ "varphi", sym(.ident, "φ") },
+    .{ "chi", sym(.ident, "χ") },
+    .{ "psi", sym(.ident, "ψ") },
+    .{ "omega", sym(.ident, "ω") },
     // Greek uppercase: upright by convention.
-    .{ "Gamma", sym(.upright, "Γ") },   .{ "Delta", sym(.upright, "Δ") },      .{ "Theta", sym(.upright, "Θ") },
-    .{ "Lambda", sym(.upright, "Λ") },  .{ "Xi", sym(.upright, "Ξ") },         .{ "Pi", sym(.upright, "Π") },
-    .{ "Sigma", sym(.upright, "Σ") },   .{ "Upsilon", sym(.upright, "Υ") },    .{ "Phi", sym(.upright, "Φ") },
-    .{ "Psi", sym(.upright, "Ψ") },     .{ "Omega", sym(.upright, "Ω") },
+    .{ "Gamma", sym(.upright, "Γ") },
+    .{ "Delta", sym(.upright, "Δ") },
+    .{ "Theta", sym(.upright, "Θ") },
+    .{ "Lambda", sym(.upright, "Λ") },
+    .{ "Xi", sym(.upright, "Ξ") },
+    .{ "Pi", sym(.upright, "Π") },
+    .{ "Sigma", sym(.upright, "Σ") },
+    .{ "Upsilon", sym(.upright, "Υ") },
+    .{ "Phi", sym(.upright, "Φ") },
+    .{ "Psi", sym(.upright, "Ψ") },
+    .{ "Omega", sym(.upright, "Ω") },
     // Other identifiers.
-    .{ "infty", sym(.upright, "∞") },   .{ "partial", sym(.upright, "∂") },    .{ "nabla", sym(.upright, "∇") },
-    .{ "hbar", sym(.ident, "ℏ") },      .{ "ell", sym(.ident, "ℓ") },          .{ "emptyset", sym(.upright, "∅") },
-    .{ "varnothing", sym(.upright, "∅") }, .{ "aleph", sym(.upright, "ℵ") },   .{ "Re", sym(.upright, "ℜ") },
-    .{ "Im", sym(.upright, "ℑ") },      .{ "angle", sym(.upright, "∠") },      .{ "triangle", sym(.upright, "△") },
-    .{ "prime", sym(.op, "′") },        .{ "dots", sym(.op, "…") },            .{ "ldots", sym(.op, "…") },
-    .{ "cdots", sym(.op, "⋯") },        .{ "vdots", sym(.op, "⋮") },           .{ "ddots", sym(.op, "⋱") },
+    .{ "infty", sym(.upright, "∞") },
+    .{ "partial", sym(.upright, "∂") },
+    .{ "nabla", sym(.upright, "∇") },
+    .{ "hbar", sym(.ident, "ℏ") },
+    .{ "ell", sym(.ident, "ℓ") },
+    .{ "emptyset", sym(.upright, "∅") },
+    .{ "varnothing", sym(.upright, "∅") },
+    .{ "aleph", sym(.upright, "ℵ") },
+    .{ "Re", sym(.upright, "ℜ") },
+    .{ "Im", sym(.upright, "ℑ") },
+    .{ "angle", sym(.upright, "∠") },
+    .{ "triangle", sym(.upright, "△") },
+    .{ "prime", sym(.op, "′") },
+    .{ "dots", sym(.op, "…") },
+    .{ "ldots", sym(.op, "…") },
+    .{ "cdots", sym(.op, "⋯") },
+    .{ "vdots", sym(.op, "⋮") },
+    .{ "ddots", sym(.op, "⋱") },
     // Binary operators.
-    .{ "pm", sym(.op, "±") },           .{ "mp", sym(.op, "∓") },              .{ "times", sym(.op, "×") },
-    .{ "div", sym(.op, "÷") },          .{ "cdot", sym(.op, "⋅") },            .{ "ast", sym(.op, "∗") },
-    .{ "star", sym(.op, "⋆") },         .{ "circ", sym(.op, "∘") },            .{ "bullet", sym(.op, "∙") },
-    .{ "oplus", sym(.op, "⊕") },        .{ "ominus", sym(.op, "⊖") },          .{ "otimes", sym(.op, "⊗") },
-    .{ "cup", sym(.op, "∪") },          .{ "cap", sym(.op, "∩") },             .{ "setminus", sym(.op, "∖") },
-    .{ "wedge", sym(.op, "∧") },        .{ "land", sym(.op, "∧") },            .{ "vee", sym(.op, "∨") },
-    .{ "lor", sym(.op, "∨") },          .{ "neg", sym(.op, "¬") },             .{ "lnot", sym(.op, "¬") },
+    .{ "pm", sym(.op, "±") },
+    .{ "mp", sym(.op, "∓") },
+    .{ "times", sym(.op, "×") },
+    .{ "div", sym(.op, "÷") },
+    .{ "cdot", sym(.op, "⋅") },
+    .{ "ast", sym(.op, "∗") },
+    .{ "star", sym(.op, "⋆") },
+    .{ "circ", sym(.op, "∘") },
+    .{ "bullet", sym(.op, "∙") },
+    .{ "oplus", sym(.op, "⊕") },
+    .{ "ominus", sym(.op, "⊖") },
+    .{ "otimes", sym(.op, "⊗") },
+    .{ "cup", sym(.op, "∪") },
+    .{ "cap", sym(.op, "∩") },
+    .{ "setminus", sym(.op, "∖") },
+    .{ "wedge", sym(.op, "∧") },
+    .{ "land", sym(.op, "∧") },
+    .{ "vee", sym(.op, "∨") },
+    .{ "lor", sym(.op, "∨") },
+    .{ "neg", sym(.op, "¬") },
+    .{ "lnot", sym(.op, "¬") },
     // Relations.
-    .{ "leq", sym(.op, "≤") },          .{ "le", sym(.op, "≤") },              .{ "geq", sym(.op, "≥") },
-    .{ "ge", sym(.op, "≥") },           .{ "neq", sym(.op, "≠") },             .{ "ne", sym(.op, "≠") },
-    .{ "approx", sym(.op, "≈") },       .{ "equiv", sym(.op, "≡") },           .{ "sim", sym(.op, "∼") },
-    .{ "simeq", sym(.op, "≃") },        .{ "cong", sym(.op, "≅") },            .{ "propto", sym(.op, "∝") },
-    .{ "ll", sym(.op, "≪") },           .{ "gg", sym(.op, "≫") },              .{ "in", sym(.op, "∈") },
-    .{ "notin", sym(.op, "∉") },        .{ "ni", sym(.op, "∋") },              .{ "subset", sym(.op, "⊂") },
-    .{ "supset", sym(.op, "⊃") },       .{ "subseteq", sym(.op, "⊆") },        .{ "supseteq", sym(.op, "⊇") },
-    .{ "mid", sym(.op, "∣") },          .{ "parallel", sym(.op, "∥") },        .{ "perp", sym(.op, "⊥") },
-    .{ "forall", sym(.op, "∀") },       .{ "exists", sym(.op, "∃") },          .{ "nexists", sym(.op, "∄") },
-    .{ "models", sym(.op, "⊨") },       .{ "vdash", sym(.op, "⊢") },           .{ "coloneqq", sym(.op, "≔") },
+    .{ "leq", sym(.op, "≤") },
+    .{ "le", sym(.op, "≤") },
+    .{ "geq", sym(.op, "≥") },
+    .{ "ge", sym(.op, "≥") },
+    .{ "neq", sym(.op, "≠") },
+    .{ "ne", sym(.op, "≠") },
+    .{ "approx", sym(.op, "≈") },
+    .{ "equiv", sym(.op, "≡") },
+    .{ "sim", sym(.op, "∼") },
+    .{ "simeq", sym(.op, "≃") },
+    .{ "cong", sym(.op, "≅") },
+    .{ "propto", sym(.op, "∝") },
+    .{ "ll", sym(.op, "≪") },
+    .{ "gg", sym(.op, "≫") },
+    .{ "in", sym(.op, "∈") },
+    .{ "notin", sym(.op, "∉") },
+    .{ "ni", sym(.op, "∋") },
+    .{ "subset", sym(.op, "⊂") },
+    .{ "supset", sym(.op, "⊃") },
+    .{ "subseteq", sym(.op, "⊆") },
+    .{ "supseteq", sym(.op, "⊇") },
+    .{ "mid", sym(.op, "∣") },
+    .{ "parallel", sym(.op, "∥") },
+    .{ "perp", sym(.op, "⊥") },
+    .{ "forall", sym(.op, "∀") },
+    .{ "exists", sym(.op, "∃") },
+    .{ "nexists", sym(.op, "∄") },
+    .{ "models", sym(.op, "⊨") },
+    .{ "vdash", sym(.op, "⊢") },
+    .{ "coloneqq", sym(.op, "≔") },
     // Arrows.
-    .{ "to", sym(.op, "→") },           .{ "rightarrow", sym(.op, "→") },      .{ "leftarrow", sym(.op, "←") },
-    .{ "gets", sym(.op, "←") },         .{ "leftrightarrow", sym(.op, "↔") },  .{ "Rightarrow", sym(.op, "⇒") },
-    .{ "Leftarrow", sym(.op, "⇐") },    .{ "Leftrightarrow", sym(.op, "⇔") },  .{ "implies", sym(.op, "⟹") },
-    .{ "impliedby", sym(.op, "⟸") },    .{ "iff", sym(.op, "⟺") },             .{ "mapsto", sym(.op, "↦") },
-    .{ "longrightarrow", sym(.op, "⟶") }, .{ "longleftarrow", sym(.op, "⟵") }, .{ "uparrow", sym(.op, "↑") },
-    .{ "downarrow", sym(.op, "↓") },    .{ "hookrightarrow", sym(.op, "↪") },
+    .{ "to", sym(.op, "→") },
+    .{ "rightarrow", sym(.op, "→") },
+    .{ "leftarrow", sym(.op, "←") },
+    .{ "gets", sym(.op, "←") },
+    .{ "leftrightarrow", sym(.op, "↔") },
+    .{ "Rightarrow", sym(.op, "⇒") },
+    .{ "Leftarrow", sym(.op, "⇐") },
+    .{ "Leftrightarrow", sym(.op, "⇔") },
+    .{ "implies", sym(.op, "⟹") },
+    .{ "impliedby", sym(.op, "⟸") },
+    .{ "iff", sym(.op, "⟺") },
+    .{ "mapsto", sym(.op, "↦") },
+    .{ "longrightarrow", sym(.op, "⟶") },
+    .{ "longleftarrow", sym(.op, "⟵") },
+    .{ "uparrow", sym(.op, "↑") },
+    .{ "downarrow", sym(.op, "↓") },
+    .{ "hookrightarrow", sym(.op, "↪") },
     // Delimiters.
-    .{ "langle", sym(.op, "⟨") },       .{ "rangle", sym(.op, "⟩") },          .{ "lvert", sym(.op, "|") },
-    .{ "rvert", sym(.op, "|") },        .{ "vert", sym(.op, "|") },            .{ "lVert", sym(.op, "‖") },
-    .{ "rVert", sym(.op, "‖") },        .{ "Vert", sym(.op, "‖") },            .{ "lfloor", sym(.op, "⌊") },
-    .{ "rfloor", sym(.op, "⌋") },       .{ "lceil", sym(.op, "⌈") },           .{ "rceil", sym(.op, "⌉") },
-    .{ "lbrace", sym(.op, "{") },       .{ "rbrace", sym(.op, "}") },
+    .{ "langle", sym(.op, "⟨") },
+    .{ "rangle", sym(.op, "⟩") },
+    .{ "lvert", sym(.op, "|") },
+    .{ "rvert", sym(.op, "|") },
+    .{ "vert", sym(.op, "|") },
+    .{ "lVert", sym(.op, "‖") },
+    .{ "rVert", sym(.op, "‖") },
+    .{ "Vert", sym(.op, "‖") },
+    .{ "lfloor", sym(.op, "⌊") },
+    .{ "rfloor", sym(.op, "⌋") },
+    .{ "lceil", sym(.op, "⌈") },
+    .{ "rceil", sym(.op, "⌉") },
+    .{ "lbrace", sym(.op, "{") },
+    .{ "rbrace", sym(.op, "}") },
     // Large operators.
-    .{ "sum", sym(.large, "∑") },       .{ "prod", sym(.large, "∏") },         .{ "coprod", sym(.large, "∐") },
-    .{ "bigcup", sym(.large, "⋃") },    .{ "bigcap", sym(.large, "⋂") },       .{ "bigoplus", sym(.large, "⨁") },
-    .{ "bigotimes", sym(.large, "⨂") }, .{ "bigvee", sym(.large, "⋁") },       .{ "bigwedge", sym(.large, "⋀") },
-    .{ "int", sym(.integral, "∫") },    .{ "iint", sym(.integral, "∬") },      .{ "iiint", sym(.integral, "∭") },
+    .{ "sum", sym(.large, "∑") },
+    .{ "prod", sym(.large, "∏") },
+    .{ "coprod", sym(.large, "∐") },
+    .{ "bigcup", sym(.large, "⋃") },
+    .{ "bigcap", sym(.large, "⋂") },
+    .{ "bigoplus", sym(.large, "⨁") },
+    .{ "bigotimes", sym(.large, "⨂") },
+    .{ "bigvee", sym(.large, "⋁") },
+    .{ "bigwedge", sym(.large, "⋀") },
+    .{ "int", sym(.integral, "∫") },
+    .{ "iint", sym(.integral, "∬") },
+    .{ "iiint", sym(.integral, "∭") },
     .{ "oint", sym(.integral, "∮") },
     // Function names: upright, scripts to the side.
-    .{ "sin", sym(.func, "") },         .{ "cos", sym(.func, "") },            .{ "tan", sym(.func, "") },
-    .{ "sec", sym(.func, "") },         .{ "csc", sym(.func, "") },            .{ "cot", sym(.func, "") },
-    .{ "arcsin", sym(.func, "") },      .{ "arccos", sym(.func, "") },         .{ "arctan", sym(.func, "") },
-    .{ "sinh", sym(.func, "") },        .{ "cosh", sym(.func, "") },           .{ "tanh", sym(.func, "") },
-    .{ "log", sym(.func, "") },         .{ "ln", sym(.func, "") },             .{ "lg", sym(.func, "") },
-    .{ "exp", sym(.func, "") },         .{ "dim", sym(.func, "") },            .{ "ker", sym(.func, "") },
-    .{ "deg", sym(.func, "") },         .{ "arg", sym(.func, "") },            .{ "hom", sym(.func, "") },
+    .{ "sin", sym(.func, "") },
+    .{ "cos", sym(.func, "") },
+    .{ "tan", sym(.func, "") },
+    .{ "sec", sym(.func, "") },
+    .{ "csc", sym(.func, "") },
+    .{ "cot", sym(.func, "") },
+    .{ "arcsin", sym(.func, "") },
+    .{ "arccos", sym(.func, "") },
+    .{ "arctan", sym(.func, "") },
+    .{ "sinh", sym(.func, "") },
+    .{ "cosh", sym(.func, "") },
+    .{ "tanh", sym(.func, "") },
+    .{ "log", sym(.func, "") },
+    .{ "ln", sym(.func, "") },
+    .{ "lg", sym(.func, "") },
+    .{ "exp", sym(.func, "") },
+    .{ "dim", sym(.func, "") },
+    .{ "ker", sym(.func, "") },
+    .{ "deg", sym(.func, "") },
+    .{ "arg", sym(.func, "") },
+    .{ "hom", sym(.func, "") },
     // Function names that take limits in display mode.
-    .{ "lim", sym(.func_limits, "lim") }, .{ "liminf", sym(.func_limits, "lim inf") },
-    .{ "limsup", sym(.func_limits, "lim sup") }, .{ "max", sym(.func_limits, "max") },
-    .{ "min", sym(.func_limits, "min") }, .{ "sup", sym(.func_limits, "sup") },
-    .{ "inf", sym(.func_limits, "inf") }, .{ "det", sym(.func_limits, "det") },
-    .{ "gcd", sym(.func_limits, "gcd") }, .{ "Pr", sym(.func_limits, "Pr") },
-    .{ "argmax", sym(.func_limits, "arg max") }, .{ "argmin", sym(.func_limits, "arg min") },
+    .{ "lim", sym(.func_limits, "lim") },
+    .{ "liminf", sym(.func_limits, "lim inf") },
+    .{ "limsup", sym(.func_limits, "lim sup") },
+    .{ "max", sym(.func_limits, "max") },
+    .{ "min", sym(.func_limits, "min") },
+    .{ "sup", sym(.func_limits, "sup") },
+    .{ "inf", sym(.func_limits, "inf") },
+    .{ "det", sym(.func_limits, "det") },
+    .{ "gcd", sym(.func_limits, "gcd") },
+    .{ "Pr", sym(.func_limits, "Pr") },
+    .{ "argmax", sym(.func_limits, "arg max") },
+    .{ "argmin", sym(.func_limits, "arg min") },
     // Spaces.
-    .{ "quad", sym(.space, "1em") },    .{ "qquad", sym(.space, "2em") },
-    .{ "thinspace", sym(.space, "0.1667em") }, .{ "enspace", sym(.space, "0.5em") },
+    .{ "quad", sym(.space, "1em") },
+    .{ "qquad", sym(.space, "2em") },
+    .{ "thinspace", sym(.space, "0.1667em") },
+    .{ "enspace", sym(.space, "0.5em") },
 });
 
 const Accent = struct { text: []const u8, stretchy: bool = false, under: bool = false };
@@ -754,10 +896,10 @@ const accents: std.StaticStringMap(Accent) = .initComptime(.{
 });
 
 const fonts: std.StaticStringMap(Variant) = .initComptime(.{
-    .{ "mathrm", .upright },     .{ "rm", .upright },        .{ "mathit", .normal_italic },
-    .{ "mathbf", .bold },        .{ "bf", .bold },           .{ "boldsymbol", .bold },
+    .{ "mathrm", .upright },       .{ "rm", .upright },        .{ "mathit", .normal_italic },
+    .{ "mathbf", .bold },          .{ "bf", .bold },           .{ "boldsymbol", .bold },
     .{ "mathbb", .double_struck }, .{ "Bbb", .double_struck }, .{ "mathcal", .script },
-    .{ "mathscr", .script },     .{ "mathfrak", .fraktur },  .{ "mathsf", .sans },
+    .{ "mathscr", .script },       .{ "mathfrak", .fraktur },  .{ "mathsf", .sans },
     .{ "mathtt", .mono },
 });
 
@@ -820,8 +962,7 @@ test "tex: frac with single-token arguments" {
 }
 
 test "tex: sum takes limits only in display" {
-    try expectMath("\\sum_{i}^n", true,
-        "<munderover><mo largeop=\"true\" movablelimits=\"true\">∑</mo><mrow><mi>i</mi></mrow><mi>n</mi></munderover>");
+    try expectMath("\\sum_{i}^n", true, "<munderover><mo largeop=\"true\" movablelimits=\"true\">∑</mo><mrow><mi>i</mi></mrow><mi>n</mi></munderover>");
     try expectMath("\\sum_i", false, "<msub><mo largeop=\"true\" movablelimits=\"true\">∑</mo><mi>i</mi></msub>");
     try expectMath("\\int_0^1", true, "<msubsup><mo largeop=\"true\">∫</mo><mn>0</mn><mn>1</mn></msubsup>");
 }
@@ -832,16 +973,13 @@ test "tex: sqrt and root" {
 }
 
 test "tex: left right" {
-    try expectMath("\\left( x \\right]", false,
-        "<mrow><mo fence=\"true\" stretchy=\"true\">(</mo><mi>x</mi><mo fence=\"true\" stretchy=\"true\">]</mo></mrow>");
-    try expectMath("\\left\\{ x \\right.", false,
-        "<mrow><mo fence=\"true\" stretchy=\"true\">{</mo><mi>x</mi><mo fence=\"true\" stretchy=\"true\"></mo></mrow>");
+    try expectMath("\\left( x \\right]", false, "<mrow><mo fence=\"true\" stretchy=\"true\">(</mo><mi>x</mi><mo fence=\"true\" stretchy=\"true\">]</mo></mrow>");
+    try expectMath("\\left\\{ x \\right.", false, "<mrow><mo fence=\"true\" stretchy=\"true\">{</mo><mi>x</mi><mo fence=\"true\" stretchy=\"true\"></mo></mrow>");
 }
 
 test "tex: fonts" {
-    try expectMath("\\mathbb{R}\\mathbf{v}\\mathrm{d}x", false,
-        "<mrow><mi mathvariant=\"normal\">ℝ</mi></mrow><mrow><mi mathvariant=\"normal\">𝐯</mi></mrow>" ++
-            "<mrow><mi mathvariant=\"normal\">d</mi></mrow><mi>x</mi>");
+    try expectMath("\\mathbb{R}\\mathbf{v}\\mathrm{d}x", false, "<mrow><mi mathvariant=\"normal\">ℝ</mi></mrow><mrow><mi mathvariant=\"normal\">𝐯</mi></mrow>" ++
+        "<mrow><mi mathvariant=\"normal\">d</mi></mrow><mi>x</mi>");
 }
 
 test "tex: text is escaped" {
@@ -849,11 +987,10 @@ test "tex: text is escaped" {
 }
 
 test "tex: matrix" {
-    try expectMath("\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}", false,
-        "<mrow><mo fence=\"true\" stretchy=\"true\">(</mo><mtable>" ++
-            "<mtr><mtd><mrow><mi>a</mi></mrow></mtd><mtd><mrow><mi>b</mi></mrow></mtd></mtr>" ++
-            "<mtr><mtd><mrow><mi>c</mi></mrow></mtd><mtd><mrow><mi>d</mi></mrow></mtd></mtr>" ++
-            "</mtable><mo fence=\"true\" stretchy=\"true\">)</mo></mrow>");
+    try expectMath("\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}", false, "<mrow><mo fence=\"true\" stretchy=\"true\">(</mo><mtable>" ++
+        "<mtr><mtd><mrow><mi>a</mi></mrow></mtd><mtd><mrow><mi>b</mi></mrow></mtd></mtr>" ++
+        "<mtr><mtd><mrow><mi>c</mi></mrow></mtd><mtd><mrow><mi>d</mi></mrow></mtd></mtr>" ++
+        "</mtable><mo fence=\"true\" stretchy=\"true\">)</mo></mrow>");
 }
 
 test "tex: unknown command is visible" {
@@ -866,9 +1003,9 @@ test "tex: html in input is escaped" {
 
 test "tex: malformed input does not crash" {
     const cases = [_][]const u8{
-        "}",        "{",          "x^",         "\\frac{a}", "\\left(",  "\\right)",   "\\begin{matrix} a &",
-        "\\sqrt[",  "\\",         "\\begin{x}", "&&\\\\",    "x_{y^{z", "\\text{a",  "\\left\\",
-        "\\big",    "''''",       "\\end{x}",   "^_^_",      "\\mathbb", "\\begin",  "\\sum\\limits",
+        "}",       "{",    "x^",         "\\frac{a}", "\\left(",  "\\right)", "\\begin{matrix} a &",
+        "\\sqrt[", "\\",   "\\begin{x}", "&&\\\\",    "x_{y^{z",  "\\text{a", "\\left\\",
+        "\\big",   "''''", "\\end{x}",   "^_^_",      "\\mathbb", "\\begin",  "\\sum\\limits",
     };
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();

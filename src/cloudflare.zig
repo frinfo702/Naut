@@ -232,7 +232,7 @@ fn request(
     if (res.status.class() != .success) {
         // Cloudflare's error bodies are JSON with a human message; pass
         // them through rather than guessing at a summary.
-        try diag.print("Cloudflare returned {d}: {s}", .{ @intFromEnum(res.status), body.written() });
+        try diag.print("Cloudflare returned {d}: {s}", .{ @backingInt(res.status), body.written() });
         return error.RequestFailed;
     }
     return body.written();
