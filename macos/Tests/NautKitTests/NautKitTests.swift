@@ -2,11 +2,11 @@ import NautKit
 import Testing
 
 @Test func rendersMarkdownThroughLibnaut() {
-    #expect(Markdown.html("**日本語**") == "<p><strong>日本語</strong></p>\n")
+    #expect(Markdown.render("**日本語**").html == "<p><strong>日本語</strong></p>\n")
 }
 
 @Test func outlineDecodes() {
-    #expect(Markdown.outline("# A\n## B").map(\.id) == ["a", "b"])
+    #expect(Markdown.render("# A\n## B").outline.map(\.id) == ["a", "b"])
 }
 
 @Test func pageEscapesTitle() {

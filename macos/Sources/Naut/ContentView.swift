@@ -34,7 +34,7 @@ struct ContentView: View {
                         .frame(minWidth: 280)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
-                Preview(text: store.text, baseURL: store.folder, scrollTarget: $scrollTarget)
+                Preview(html: store.html, baseURL: store.folder, scrollTarget: $scrollTarget)
                     .frame(minWidth: 320)
             }
             .background(Theme.bg)
@@ -77,7 +77,7 @@ struct PublishButton: View {
         Button {
             if store.site == nil { openSettings() } else { showPopover.toggle() }
         } label: {
-            if store.busy.contains(note.name) {
+            if store.isBusy(note) {
                 ProgressView().controlSize(.small)
             } else {
                 Label(isPublished ? "Published" : "Publish", systemImage: isPublished ? "globe.americas.fill" : "globe.americas")
@@ -111,7 +111,7 @@ struct PublishPopover: View {
                 }
             }
             .toggleStyle(.switch)
-            .disabled(store.busy.contains(note.name))
+            .disabled(store.isBusy(note))
 
             if isPublished, let url = store.url(for: note) {
                 HStack {

@@ -50,16 +50,27 @@ export fn naut_string_free(s: String) void {
     if (s.ptr) |p| std.heap.c_allocator.free(p[0..s.len]);
 }
 
-export fn naut_render_html(src: ?[*]const u8, len: usize) String {
+/// One parse for both outputs: the app needs the HTML and the headings on
+/// every keystroke, and parsing twice was half the cost of typing.
+export fn naut_render(src: ?[*]const u8, len: usize, html: *String, outline_json: *String) void {
     var arena: std.heap.ArenaAllocator = .init(std.heap.c_allocator);
     defer arena.deinit();
-    var out: std.Io.Writer.Allocating = .init(arena.allocator());
-    var r: naut.markdown.Renderer = .init(arena.allocator());
+    const alloc = arena.allocator();
+    html.* = .empty;
+    outline_json.* = .dupe("[]");
+
+    var out: std.Io.Writer.Allocating = .init(alloc);
+    var r: naut.markdown.Renderer = .init(alloc);
     r.render(&out.writer, slice(src, len)) catch |err| {
-        log.warn("(naut_render_html) err={t}", .{err});
-        return .empty;
+        log.warn("(naut_render) err={t}", .{err});
+        return;
     };
-    return .dupe(out.written());
+    html.* = .dupe(out.written());
+
+    var json: std.Io.Writer.Allocating = .init(alloc);
+    std.json.Stringify.value(r.headings.items, .{}, &json.writer) catch return;
+    naut_string_free(outline_json.*);
+    outline_json.* = .dupe(json.written());
 }
 
 export fn naut_render_page(src: ?[*]const u8, len: usize, opts: *const PageOptions) String {
@@ -73,24 +84,6 @@ export fn naut_render_page(src: ?[*]const u8, len: usize, opts: *const PageOptio
         log.warn("(naut_render_page) err={t}", .{err});
         return .empty;
     };
-    return .dupe(out.written());
-}
-
-export fn naut_outline_json(src: ?[*]const u8, len: usize) String {
-    var arena: std.heap.ArenaAllocator = .init(std.heap.c_allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    // Rendering is the only parser we have; the HTML is discarded.
-    var discard: std.Io.Writer.Discarding = .init(&.{});
-    var r: naut.markdown.Renderer = .init(alloc);
-    r.render(&discard.writer, slice(src, len)) catch |err| {
-        log.warn("(naut_outline_json) err={t}", .{err});
-        return .dupe("[]");
-    };
-
-    var out: std.Io.Writer.Allocating = .init(alloc);
-    std.json.Stringify.value(r.headings.items, .{}, &out.writer) catch return .dupe("[]");
     return .dupe(out.written());
 }
 
@@ -153,13 +146,17 @@ export fn naut_cloudflare_delete(
     });
 }
 
-test "c: outline json" {
+test "c: render returns html and outline" {
     const src = "# A\n## B";
-    const s = naut_outline_json(src.ptr, src.len);
-    defer naut_string_free(s);
+    var html: String = undefined;
+    var outline: String = undefined;
+    naut_render(src.ptr, src.len, &html, &outline);
+    defer naut_string_free(html);
+    defer naut_string_free(outline);
+    try std.testing.expectEqualStrings("<h1 id=\"a\">A</h1>\n<h2 id=\"b\">B</h2>\n", html.ptr.?[0..html.len]);
     try std.testing.expectEqualStrings(
         \\[{"level":1,"text":"A","id":"a"},{"level":2,"text":"B","id":"b"}]
-    , s.ptr.?[0..s.len]);
+    , outline.ptr.?[0..outline.len]);
 }
 
 test "c: publish reports invalid input without touching the network" {

@@ -3,9 +3,14 @@ import Foundation
 
 /// Rendering. Pure functions over libnaut; safe from any thread.
 public enum Markdown {
-    /// An HTML fragment: the contents of `<main>`.
-    public static func html(_ source: String) -> String {
-        withBytes(source) { take(naut_render_html($0, $1)) }
+    /// An HTML fragment (the contents of `<main>`) and its headings, from
+    /// one parse.
+    public static func render(_ source: String) -> (html: String, outline: [Heading]) {
+        var html = naut_string_s()
+        var outline = naut_string_s()
+        withBytes(source) { naut_render($0, $1, &html, &outline) }
+        let json = take(outline)
+        return (take(html), (try? JSONDecoder().decode([Heading].self, from: Data(json.utf8))) ?? [])
     }
 
     /// A complete page with styles and scripts. Published pages want the
@@ -15,11 +20,6 @@ public enum Markdown {
             var opts = naut_page_options_s(title: titlePtr, title_len: titleLen, toc: toc)
             return withBytes(source) { take(naut_render_page($0, $1, &opts)) }
         }
-    }
-
-    public static func outline(_ source: String) -> [Heading] {
-        let json = withBytes(source) { take(naut_outline_json($0, $1)) }
-        return (try? JSONDecoder().decode([Heading].self, from: Data(json.utf8))) ?? []
     }
 }
 

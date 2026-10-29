@@ -39,13 +39,25 @@ final class Store {
     var text = "" {
         didSet {
             guard text != oldValue, !loading else { return }
-            outline = Markdown.outline(text)
+            rerender()
             scheduleSave()
         }
     }
 
+    /// `text` rendered, kept here so the preview and the sidebar outline
+    /// share one parse per edit.
+    private(set) var html = ""
     private(set) var outline: [Heading] = []
-    var query = ""
+
+    var query = "" {
+        didSet { refilter() }
+    }
+
+    /// Notes matching `query`. Stored rather than computed: the sidebar
+    /// re-renders on every edit (the outline changes) and a computed
+    /// search would read every file each time.
+    private(set) var filteredNotes: [Note] = []
+
     var showEditor = true
 
     /// Set while `load` assigns `text`, so loading isn't mistaken for an edit.
@@ -54,14 +66,21 @@ final class Store {
 
     var selectedNote: Note? { notes.first { $0.id == selection } }
 
-    var filteredNotes: [Note] {
-        guard !query.isEmpty else { return notes }
-        // ponytail: reads every file per keystroke. Fine for hundreds of
-        // notes; index in libnaut if it ever isn't.
-        return notes.filter { note in
+    private func refilter() {
+        guard !query.isEmpty else {
+            filteredNotes = notes
+            return
+        }
+        // ponytail: reads every file per change of the query. Fine for
+        // hundreds of notes; index in libnaut if it ever isn't.
+        filteredNotes = notes.filter { note in
             note.name.localizedCaseInsensitiveContains(query)
                 || ((try? String(contentsOf: note.url, encoding: .utf8))?.localizedCaseInsensitiveContains(query) ?? false)
         }
+    }
+
+    private func rerender() {
+        (html, outline) = Markdown.render(text)
     }
 
     init() {
@@ -79,6 +98,7 @@ final class Store {
             .filter { $0.pathExtension == "md" }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
             .map(Note.init)
+        refilter()
     }
 
     func newNote(named name: String = "Untitled", text: String = "") {
@@ -105,7 +125,7 @@ final class Store {
         loading = true
         defer { loading = false }
         text = selectedNote.flatMap { try? String(contentsOf: $0.url, encoding: .utf8) } ?? ""
-        outline = Markdown.outline(text)
+        rerender()
     }
 
     private func scheduleSave() {
@@ -152,8 +172,12 @@ final class Store {
         didSet { UserDefaults.standard.set(Array(published), forKey: "published") }
     }
 
-    /// Notes with a request in flight, for progress UI.
-    private(set) var busy: Set<String> = []
+    /// The tail of each note's chain of Cloudflare requests, keyed by
+    /// name. Requests for one note run in order, so an older autosave can't
+    /// land after a newer one and a quick publish/unpublish can't finish
+    /// backwards. `id` tells a finishing task whether it is still the tail.
+    private var queues: [String: (id: Int, task: Task<Void, Never>)] = [:]
+    private var nextQueueID = 0
     private(set) var provisioning = false
     var error: String?
 
@@ -177,8 +201,21 @@ final class Store {
         }
     }
 
+    /// A request for this note is queued or in flight.
+    func isBusy(_ note: Note) -> Bool {
+        queues[note.name] != nil
+    }
+
     func setPublished(_ note: Note, _ on: Bool) {
         if on {
+            // Names that differ only in case or whitespace share an
+            // address; publishing one would overwrite the other's page.
+            if let other = notes.first(where: {
+                $0.id != note.id && $0.slug == note.slug && published.contains($0.name)
+            }) {
+                error = "“\(other.name)” is already published at /\(note.slug). Rename one of them to publish both."
+                return
+            }
             let text = note.id == selection ? text : (try? String(contentsOf: note.url, encoding: .utf8)) ?? ""
             publish(note, text: text)
         } else {
@@ -209,17 +246,21 @@ final class Store {
         done: @escaping () -> Void
     ) {
         let cloudflare = cloudflare
-        busy.insert(note.name)
+        let previous = queues[note.name]?.task
+        let id = nextQueueID
+        nextQueueID += 1
         error = nil
-        Task {
-            defer { busy.remove(note.name) }
+        let task = Task {
+            await previous?.value
             do {
                 try await op(cloudflare)
                 done()
             } catch {
                 self.error = error.localizedDescription
             }
+            if queues[note.name]?.id == id { queues[note.name] = nil }
         }
+        queues[note.name] = (id, task)
     }
 
     // MARK: -

@@ -35,15 +35,15 @@ typedef struct {
 
 void naut_string_free(naut_string_s);
 
-// Markdown to an HTML fragment (the contents of <main>).
-naut_string_s naut_render_html(const char *src, size_t len);
+// Markdown to an HTML fragment (the contents of <main>) and its headings
+// as JSON: [{"level":1,"text":"...","id":"..."}, ...]. Both outputs are
+// always set and must be freed.
+void naut_render(const char *src, size_t len, naut_string_s *html,
+                 naut_string_s *outline_json);
 
 // Markdown to a complete HTML page with styles and scripts.
 naut_string_s naut_render_page(const char *src, size_t len,
                                  const naut_page_options_s *opts);
-
-// Headings as JSON: [{"level":1,"text":"...","id":"..."}, ...]
-naut_string_s naut_outline_json(const char *src, size_t len);
 
 // Publishing. Each returns true on success. On success *out holds the
 // result (JSON, or empty); on failure *out holds a message for the user.

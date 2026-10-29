@@ -6,7 +6,8 @@ import WebKit
 /// edit replaces only the contents of `<main>`. Reloading
 /// the page per keystroke would flash white and lose the scroll position.
 struct Preview: NSViewRepresentable {
-    let text: String
+    /// The rendered note body, from `Markdown.render`.
+    let html: String
     let baseURL: URL
     @Binding var scrollTarget: String?
 
@@ -24,7 +25,7 @@ struct Preview: NSViewRepresentable {
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
-        context.coordinator.show(Markdown.html(text), in: view)
+        context.coordinator.show(html, in: view)
         if let id = scrollTarget {
             context.coordinator.scroll(to: id, in: view)
             DispatchQueue.main.async { scrollTarget = nil }
