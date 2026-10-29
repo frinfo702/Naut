@@ -3,7 +3,7 @@ import SwiftUI
 import WebKit
 
 /// The rendered note. Loads libnaut's page template once, then on each
-/// edit replaces only the contents of `<main>` and re-typesets. Reloading
+/// edit replaces only the contents of `<main>`. Reloading
 /// the page per keystroke would flash white and lose the scroll position.
 struct Preview: NSViewRepresentable {
     let text: String
@@ -49,7 +49,7 @@ struct Preview: NSViewRepresentable {
                 (() => {
                   const main = document.querySelector("main");
                   main.innerHTML = \(json);
-                  naut.typeset(main);
+                  naut.enhance(main);
                 })()
                 """)
         }

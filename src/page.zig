@@ -2,8 +2,11 @@
 //!
 //! The app preview and the published web page are the same document. The
 //! app loads it once and then only swaps the inner HTML of `<main>` as the
-//! user types (see `naut.typeset` in page.js), so the stylesheet and
-//! scripts here are the single source of truth for how a note looks.
+//! user types (see `naut.enhance` in page.js), so the stylesheet and
+//! script here are the single source of truth for how a note looks.
+//!
+//! The page is self-contained: math is MathML and code is highlighted at
+//! render time, so nothing is fetched and it works offline.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -12,16 +15,6 @@ const markdown = @import("markdown.zig");
 
 const css = @embedFile("page.css");
 const js = @embedFile("page.js");
-
-// ponytail: KaTeX and highlight.js load from a CDN, so math and code
-// colouring need a network connection. Vendor them into the page if
-// offline previews matter.
-const head_assets =
-    \\<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.css">
-    \\<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.js"></script>
-    \\<script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    \\
-;
 
 pub const Options = struct {
     /// Shown in the browser tab and at the top of the outline.
@@ -42,7 +35,7 @@ pub fn write(alloc: Allocator, w: *Writer, src: []const u8, opts: Options) markd
     try w.writeAll("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n" ++
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>");
     try markdown.escape(w, opts.title);
-    try w.writeAll("</title>\n" ++ head_assets ++ "<style>\n" ++ css ++ "</style>\n<script>\n" ++ js ++
+    try w.writeAll("</title>\n<style>\n" ++ css ++ "</style>\n<script>\n" ++ js ++
         "</script>\n</head>\n<body>\n<div class=\"page\">\n");
 
     if (opts.toc) {

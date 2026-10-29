@@ -17,11 +17,13 @@
 //! For the same reason link destinations with a scheme other than http,
 //! https or mailto are replaced with "#".
 //!
-//! Math is not typeset here. `$x$` becomes `<span class="math">\(x\)</span>`
-//! and `$$x$$` becomes `<div class="math">\[x\]</div>`; the page template
-//! runs KaTeX over those elements.
+//! Math and code are finished here too: `$x$` becomes MathML via the `tex`
+//! module and fenced code is coloured by the `highlight` module. The
+//! output needs no script to display correctly.
 
 const std = @import("std");
+const tex = @import("tex");
+const highlight = @import("highlight");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
@@ -155,57 +157,65 @@ pub const Renderer = struct {
     }
 
     fn fencedCode(self: *Renderer, w: *Writer, lines: []const []const u8, start: usize, f: Fence) Error!usize {
-        _ = self;
-        const lang = std.mem.trim(u8, f.info, " ");
+        var body: std.ArrayList(u8) = .empty;
+        var i = start + 1;
+        while (i < lines.len) : (i += 1) {
+            if (closesFence(trimIndent(lines[i]), f)) {
+                i += 1;
+                break;
+            }
+            if (i > start + 1) try body.append(self.alloc, '\n');
+            // Content is de-indented by the fence's own indentation.
+            try body.appendSlice(self.alloc, cutIndent(lines[i], f.indent));
+        }
+        // An unclosed fence runs to the end of the document, per spec.
+
+        const info = std.mem.trim(u8, f.info, " ");
+        // Only the first word is the language, like GitHub.
+        const lang = info[0 .. std.mem.indexOfScalar(u8, info, ' ') orelse info.len];
+
         if (std.mem.eql(u8, lang, "math")) {
-            try w.writeAll("<div class=\"math\">\\[");
-        } else if (lang.len > 0) {
-            // Only the first word is the language, like GitHub.
-            const end = std.mem.indexOfScalar(u8, lang, ' ') orelse lang.len;
+            try self.math(w, body.items, true);
+            return i;
+        }
+
+        if (lang.len > 0) {
             try w.writeAll("<pre><code class=\"language-");
-            try escape(w, lang[0..end]);
+            try escape(w, lang);
             try w.writeAll("\">");
         } else {
             try w.writeAll("<pre><code>");
         }
-
-        var i = start + 1;
-        var first = true;
-        while (i < lines.len) : (i += 1) {
-            const t = trimIndent(lines[i]);
-            if (closesFence(t, f)) {
-                i += 1;
-                break;
-            }
-            if (!first) try w.writeByte('\n');
-            first = false;
-            // Content is de-indented by the fence's own indentation.
-            try escape(w, cutIndent(lines[i], f.indent));
-        }
-        // An unclosed fence runs to the end of the document, per spec.
-
-        if (std.mem.eql(u8, lang, "math")) {
-            try w.writeAll("\\]</div>\n");
+        if (highlight.find(lang)) |l| {
+            try highlight.render(w, l, body.items);
         } else {
-            try w.writeAll("</code></pre>\n");
+            try escape(w, body.items);
         }
+        try w.writeAll("</code></pre>\n");
         return i;
     }
 
     fn displayMath(self: *Renderer, w: *Writer, lines: []const []const u8, start: usize) Error!usize {
-        _ = self;
-        try w.writeAll("<div class=\"math\">\\[");
+        // Lines may come from a block quote with their prefixes cut, so
+        // they are not contiguous in the source; join them.
+        var body: std.ArrayList(u8) = .empty;
         var i = start + 1;
         while (i < lines.len) : (i += 1) {
             if (std.mem.eql(u8, std.mem.trim(u8, lines[i], " "), "$$")) {
                 i += 1;
                 break;
             }
-            try escape(w, lines[i]);
-            try w.writeByte('\n');
+            try body.appendSlice(self.alloc, lines[i]);
+            try body.append(self.alloc, '\n');
         }
-        try w.writeAll("\\]</div>\n");
+        try self.math(w, body.items, true);
         return i;
+    }
+
+    fn math(self: *Renderer, w: *Writer, src: []const u8, display: bool) Error!void {
+        if (display) try w.writeAll("<div class=\"math\">");
+        try tex.render(self.alloc, w, src, display);
+        if (display) try w.writeAll("</div>\n");
     }
 
     fn blockquote(self: *Renderer, w: *Writer, lines: []const []const u8, start: usize) Error!usize {
@@ -394,9 +404,7 @@ pub const Renderer = struct {
                 },
 
                 '$' => if (inlineMath(text, i)) |span| {
-                    try w.writeAll("<span class=\"math\">\\(");
-                    try escape(w, span.content);
-                    try w.writeAll("\\)</span>");
+                    try self.math(w, span.content, false);
                     i = span.end;
                     continue;
                 },
@@ -969,17 +977,18 @@ test "markdown: images and autolinks" {
 
 test "markdown: inline math and dollars" {
     try expectHtml("$a<b$ costs $5 and $10",
-        "<p><span class=\"math\">\\(a&lt;b\\)</span> costs $5 and $10</p>\n");
+        "<p><math><mrow><mi>a</mi><mo>&lt;</mo><mi>b</mi></mrow></math> costs $5 and $10</p>\n");
 }
 
 test "markdown: display math" {
-    try expectHtml("$$\n\\int_0^1 x\n$$", "<div class=\"math\">\\[\\int_0^1 x\n\\]</div>\n");
+    try expectHtml("$$\nx\n$$", "<div class=\"math\"><math display=\"block\"><mrow><mi>x</mi></mrow></math></div>\n");
 }
 
 test "markdown: fenced code" {
-    try expectHtml("```zig foo\nconst a = 1 < 2;\n\n```\n```math\nx^2\n```",
-        "<pre><code class=\"language-zig\">const a = 1 &lt; 2;\n</code></pre>\n" ++
-            "<div class=\"math\">\\[x^2\\]</div>\n");
+    try expectHtml("```zig foo\nconst a = 1 < 2;\n\n```\n```math\nx\n```\n```nope\nif\n```",
+        "<pre><code class=\"language-zig\"><span class=\"hl-kw\">const</span> a = <span class=\"hl-num\">1</span> &lt; <span class=\"hl-num\">2</span>;\n</code></pre>\n" ++
+            "<div class=\"math\"><math display=\"block\"><mrow><mi>x</mi></mrow></math></div>\n" ++
+            "<pre><code class=\"language-nope\">if</code></pre>\n");
 }
 
 test "markdown: unclosed fence runs to end" {

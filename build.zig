@@ -16,12 +16,30 @@ pub fn build(b: *std.Build) void {
     const emit_macos_app = b.option(bool, "emit-macos-app", "Build the macOS app bundle") orelse
         (builtin.os.tag == .macos);
 
+    // Standalone libraries with no dependencies, usable on their own:
+    // b.dependency("naut", ...).module("tex") or .module("highlight").
+    const tex = b.addModule("tex", .{
+        .root_source_file = b.path("src/tex.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const highlight = b.addModule("highlight", .{
+        .root_source_file = b.path("src/highlight.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const imports: []const std.Build.Module.Import = &.{
+        .{ .name = "tex", .module = tex },
+        .{ .name = "highlight", .module = highlight },
+    };
+
     // The Zig package other projects depend on: b.dependency("naut", ...)
     // then .module("naut").
     const mod = b.addModule("naut", .{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = imports,
     });
 
     // libnaut.a with the C API, for Swift and anyone else with a C FFI.
@@ -32,6 +50,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .imports = imports,
         }),
     });
     // The consumer links with a C toolchain that doesn't know about Zig's
@@ -41,10 +60,12 @@ pub fn build(b: *std.Build) void {
     lib.installHeader(b.path("include/naut.h"), "naut.h");
     b.installArtifact(lib);
 
-    const tests = b.addTest(.{ .root_module = mod, .filters = test_filters });
-    tests.root_module.link_libc = true;
     const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&b.addRunArtifact(tests).step);
+    for ([_]*std.Build.Module{ mod, tex, highlight }) |m| {
+        const tests = b.addTest(.{ .root_module = m, .filters = test_filters });
+        tests.root_module.link_libc = true;
+        test_step.dependOn(&b.addRunArtifact(tests).step);
+    }
 
     if (!emit_macos_app) return;
 

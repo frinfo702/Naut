@@ -1,23 +1,9 @@
-// Typesets math, highlights code and adds copy buttons. Exposed as
-// naut.typeset(root) so the app can call it again after swapping the
-// content of <main> without reloading the page (no flicker, scroll kept).
+// Adds copy buttons to code blocks. Exposed as naut.enhance(root) so the
+// app can call it again after swapping the content of <main> without
+// reloading the page (no flicker, scroll kept). Math and highlighting are
+// done in libnaut; this is the only script on the page.
 window.naut = {
-  typeset(root = document) {
-    if (window.katex) {
-      for (const el of root.querySelectorAll(".math")) {
-        // The source is wrapped as \(..\) or \[..\] so it still reads
-        // as TeX if KaTeX fails to load.
-        const tex = el.textContent.slice(2, -2);
-        try {
-          katex.render(tex, el, { displayMode: el.tagName === "DIV", throwOnError: false });
-        } catch {}
-      }
-    }
-    if (window.hljs) {
-      for (const el of root.querySelectorAll("pre code[class^=language-]")) {
-        hljs.highlightElement(el);
-      }
-    }
+  enhance(root = document) {
     for (const pre of root.querySelectorAll("pre")) {
       const button = document.createElement("button");
       button.className = "copy";
@@ -42,4 +28,4 @@ window.naut = {
   },
 };
 
-addEventListener("DOMContentLoaded", () => naut.typeset());
+addEventListener("DOMContentLoaded", () => naut.enhance());

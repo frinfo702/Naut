@@ -24,11 +24,17 @@ Swift comes from Xcode; Zig and Terraform come from the flake.
 | Path | What |
 | --- | --- |
 | `src/` | libnaut, the Zig core: Markdown, page template, Cloudflare publishing |
+| `src/tex.zig` | TeX math to MathML, a standalone module (`tex`) |
+| `src/highlight.zig` | Code highlighting, a standalone module (`highlight`) |
 | `include/naut.h` | C API |
 | `macos/Sources/NautKit` | Swift package wrapping the C API |
 | `macos/Sources/Naut` | The SwiftUI app, one consumer of NautKit |
 
 libnaut is also a Zig package (`b.dependency("naut", .{}).module("naut")`).
+
+Pages need no third-party script and work offline: math is converted to
+MathML, which browsers render natively, and code is highlighted when the
+note is rendered.
 
 ## Publishing
 

@@ -180,11 +180,11 @@ pre .copy {
 pre:hover .copy, pre .copy.done { opacity: 1; }
 pre .copy:hover { color: var(--fg); background: var(--surface-raised); }
 
-.hljs-keyword, .hljs-built_in, .hljs-selector-tag, .hljs-meta { color: var(--syn-keyword); }
-.hljs-string, .hljs-regexp, .hljs-template-variable { color: var(--syn-string); }
-.hljs-attr, .hljs-attribute, .hljs-property, .hljs-title, .hljs-type, .hljs-variable { color: var(--syn-attr); }
-.hljs-number, .hljs-literal, .hljs-symbol { color: var(--syn-number); }
-.hljs-comment, .hljs-quote { color: var(--syn-comment); }
+.hl-kw { color: var(--syn-keyword); }
+.hl-str { color: var(--syn-string); }
+.hl-fn, .hl-var { color: var(--syn-attr); }
+.hl-num { color: var(--syn-number); }
+.hl-com { color: var(--syn-comment); }
 
 /* Tables ------------------------------------------------------------ */
 
@@ -200,5 +200,13 @@ tr + tr td, tbody tr:first-child td { border-top: 1px solid var(--line); }
 
 /* Math -------------------------------------------------------------- */
 
-div.math { overflow-x: auto; overflow-y: hidden; text-align: center; }
-.katex { font-size: 1.1em; color: var(--fg); }
+/* Native MathML. STIX Two Math ships with macOS; the others cover
+   systems that have them. */
+math {
+  font-family: "STIX Two Math", "Latin Modern Math", "Cambria Math", math;
+  font-size: 1.1em;
+  color: var(--fg);
+}
+div.math { overflow-x: auto; overflow-y: hidden; margin: 1.4em 0; }
+div.math math { margin: 0 auto; }
+merror { color: var(--syn-keyword); background: none; border: 0; font-family: var(--mono); font-size: 0.85em; }
