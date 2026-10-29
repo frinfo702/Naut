@@ -1,0 +1,202 @@
+/* One stylesheet for the app preview and the published page, so what you
+   see while writing is exactly what readers get. */
+
+:root {
+  color-scheme: dark light;
+
+  /* Surfaces */
+  --bg: #111211;
+  --surface: #1a1b1a;
+  --surface-raised: #1f201f;
+  --line: #2c2d2b;
+
+  /* Text */
+  --fg: #f1f1ee;
+  --fg-body: #c4c5c0;
+  --fg-dim: #8b8d87;
+
+  /* Syntax */
+  --syn-keyword: #f2876a;
+  --syn-string: #cf9cf2;
+  --syn-attr: #a9a7f7;
+  --syn-number: #e7c27d;
+  --syn-comment: #7c7e78;
+
+  /* Metrics */
+  --radius: 14px;
+  --radius-sm: 6px;
+  --measure: 760px;
+  --nav-width: 300px;
+
+  --font: -apple-system, BlinkMacSystemFont, "Inter", "Hiragino Sans", system-ui, sans-serif;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fbfbf9;
+    --surface: #f3f3f0;
+    --surface-raised: #ecece8;
+    --line: #e0e0db;
+    --fg: #161715;
+    --fg-body: #3b3d39;
+    --fg-dim: #7a7c76;
+    --syn-keyword: #c8502d;
+    --syn-string: #8a3fc0;
+    --syn-attr: #5b55d6;
+    --syn-number: #9a6a10;
+    --syn-comment: #8d8f89;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg-body);
+  font: 17px/1.75 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Layout ------------------------------------------------------------ */
+
+.page {
+  display: flex;
+  gap: 64px;
+  max-width: calc(var(--measure) + var(--nav-width) + 64px);
+  margin: 0 auto;
+  padding: 48px 16px 96px;
+}
+
+main {
+  flex: 1;
+  min-width: 0;
+  max-width: var(--measure);
+  margin: 0 auto;
+}
+
+nav.toc {
+  position: sticky;
+  top: 48px;
+  align-self: flex-start;
+  width: var(--nav-width);
+  flex-shrink: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+@media (max-width: 1000px) { nav.toc { display: none; } }
+
+nav.toc a { color: var(--fg-dim); text-decoration: none; }
+nav.toc a:hover { color: var(--fg); }
+nav.toc .title { display: block; color: var(--fg); margin-bottom: 8px; }
+
+/* Tree connectors, drawn like the guides in a file tree. */
+nav.toc ul { list-style: none; margin: 0 0 0 8px; padding: 0; }
+nav.toc li { position: relative; padding: 4px 0 4px 26px; }
+nav.toc li::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+  border-left: 1px solid var(--line);
+}
+nav.toc li:last-child::before { bottom: auto; height: 1.0em; }
+nav.toc li::after {
+  content: ""; position: absolute; left: 0; top: 1.0em; width: 10px;
+  border-top: 1px solid var(--line);
+}
+
+/* Type -------------------------------------------------------------- */
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--fg);
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  scroll-margin-top: 24px;
+}
+h1 { font-size: 2.6em; margin: 0 0 0.6em; letter-spacing: -0.02em; }
+h2 { font-size: 1.6em; margin: 2.2em 0 0.6em; }
+h3 { font-size: 1.25em; margin: 1.8em 0 0.5em; }
+h4, h5, h6 { font-size: 1em; margin: 1.6em 0 0.4em; }
+main > :first-child { margin-top: 0; }
+
+p, ul, ol, blockquote, pre, .table, .math { margin: 0 0 1.1em; }
+
+a { color: var(--fg); text-decoration: underline; text-decoration-color: var(--fg-dim); text-underline-offset: 4px; }
+a:hover { text-decoration-color: var(--fg); }
+
+strong { color: var(--fg); font-weight: 600; }
+
+ul, ol { padding-left: 1.4em; }
+li { margin: 0.35em 0; }
+li::marker { color: var(--fg-dim); }
+li.task { list-style: none; margin-left: -1.4em; }
+li.task input { margin: 0 0.4em 0 0; accent-color: var(--syn-keyword); }
+
+blockquote {
+  margin-left: 0;
+  padding-left: 1em;
+  border-left: 2px solid var(--line);
+  color: var(--fg-dim);
+}
+
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5em 0; }
+
+img { max-width: 100%; border-radius: var(--radius-sm); }
+
+/* Code -------------------------------------------------------------- */
+
+code {
+  font: 0.88em/1 var(--mono);
+  background: var(--surface-raised);
+  color: var(--fg);
+  padding: 0.2em 0.4em;
+  border-radius: var(--radius-sm);
+}
+
+pre {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  overflow-x: auto;
+}
+pre code { background: none; padding: 0; font-size: 0.9em; line-height: 1.8; color: var(--fg); }
+
+pre .copy {
+  position: absolute; top: 12px; right: 12px;
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--fg-dim);
+  cursor: pointer; opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+pre:hover .copy, pre .copy.done { opacity: 1; }
+pre .copy:hover { color: var(--fg); background: var(--surface-raised); }
+
+.hljs-keyword, .hljs-built_in, .hljs-selector-tag, .hljs-meta { color: var(--syn-keyword); }
+.hljs-string, .hljs-regexp, .hljs-template-variable { color: var(--syn-string); }
+.hljs-attr, .hljs-attribute, .hljs-property, .hljs-title, .hljs-type, .hljs-variable { color: var(--syn-attr); }
+.hljs-number, .hljs-literal, .hljs-symbol { color: var(--syn-number); }
+.hljs-comment, .hljs-quote { color: var(--syn-comment); }
+
+/* Tables ------------------------------------------------------------ */
+
+.table {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+table { width: 100%; border-collapse: collapse; font-size: 0.95em; }
+th, td { padding: 12px 24px; text-align: left; vertical-align: top; }
+th { color: var(--fg-dim); font-weight: 400; }
+tr + tr td, tbody tr:first-child td { border-top: 1px solid var(--line); }
+
+/* Math -------------------------------------------------------------- */
+
+div.math { overflow-x: auto; overflow-y: hidden; text-align: center; }
+.katex { font-size: 1.1em; color: var(--fg); }
