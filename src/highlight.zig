@@ -126,6 +126,9 @@ const Lexer = struct {
         }
 
         if (isIdentStart(c)) {
+            // The start may be '@', which isIdent rejects, so step past it
+            // first or the token would be empty.
+            lx.pos += 1;
             while (lx.pos < lx.src.len and isIdent(lx.src[lx.pos])) lx.pos += 1;
             if (lx.lang.shell) {
                 // Commands can contain - and . ("git-lfs", "./run.sh").
@@ -406,8 +409,17 @@ test "highlight: find is case-insensitive and rejects unknown" {
     try std.testing.expect(find("a-name-much-longer-than-the-buffer") == null);
 }
 
+test "highlight: at-prefixed identifiers" {
+    // Regression: '@' started an identifier but was never consumed,
+    // producing an empty token (assert in debug, hang in release).
+    try expectHighlight("zig", "@import(\"std\")",
+        "<span class=\"hl-fn\">@import</span>(<span class=\"hl-str\">&quot;std&quot;</span>)");
+    try expectHighlight("python", "@ x", "@ x");
+    try expectHighlight("sh", "ssh user@host", "<span class=\"hl-kw\">ssh</span> user@host");
+}
+
 test "highlight: every prefix renders" {
-    const src = "\"a\\\n/* x '`$ {1.2e3 // #";
+    const src = "\"a\\\n/* x '`$ {1.2e3 // # @x @";
     for (std.meta.tags(enum { zig, sh, json, go, python })) |l| {
         for (0..src.len + 1) |n| {
             var out: Writer.Allocating = .init(std.testing.allocator);
