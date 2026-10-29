@@ -411,7 +411,12 @@ const Parser = struct {
                 p.pos += 1;
                 var index: Writer.Allocating = .init(p.alloc);
                 try index.writer.writeAll("<mrow>");
-                while (!p.eof() and p.peek() != ']') try p.scripted(&index.writer);
+                // Stop at anything that ends a row too: atom() leaves `}`
+                // and `&` unconsumed, so waiting only for `]` would spin.
+                while (!p.eof()) switch (p.peek()) {
+                    ']', '}', '&' => break,
+                    else => try p.scripted(&index.writer),
+                };
                 try index.writer.writeAll("</mrow>");
                 if (p.peek() == ']') p.pos += 1;
                 try w.writeAll("<mroot>");
@@ -873,6 +878,13 @@ test "tex: malformed input does not crash" {
             try render(arena.allocator(), &out.writer, src[0..n], true);
         }
     }
+    // Regression: an unclosed root index inside a group or cell spun
+    // forever because `}` and `&` were never consumed.
+    for ([_][]const u8{ "{\\sqrt[3}", "\\sqrt[n & m]", "\\begin{matrix}\\sqrt[a&b\\end{matrix}" }) |src| {
+        var o: Writer.Allocating = .init(arena.allocator());
+        try render(arena.allocator(), &o.writer, src, false);
+    }
+
     // Deep nesting is bounded rather than overflowing the stack.
     const deep: [10000]u8 = @splat('{');
     var out: Writer.Allocating = .init(arena.allocator());
