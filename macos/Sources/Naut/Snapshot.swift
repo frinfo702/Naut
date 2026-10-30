@@ -1,8 +1,9 @@
 import AppKit
 import WebKit
 
-/// `Naut --snapshot out.png [--light] [--note Name]` renders the main
-/// window to a PNG and quits.
+/// `Naut --snapshot out.png [--light] [--note Name] [--settings pane]`
+/// renders the main window (or the settings window, opened on `pane`) to
+/// a PNG and quits.
 ///
 /// This exists so changes to the UI can be checked without a person
 /// looking: screencapture needs Screen Recording permission, which agents
@@ -28,22 +29,34 @@ enum Snapshot {
         return args[i + 1]
     }
 
-    /// Apply launch options that must take effect before the first frame.
-    @MainActor static func prepare() {
-        guard path != nil else { return }
-        let light = CommandLine.arguments.contains("--light")
-        NSApp.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
+    static var settingsPane: SettingsPane? {
+        let args = CommandLine.arguments
+        guard path != nil, let i = args.firstIndex(of: "--settings"), i + 1 < args.count else { return nil }
+        return SettingsPane(rawValue: args[i + 1])
+    }
+
+    /// The appearance a snapshot is taken in, overriding the user's
+    /// setting. Dark unless --light.
+    static var forcedAppearance: NSAppearance? {
+        guard path != nil else { return nil }
+        return NSAppearance(named: CommandLine.arguments.contains("--light") ? .aqua : .darkAqua)
     }
 
     @MainActor static func capture(to path: String) async {
         // The content view's superview is the window's frame view, which
         // includes the title bar and toolbar.
-        guard let window = NSApp.windows.first(where: { $0.contentView != nil && $0.isVisible }),
+        try? await Task.sleep(for: settle)
+        let settings = settingsPane != nil
+        // SwiftUI names the Settings window's identifier after the scene.
+        let isSettings = { (w: NSWindow) in w.identifier?.rawValue.contains("Settings") == true }
+        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && isSettings($0) == settings }),
               let view = window.contentView?.superview ?? window.contentView
         else { fail("no window to capture") }
 
-        window.setContentSize(size)
-        try? await Task.sleep(for: settle)
+        if !settings {
+            window.setContentSize(size)
+            try? await Task.sleep(for: settle)
+        }
 
         guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { fail("no bitmap") }
         view.cacheDisplay(in: view.bounds, to: rep)

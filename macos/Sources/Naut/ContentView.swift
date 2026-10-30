@@ -21,6 +21,7 @@ struct ContentView: View {
         .task {
             if let path = Snapshot.path {
                 if let name = Snapshot.note { store.selection = store.notes.first { $0.name == name }?.id }
+                if Snapshot.settingsPane != nil { openSettings() }
                 await Snapshot.capture(to: path)
             }
         }

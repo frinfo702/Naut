@@ -60,6 +60,36 @@ final class Store {
 
     var showEditor = true
 
+    // MARK: - Appearance
+
+    enum Appearance: String, CaseIterable {
+        case auto, light, dark
+
+        var title: String { rawValue.capitalized }
+    }
+
+    /// Auto by default: follow macOS unless the user says otherwise.
+    var appearance = Appearance(rawValue: UserDefaults.standard.string(forKey: "appearance") ?? "") ?? .auto {
+        didSet {
+            UserDefaults.standard.set(appearance.rawValue, forKey: "appearance")
+            applyAppearance()
+        }
+    }
+
+    private func applyAppearance() {
+        // SwiftUI may build the App, and so a Store, more than once; a
+        // snapshot's appearance has to win over every one of them.
+        if let forced = Snapshot.forcedAppearance {
+            NSApplication.shared.appearance = forced
+            return
+        }
+        NSApplication.shared.appearance = switch appearance {
+        case .auto: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
+
     /// Set while `load` assigns `text`, so loading isn't mistaken for an edit.
     private var loading = false
     private var saveTask: Task<Void, Never>?
@@ -85,6 +115,7 @@ final class Store {
 
     init() {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        applyAppearance()
         reload()
         if notes.isEmpty { newNote(named: "Welcome", text: Self.welcome) }
         selection = notes.first?.id
