@@ -39,7 +39,6 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             SettingsSearchField(text: $query)
 
-            StatusCard(selected: pane == .publishing) { pane = .publishing }
 
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(SettingsPane.allCases.filter { $0.matches(query) }) { p in
@@ -138,52 +137,6 @@ private struct SettingsSearchField: View {
         .frame(height: 30)
         .background(Theme.surface, in: Capsule())
         .overlay(Capsule().strokeBorder(Theme.edge, lineWidth: 1))
-    }
-}
-
-/// Where notes get published, at a glance. The same idea as Rex's
-/// "Server — Running" card.
-private struct StatusCard: View {
-    @Environment(Store.self) private var store
-    let selected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                SettingsIcon(kind: .cloudflare, size: SettingsMetrics.statusIconSize)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Cloudflare")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.fg)
-                    HStack(spacing: 5) {
-                        Circle().fill(dot).frame(width: 6, height: 6)
-                        Text(status)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.fgDim)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(8)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.edge, lineWidth: 1))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var status: String {
-        if store.provisioning { return "Setting up…" }
-        guard let site = store.site else { return "Not set up" }
-        return site.url.host() ?? "Connected"
-    }
-
-    private var dot: Color {
-        if store.provisioning { return .orange }
-        return store.site == nil ? Theme.fgDim : .green
     }
 }
 
@@ -496,6 +449,8 @@ private struct PublishingPane: View {
     var body: some View {
         @Bindable var store = store
 
+        CloudflareCard()
+
         SettingsGroup(
             title: "Cloudflare account",
             footer: "Create an API token with **Workers Scripts: Edit**, **Workers KV Storage: Edit** and **Account Settings: Read**. The token is kept in your keychain."
@@ -555,6 +510,68 @@ private struct PublishingPane: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+    }
+}
+
+/// Where notes get published, at a glance, and the way out to the
+/// dashboard where the Worker and KV namespace can be changed. The same
+/// idea as Rex's "Server — Running" card.
+private struct CloudflareCard: View {
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        HStack(spacing: 12) {
+            SettingsIcon(kind: .cloudflare, size: SettingsMetrics.statusIconSize)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Cloudflare")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.fg)
+                HStack(spacing: 5) {
+                    Circle().fill(dot).frame(width: 6, height: 6)
+                    Text(status)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.fgDim)
+            }
+            Spacer(minLength: 8)
+            Button {
+                NSWorkspace.shared.open(store.dashboardURL)
+            } label: {
+                Label("Dashboard", systemImage: "arrow.up.right")
+                    .labelStyle(TrailingIconLabelStyle())
+            }
+            .help(store.dashboardURL.absoluteString)
+        }
+        .padding(12)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: SettingsMetrics.groupRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SettingsMetrics.groupRadius, style: .continuous)
+                .strokeBorder(Theme.edge, lineWidth: 1)
+        )
+    }
+
+    private var status: String {
+        if store.provisioning { return "Setting up…" }
+        guard let site = store.site else { return "Not set up" }
+        return site.url.host() ?? "Connected"
+    }
+
+    private var dot: Color {
+        if store.provisioning { return .orange }
+        return store.site == nil ? Theme.fgDim : .green
+    }
+}
+
+/// "Dashboard ↗": the arrow after the text, as links out usually read.
+private struct TrailingIconLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) {
+            configuration.title
+            configuration.icon.imageScale(.small)
         }
     }
 }

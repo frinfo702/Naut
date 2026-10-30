@@ -214,6 +214,14 @@ final class Store {
 
     private var cloudflare: Cloudflare { Cloudflare(accountID: accountID, apiToken: apiToken) }
 
+    /// The account's Workers & Pages overview, where the Worker and KV
+    /// namespace live. Without a valid account ID, the dashboard home.
+    var dashboardURL: URL {
+        let id = accountID.trimmingCharacters(in: .whitespaces)
+        let valid = id.count == 32 && id.allSatisfy(\.isHexDigit)
+        return URL(string: valid ? "https://dash.cloudflare.com/\(id)/workers-and-pages" : "https://dash.cloudflare.com")!
+    }
+
     func url(for note: Note) -> URL? {
         site?.url.appending(path: note.slug)
     }
