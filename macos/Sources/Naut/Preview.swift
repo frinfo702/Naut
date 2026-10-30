@@ -8,6 +8,8 @@ import WebKit
 struct Preview: NSViewRepresentable {
     /// The rendered note body, from `Markdown.render`.
     let html: String
+    /// The note's name, shown above it as on the published page.
+    let title: String
     let baseURL: URL
     let style: Style
     @Binding var scrollTarget: String?
@@ -43,6 +45,15 @@ struct Preview: NSViewRepresentable {
         }
     }
 
+    /// page.zig's writeTitle; change both together.
+    static func heading(_ title: String) -> String {
+        let escaped = title
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        return "<h1 class=\"page-title\">\(escaped)</h1>\n"
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -58,7 +69,7 @@ struct Preview: NSViewRepresentable {
 
     func updateNSView(_ view: WKWebView, context: Context) {
         context.coordinator.apply(style, in: view)
-        context.coordinator.show(html, in: view)
+        context.coordinator.show(Self.heading(title) + html, in: view)
         if let id = scrollTarget {
             context.coordinator.scroll(to: id, in: view)
             DispatchQueue.main.async { scrollTarget = nil }

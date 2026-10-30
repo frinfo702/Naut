@@ -20,7 +20,9 @@ pub const stylesheet = css;
 const js = @embedFile("page.js");
 
 pub const Options = struct {
-    /// Shown in the browser tab and at the top of the outline.
+    /// Shown in the browser tab, at the top of the outline, and as the
+    /// page's own heading: every note has one, as every Notion page does,
+    /// and it is the note's name, not part of its Markdown.
     title: []const u8,
     /// Render the outline sidebar. The app has a native one, so it turns
     /// this off; published pages turn it on.
@@ -59,8 +61,17 @@ pub fn write(alloc: Allocator, w: *Writer, src: []const u8, opts: Options) markd
     }
 
     try w.writeAll("<main>\n");
+    try writeTitle(w, opts.title);
     try w.writeAll(body.written());
     try w.writeAll("</main>\n</div>\n</body>\n</html>\n");
+}
+
+/// The page's heading. The app's preview writes the same element when it
+/// swaps `<main>` (Preview.swift); change both together.
+fn writeTitle(w: *Writer, title: []const u8) Writer.Error!void {
+    try w.writeAll("<h1 class=\"page-title\">");
+    try markdown.escape(w, title);
+    try w.writeAll("</h1>\n");
 }
 
 test "page: escapes title and links headings" {
@@ -70,6 +81,7 @@ test "page: escapes title and links headings" {
     try write(arena.allocator(), &out.writer, "# T\n## Sub", .{ .title = "<x>" });
     const html = out.written();
     try std.testing.expect(std.mem.indexOf(u8, html, "<title>&lt;x&gt;</title>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, html, "<main>\n<h1 class=\"page-title\">&lt;x&gt;</h1>") != null);
     try std.testing.expect(std.mem.indexOf(u8, html, "<li><a href=\"#sub\">Sub</a></li>") != null);
     try std.testing.expect(std.mem.indexOf(u8, html, "<h2 id=\"sub\">Sub</h2>") != null);
 }

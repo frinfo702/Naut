@@ -207,6 +207,48 @@ final class Store {
         selection = url
     }
 
+    /// Rename a note: its title is its file name. A published note moves
+    /// to the new address and the old one is taken down.
+    func rename(_ note: Note, to title: String) {
+        // A file name can't hold "/", and ":" shows as "/" in Finder.
+        var name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        if name.isEmpty { name = "Untitled" }
+        guard name != note.name, FileManager.default.fileExists(atPath: note.url.path) else { return }
+        // The file has the latest text before it moves.
+        if note.id == selection { saveNow(note.id) }
+
+        var url = folder.appending(path: "\(name).md")
+        var n = 2
+        // The same name in another case is this file on a case-insensitive
+        // disk, not a clash.
+        while FileManager.default.fileExists(atPath: url.path), url.path.lowercased() != note.url.path.lowercased() {
+            url = folder.appending(path: "\(name) \(n).md")
+            n += 1
+        }
+        do {
+            // Through a temporary name, so a change of case alone is a move.
+            let temp = folder.appending(path: ".\(UUID().uuidString).md")
+            try FileManager.default.moveItem(at: note.url, to: temp)
+            try FileManager.default.moveItem(at: temp, to: url)
+        } catch {
+            self.error = "Couldn't rename “\(note.name)”: \(error.localizedDescription)"
+            return
+        }
+
+        let renamed = Note(url: url)
+        let wasPublished = published.contains(note.name)
+        reload()
+        if selection == note.id { selection = renamed.id }
+        guard wasPublished else { return }
+        // The page shows the title, so it is published again either way;
+        // a new address also takes the old page down.
+        published.remove(note.name)
+        if renamed.slug != note.slug { unpublishSlug(of: note) }
+        setPublished(renamed, true)
+    }
+
     func trash(_ note: Note) {
         if published.contains(note.name) { unpublish(note) }
         try? FileManager.default.trashItem(at: note.url, resultingItemURL: nil)
@@ -333,6 +375,12 @@ final class Store {
         perform(note) { try await $0.put(site, key: note.slug, value: html) } done: {
             self.published.insert(note.name)
         }
+    }
+
+    /// Take down a renamed note's old page; its name is no longer listed.
+    private func unpublishSlug(of note: Note) {
+        guard let site else { return }
+        perform(note) { try await $0.delete(site, key: note.slug) } done: {}
     }
 
     private func unpublish(_ note: Note) {

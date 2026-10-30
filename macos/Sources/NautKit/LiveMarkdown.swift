@@ -146,8 +146,8 @@ public enum LiveMarkdown {
             ]
             out.append(Element(kind: .link, range: m.range, markers: markers, content: label, scope: scope))
         }
-        for (re, kind) in [(strong, Element.Kind.strong), (strike, .strikethrough), (emphasis, .emphasis)] {
-            for m in re.matches(in: source, range: range) where free(m.range) {
+        for (res, kind) in [(strong, Element.Kind.strong), (strike, .strikethrough), (emphasis, .emphasis)] {
+            for m in res.flatMap({ $0.matches(in: source, range: range) }) where free(m.range) {
                 let n = m.range(at: 1).length
                 // `***x***` is strong and emphasis; emphasis then sees the
                 // inner `*x*`, so skip any match inside a strong one's markers.
@@ -191,7 +191,27 @@ public enum LiveMarkdown {
     /// digit right after the closing one, so "$5 and $10" stays text.
     private static let math = try! NSRegularExpression(pattern: "\\$(?![ $])((?:\\\\.|[^$\\\\\\n])+?)(?<! )\\$(?!\\d)")
     private static let link = try! NSRegularExpression(pattern: "(?<!!)\\[([^\\]\\n]+)\\]\\([^)\\n]*\\)")
-    private static let strong = try! NSRegularExpression(pattern: "(\\*\\*|__)(?=\\S)(.+?)(?<=\\S)\\1")
-    private static let strike = try! NSRegularExpression(pattern: "(~~)(?=\\S)(.+?)(?<=\\S)\\1")
-    private static let emphasis = try! NSRegularExpression(pattern: "(?<![*\\w])([*_])(?![\\s*_])(.+?)(?<![\\s*_])\\1(?![*\\w])")
+    // libnaut's rules (markdown.zig `emphasis`): the opening run is
+    // followed by non-space, the closing one preceded by non-space, and
+    // only `_` may not touch a letter or digit on its outer side
+    // ("snake_case_name"). `*` works inside a word: "and*em*" is emphasis.
+    private static let strong = [
+        try! NSRegularExpression(pattern: "(\\*\\*)(?=\\S)(.+?)(?<=\\S)\\*\\*"),
+        try! NSRegularExpression(pattern: "(?<![A-Za-z0-9])(__)(?=\\S)(.+?)(?<=\\S)__(?![A-Za-z0-9])"),
+    ]
+    private static let strike = [try! NSRegularExpression(pattern: "(~~)(?=\\S)(.+?)(?<=\\S)~~")]
+    private static let emphasis = [
+        try! NSRegularExpression(pattern: "(?<!\\*)(\\*)(?![\\s*])(.+?)(?<![\\s*])\\*(?!\\*)"),
+        try! NSRegularExpression(pattern: "(?<![A-Za-z0-9_])(_)(?![\\s_])(.+?)(?<![\\s_])_(?![A-Za-z0-9_])"),
+    ]
+}
+
+extension LiveMarkdown.Element.Kind {
+    /// Inline formatting with markers on both sides, within one line.
+    public var isSpan: Bool {
+        switch self {
+        case .strong, .emphasis, .strikethrough, .code, .link: true
+        default: false
+        }
+    }
 }

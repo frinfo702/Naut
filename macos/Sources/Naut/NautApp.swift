@@ -76,6 +76,8 @@ enum Metrics {
     // MARK: - Editor
     static let editorFontSize: CGFloat = 13
     static let editorInset: CGFloat = 24
+    /// The note's title above the Split source.
+    static let editorTitleSize: CGFloat = 20
     /// Body text in the preview and live editor, as in page.css.
     static let textFontSize: CGFloat = 17
     /// The default text font when installed, first in page.css's --font.

@@ -43,11 +43,11 @@ struct ContentView: View {
                 case .split:
                     HSplitView {
                         if store.showEditor {
-                            Editor(text: $store.text, font: store.sourceNSFont)
+                            Editor(text: $store.text, font: store.sourceNSFont, title: note.name) { store.rename(note, to: $0) }
                                 .frame(minWidth: 280)
                                 .transition(.move(edge: .leading).combined(with: .opacity))
                         }
-                        Preview(html: store.html, baseURL: store.folder, style: previewStyle, scrollTarget: $scrollTarget)
+                        Preview(html: store.html, title: note.name, baseURL: store.folder, style: previewStyle, scrollTarget: $scrollTarget)
                             .frame(minWidth: 320)
                     }
                 case .live:
@@ -58,6 +58,8 @@ struct ContentView: View {
                         lineHeight: store.density.lineHeight,
                         outline: store.outline,
                         baseURL: store.folder,
+                        title: note.name,
+                        rename: { store.rename(note, to: $0) },
                         scrollTarget: $scrollTarget
                     )
                 }
@@ -172,8 +174,31 @@ struct PublishPopover: View {
 struct Editor: View {
     @Binding var text: String
     let font: NSFont
+    /// The note's name; editing it renames the note.
+    let title: String
+    let rename: (String) -> Void
+    @State private var draft = ""
+    @FocusState private var titleFocused: Bool
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            TextField("Untitled", text: $draft)
+                .textFieldStyle(.plain)
+                .font(.system(size: Metrics.editorTitleSize, weight: .semibold))
+                .foregroundStyle(Theme.fg)
+                .focused($titleFocused)
+                .onSubmit { rename(draft) }
+                // Leaving the field renames too; a note switch resets it.
+                .onChange(of: titleFocused) { if !titleFocused, draft != title { rename(draft) } }
+                .onChange(of: title, initial: true) { draft = title }
+                .padding(.horizontal, Metrics.editorInset)
+                .padding(.top, Metrics.editorInset)
+            source
+        }
+        .background(Theme.surface)
+    }
+
+    private var source: some View {
         TextEditor(text: $text)
             .font(Font(font as CTFont))
             .foregroundStyle(Theme.fg)
