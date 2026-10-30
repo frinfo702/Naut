@@ -59,6 +59,8 @@ enum Metrics {
     /// Width of the tree guide drawn before outline entries.
     static let guideWidth: CGFloat = 22
     static let guideTick: CGFloat = 10
+    /// How far the outline drops in from when a note is selected.
+    static let unfoldOffset: CGFloat = 6
 
     // MARK: - Search
     static let searchHeight: CGFloat = 34
@@ -69,6 +71,7 @@ enum Metrics {
 
     // MARK: - Animation
     static let toggleDuration = 0.2 // fast enough to feel instant, slow enough to track
+    static let unfoldDuration = 0.22 // Rex's docs nav folds in about 0.2s
 }
 
 extension Color {

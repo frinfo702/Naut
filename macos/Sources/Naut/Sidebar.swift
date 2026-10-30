@@ -7,6 +7,7 @@ struct Sidebar: View {
     @Environment(Store.self) private var store
     @Binding var scrollTarget: String?
     @FocusState private var searchFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         @Bindable var store = store
@@ -14,7 +15,9 @@ struct Sidebar: View {
             SearchField(text: $store.query, focused: $searchFocused)
 
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
+                // Not lazy: the outline unfolding pushes every row below it,
+                // and a lazy stack doesn't animate rows it hasn't laid out.
+                VStack(alignment: .leading, spacing: 2) {
                     ForEach(store.filteredNotes) { note in
                         row(note)
                     }
@@ -47,7 +50,7 @@ struct Sidebar: View {
     @ViewBuilder private func row(_ note: Note) -> some View {
         let selected = note.id == store.selection
         Button {
-            store.selection = note.id
+            select(note)
         } label: {
             HStack(spacing: 6) {
                 Text(note.name)
@@ -74,25 +77,40 @@ struct Sidebar: View {
 
         if selected {
             let sections = store.outline.filter { $0.level == 2 }
-            ForEach(Array(sections.enumerated()), id: \.element) { index, heading in
-                Button {
-                    scrollTarget = heading.id
-                } label: {
-                    HStack(spacing: 0) {
-                        TreeGuide(isLast: index == sections.count - 1)
-                            .stroke(Theme.guide, lineWidth: 1)
-                            .frame(width: Metrics.guideWidth)
-                        Text(heading.text)
-                            .lineLimit(1)
+            // One view per note, so switching notes folds the old tree away
+            // and unfolds the new one as two units.
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(sections.enumerated()), id: \.element) { index, heading in
+                    Button {
+                        scrollTarget = heading.id
+                    } label: {
+                        HStack(spacing: 0) {
+                            TreeGuide(isLast: index == sections.count - 1)
+                                .stroke(Theme.guide, lineWidth: 1)
+                                .frame(width: Metrics.guideWidth)
+                            Text(heading.text)
+                                .lineLimit(1)
+                        }
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.fgDim)
+                        .frame(height: Metrics.outlineRowHeight)
+                        .contentShape(Rectangle())
                     }
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.fgDim)
-                    .frame(height: Metrics.outlineRowHeight)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .padding(.leading, 6)
                 }
-                .buttonStyle(.plain)
-                .padding(.leading, 6)
             }
+            .id(note.id)
+            .transition(Unfold())
+        }
+    }
+
+    /// Select with the unfold animation. Only selection changes animate;
+    /// headings appearing while typing should just appear.
+    private func select(_ note: Note) {
+        guard note.id != store.selection else { return }
+        withAnimation(reduceMotion ? nil : .snappy(duration: Metrics.unfoldDuration)) {
+            store.selection = note.id
         }
     }
 
@@ -100,8 +118,19 @@ struct Sidebar: View {
         let notes = store.filteredNotes
         guard !notes.isEmpty else { return .ignored }
         let current = notes.firstIndex { $0.id == store.selection } ?? -delta
-        store.selection = notes[max(0, min(notes.count - 1, current + delta))].id
+        select(notes[max(0, min(notes.count - 1, current + delta))])
         return .handled
+    }
+}
+
+/// The outline arriving under its note: it fades in while settling down a
+/// few points, and the rows below slide to make room. Leaving is the
+/// reverse. Matches the navigation on Rex's docs site.
+struct Unfold: Transition {
+    func body(content: Content, phase: TransitionPhase) -> some View {
+        content
+            .opacity(phase.isIdentity ? 1 : 0)
+            .offset(y: phase.isIdentity ? 0 : -Metrics.unfoldOffset)
     }
 }
 
