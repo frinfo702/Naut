@@ -100,10 +100,18 @@ pub fn build(b: *std.Build) void {
     const install_bin = b.addInstallFile(b.path(bin), "Naut.app/Contents/MacOS/Naut");
     install_bin.step.dependOn(&swift.step);
     const install_plist = b.addInstallFile(b.path("macos/Info.plist"), "Naut.app/Contents/Info.plist");
+    // Naut.icns is the icon for macOS 14 and 15. Assets.car carries
+    // macos/Naut.icon (light and dark) for macOS 26 and later; it is
+    // committed because actool only reads .icon from Xcode 26 on:
+    //   xcrun actool macos/Naut.icon --compile <dir> --platform macosx \
+    //     --minimum-deployment-target 14.0 --app-icon Naut \
+    //     --output-partial-info-plist <dir>/partial.plist
     const install_icon = b.addInstallFile(b.path("macos/Naut.icns"), "Naut.app/Contents/Resources/Naut.icns");
+    const install_car = b.addInstallFile(b.path("macos/Assets.car"), "Naut.app/Contents/Resources/Assets.car");
     b.getInstallStep().dependOn(&install_bin.step);
     b.getInstallStep().dependOn(&install_plist.step);
     b.getInstallStep().dependOn(&install_icon.step);
+    b.getInstallStep().dependOn(&install_car.step);
 
     // ponytail: assumes the default zig-out prefix.
     const run = b.addSystemCommand(&.{ "open", "zig-out/Naut.app" });
