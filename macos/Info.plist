@@ -8,6 +8,8 @@
 	<string>com.frinfo702.naut</string>
 	<key>CFBundleExecutable</key>
 	<string>Naut</string>
+	<key>CFBundleIconFile</key>
+	<string>Naut</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

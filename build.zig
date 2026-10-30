@@ -100,8 +100,10 @@ pub fn build(b: *std.Build) void {
     const install_bin = b.addInstallFile(b.path(bin), "Naut.app/Contents/MacOS/Naut");
     install_bin.step.dependOn(&swift.step);
     const install_plist = b.addInstallFile(b.path("macos/Info.plist"), "Naut.app/Contents/Info.plist");
+    const install_icon = b.addInstallFile(b.path("macos/Naut.icns"), "Naut.app/Contents/Resources/Naut.icns");
     b.getInstallStep().dependOn(&install_bin.step);
     b.getInstallStep().dependOn(&install_plist.step);
+    b.getInstallStep().dependOn(&install_icon.step);
 
     // ponytail: assumes the default zig-out prefix.
     const run = b.addSystemCommand(&.{ "open", "zig-out/Naut.app" });
