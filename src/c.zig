@@ -175,20 +175,14 @@ test "c: render returns html and outline" {
 }
 
 test "c: theme colors come from page.css" {
-    // Every token the macOS app reads must exist and be a colour in both
-    // schemes; keep in sync with Theme in NautApp.swift.
-    const tokens = [_][*:0]const u8{
-        "--bg",       "--surface",     "--line",        "--guide", "--fg", "--fg-dim",
-        "--edge-top", "--edge-bottom", "--syn-keyword",
-    };
-    for (tokens) |t| for ([_]bool{ true, false }) |dark| {
-        var c: naut.css.Color = undefined;
-        try std.testing.expect(naut_theme_color(t, dark, &c));
-    };
+    // Which tokens the app needs is ThemeToken's business (NautKit tests
+    // check each one); here we only check the plumbing.
     var bg: naut.css.Color = undefined;
     try std.testing.expect(naut_theme_color("--bg", true, &bg));
     try std.testing.expectApproxEqAbs(0x10.0 / 255.0, bg.r, 0.001);
+    try std.testing.expect(naut_theme_color("--bg", false, &bg));
     try std.testing.expect(!naut_theme_color("--font", true, &bg));
+    try std.testing.expect(!naut_theme_color("--nope", true, &bg));
 }
 
 test "c: publish reports invalid input without touching the network" {

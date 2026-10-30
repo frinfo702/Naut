@@ -20,10 +20,13 @@ import Testing
     }
 }
 
-@Test func tokensResolveForBothSchemes() {
+@Test(arguments: ThemeToken.allCases, [true, false])
+func everyThemeTokenIsAColour(token: ThemeToken, dark: Bool) {
+    #expect(token.color(dark: dark) != nil, "\(token.rawValue) missing from page.css")
+}
+
+@Test func tokenValuesComeFromTheStylesheet() {
     // Components cross the C API as Float, so compare loosely.
-    #expect(abs((Tokens.color("--bg", dark: true)?.red ?? 0) - 0x10 / 255) < 0.001)
-    #expect(Tokens.color("--edge-top", dark: true)?.alpha ?? 0 > 0)
-    #expect(Tokens.color("--bg", dark: false) != nil)
-    #expect(Tokens.color("--nope", dark: true) == nil)
+    #expect(abs((ThemeToken.bg.color(dark: true)?.red ?? 0) - 0x10 / 255) < 0.001)
+    #expect((ThemeToken.edgeTop.color(dark: true)?.alpha ?? 1) < 1)
 }

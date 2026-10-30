@@ -23,14 +23,23 @@ public enum Markdown {
     }
 }
 
-/// Design tokens from the page stylesheet, so native UI uses the same
-/// palette as rendered notes.
-public enum Tokens {
-    /// sRGB components in 0...1, or nil if `name` (e.g. "--bg") is missing
-    /// or not a colour.
-    public static func color(_ name: String, dark: Bool) -> (red: Double, green: Double, blue: Double, alpha: Double)? {
+/// The colour tokens in page.css that native UI draws with. Listing them
+/// here, rather than passing strings around, is what lets a test check
+/// every token the app uses against the stylesheet.
+public enum ThemeToken: String, CaseIterable, Sendable {
+    case bg = "--bg"
+    case surface = "--surface"
+    case guide = "--guide"
+    case fg = "--fg"
+    case fgDim = "--fg-dim"
+    case edgeTop = "--edge-top"
+    case edgeBottom = "--edge-bottom"
+
+    /// sRGB components in 0...1, or nil if the stylesheet lacks the token
+    /// or it isn't a colour.
+    public func color(dark: Bool) -> (red: Double, green: Double, blue: Double, alpha: Double)? {
         var c = naut_color_s()
-        guard naut_theme_color(name, dark, &c) else { return nil }
+        guard naut_theme_color(rawValue, dark, &c) else { return nil }
         return (Double(c.r), Double(c.g), Double(c.b), Double(c.a))
     }
 }

@@ -41,17 +41,17 @@ struct NautApp: App {
 
 /// Colours are read from the tokens in src/page.css through libnaut, so the
 /// native chrome and the rendered note are one palette by construction.
-/// Each adapts to light and dark. The token list is checked by a test in
-/// src/c.zig.
+/// Each adapts to light and dark. NautKit's tests check every ThemeToken
+/// against the stylesheet.
 enum Theme {
-    static let bg = Color(token: "--bg")
-    static let surface = Color(token: "--surface")
-    static let guide = Color(token: "--guide")
-    static let fg = Color(token: "--fg")
-    static let fgDim = Color(token: "--fg-dim")
+    static let bg = Color(token: .bg)
+    static let surface = Color(token: .surface)
+    static let guide = Color(token: .guide)
+    static let fg = Color(token: .fg)
+    static let fgDim = Color(token: .fgDim)
     /// The lit edge: brightest on top, fading down the sides.
     static let edge = LinearGradient(
-        colors: [Color(token: "--edge-top"), Color(token: "--edge-bottom")],
+        colors: [Color(token: .edgeTop), Color(token: .edgeBottom)],
         startPoint: .top,
         endPoint: .bottom
     )
@@ -84,10 +84,10 @@ enum Metrics {
 extension Color {
     /// A token from page.css. Both schemes are resolved once, up front;
     /// the dynamic provider runs on every redraw and must stay cheap.
-    init(token: String) {
+    init(token: ThemeToken) {
         func resolve(dark: Bool) -> NSColor {
-            guard let c = Tokens.color(token, dark: dark) else {
-                assertionFailure("missing colour token \(token)")
+            guard let c = token.color(dark: dark) else {
+                assertionFailure("missing colour token \(token.rawValue)")
                 return .magenta
             }
             return NSColor(srgbRed: c.red, green: c.green, blue: c.blue, alpha: c.alpha)
