@@ -13,6 +13,9 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(Metrics.sidebarWidth)
         } detail: {
             detail
+                // The title bar takes the note's background, so the window
+                // reads as one surface instead of a grey band on top.
+                .toolbarBackground(Theme.bg, for: .windowToolbar)
         }
         .background(Theme.bg)
         .task {
