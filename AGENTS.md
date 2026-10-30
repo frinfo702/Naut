@@ -12,6 +12,10 @@ A file for [guiding coding agents](https://agents.md/).
   - Prefer to run targeted tests with `-Dtest-filter` because the full
     test suite is slow to run.
 - **Test filter (Zig)**: `zig build test -Dtest-filter=<test name>`
+- **Snapshot (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --snapshot out.png [--note Name] [--light]`
+  - Renders the window, including the web preview and toolbar, to a PNG
+    and quits. Needs no Screen Recording permission. Look at a snapshot
+    after every UI change; "it builds" is not "it looks right".
 - **Formatting (Zig)**: `zig fmt .`
 - **Formatting (Swift)**: `swiftlint lint --strict --fix`
 - **Formatting (other)**: `prettier -w .`

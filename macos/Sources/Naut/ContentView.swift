@@ -15,6 +15,12 @@ struct ContentView: View {
             detail
         }
         .background(Theme.bg)
+        .task {
+            if let path = Snapshot.path {
+                if let name = Snapshot.note { store.selection = store.notes.first { $0.name == name }?.id }
+                await Snapshot.capture(to: path)
+            }
+        }
         .alert("Publishing failed", isPresented: Binding(
             get: { store.error != nil },
             set: { if !$0 { store.error = nil } }
@@ -146,7 +152,10 @@ struct Editor: View {
             .font(.system(size: Metrics.editorFontSize, design: .monospaced))
             .foregroundStyle(Theme.fg)
             .scrollContentBackground(.hidden)
-            .contentMargins(Metrics.editorInset, for: .scrollContent)
+            // contentMargins has no effect on TextEditor (it was set here
+            // and the text sat on the edge), so inset the whole view.
+            .padding(.horizontal, Metrics.editorInset - 5) // NSTextView adds 5pt line padding
+            .padding(.vertical, Metrics.editorInset)
             .background(Theme.surface)
     }
 }

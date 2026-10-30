@@ -10,6 +10,7 @@ struct NautApp: App {
         // Launched as a bare SwiftPM binary (swift run) there is no bundle
         // to make us a regular app; do it by hand so we get a Dock icon.
         NSApplication.shared.setActivationPolicy(.regular)
+        Snapshot.prepare()
     }
 
     var body: some Scene {
