@@ -55,6 +55,7 @@ struct ContentView: View {
                         text: $store.text,
                         font: store.textNSFont,
                         mono: store.sourceNSFont,
+                        lineHeight: store.density.lineHeight,
                         outline: store.outline,
                         baseURL: store.folder,
                         scrollTarget: $scrollTarget
@@ -73,7 +74,7 @@ struct ContentView: View {
     }
 
     private var previewStyle: Preview.Style {
-        Preview.Style(textFont: store.textFont, textSize: store.textSize, sourceFont: store.sourceFont)
+        Preview.Style(textFont: store.textFont, textSize: store.textSize, sourceFont: store.sourceFont, lineHeight: store.density.lineHeight)
     }
 
     @ToolbarContentBuilder

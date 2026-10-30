@@ -106,8 +106,9 @@ final class Store {
         didSet { UserDefaults.standard.set(editorMode.rawValue, forKey: "editorMode") }
     }
 
-    /// Font families; empty means the default (the system font for text,
-    /// the system monospaced font for source and code).
+    /// Font families; empty means the default (Suisse Intl if installed,
+    /// else the system font, for text; the system monospaced font for
+    /// source and code).
     var textFont = UserDefaults.standard.string(forKey: "textFont") ?? "" {
         didSet { UserDefaults.standard.set(textFont, forKey: "textFont") }
     }
@@ -124,7 +125,25 @@ final class Store {
         didSet { UserDefaults.standard.set(sourceSize, forKey: "sourceSize") }
     }
 
-    var textNSFont: NSFont { Self.font(textFont, size: textSize, fallback: .systemFont(ofSize: textSize)) }
+    var textNSFont: NSFont {
+        Self.font(textFont.isEmpty ? Metrics.textFamily : textFont, size: textSize, fallback: .systemFont(ofSize: textSize))
+    }
+
+    /// How far apart lines of text are.
+    enum Density: String, CaseIterable {
+        /// Like Rex's docs: tighter lines, more on screen.
+        case compact
+        /// page.css's own spacing.
+        case comfortable
+
+        var title: String { rawValue.capitalized }
+        /// CSS line-height.
+        var lineHeight: Double { self == .compact ? 1.55 : 1.75 }
+    }
+
+    var density = Density(rawValue: UserDefaults.standard.string(forKey: "density") ?? "") ?? .compact {
+        didSet { UserDefaults.standard.set(density.rawValue, forKey: "density") }
+    }
     var sourceNSFont: NSFont {
         Self.font(sourceFont, size: sourceSize, fallback: .monospacedSystemFont(ofSize: sourceSize, weight: .regular))
     }

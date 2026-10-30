@@ -18,6 +18,7 @@ struct Preview: NSViewRepresentable {
         var textFont: String
         var textSize: Double
         var sourceFont: String
+        var lineHeight: Double
 
         var script: String {
             func stack(_ family: String, _ fallback: String) -> String {
@@ -27,14 +28,16 @@ struct Preview: NSViewRepresentable {
                 stack(textFont, "-apple-system, sans-serif"),
                 stack(sourceFont, "ui-monospace, monospace"),
                 "\(textSize)px",
+                "\(lineHeight)",
             ])).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
             return """
                 (() => {
-                  const [font, mono, size] = \(json);
+                  const [font, mono, size, lineHeight] = \(json);
                   const s = document.documentElement.style;
                   s.setProperty("--font", font);
                   s.setProperty("--mono", mono);
                   document.body.style.fontSize = size;
+                  document.body.style.lineHeight = lineHeight;
                 })()
                 """
         }

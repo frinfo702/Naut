@@ -19,6 +19,8 @@ struct LiveEditor: NSViewRepresentable {
     @Binding var text: String
     let font: NSFont
     let mono: NSFont
+    /// CSS line-height of body text.
+    let lineHeight: Double
     let outline: [Heading]
     /// Relative image paths resolve against this, as in the preview.
     let baseURL: URL
@@ -74,6 +76,10 @@ struct LiveEditor: NSViewRepresentable {
         guard let view = scroll.documentView as? LiveTextView else { return }
         let c = context.coordinator
         var dirty = c.font != font || c.mono != mono || c.baseURL != baseURL
+        if let layout = view.layoutManager as? LiveLayout, layout.lineHeight != lineHeight {
+            layout.lineHeight = lineHeight
+            dirty = true
+        }
         c.font = font
         c.mono = mono
         c.baseURL = baseURL

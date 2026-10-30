@@ -36,7 +36,7 @@
   --measure: 760px;
   --nav-width: 300px;
 
-  --font: -apple-system, BlinkMacSystemFont, "Inter", "Hiragino Sans", system-ui, sans-serif;
+  --font: "Suisse Intl", -apple-system, BlinkMacSystemFont, "Inter", "Hiragino Sans", system-ui, sans-serif;
   --mono: "SF Mono", ui-monospace, Menlo, monospace;
 }
 

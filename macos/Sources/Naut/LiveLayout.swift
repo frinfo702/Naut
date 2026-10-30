@@ -146,14 +146,20 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
 
     var state = State()
 
+    /// Body text's CSS line-height, from Settings.
+    var lineHeight: Double = Store.Density.compact.lineHeight
+
     /// Extra space per line as a fraction of its text height, split above
-    /// and below: page.css sets 1.75 against a font's own ~1.2.
-    static let lineSpacing: CGFloat = 0.45
-    /// A hidden fence's line height, plus the outset below, is a code
-    /// block's padding: page.css's 18px.
+    /// and below: a CSS line-height is against the font size, and a font's
+    /// own line is about 1.2 of it.
+    private var lineSpacing: CGFloat { max(0, lineHeight / 1.2 - 1) }
+    /// A hidden fence's line is the space outside a code block and the
+    /// padding inside it, so the box never touches the text around it.
+    /// The code lines' own spacing adds to the padding: page.css's 18px.
+    static let codeMargin: CGFloat = 14
     static let codePadding: CGFloat = 12
-    static let codeOutset: CGFloat = 6
-    static let blockMargin: CGFloat = 10
+    /// Space above and below a drawn block (math, table, picture).
+    static let blockMargin: CGFloat = 14
 
     override init() {
         super.init()
@@ -244,7 +250,7 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
             used.pointee.size.height = min(used.pointee.height, height)
             return true
         }
-        var extra = used.pointee.height * Self.lineSpacing
+        var extra = used.pointee.height * lineSpacing
         for (c, math) in state.inlineMath where NSLocationInRange(c, chars) {
             extra = max(extra, math.size.height + 4 - used.pointee.height)
         }
@@ -256,7 +262,7 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
 
     /// The empty line after a final newline. Same spacing, same caret.
     override func setExtraLineFragmentRect(_ rect: NSRect, usedRect: NSRect, textContainer container: NSTextContainer) {
-        let extra = usedRect.height * Self.lineSpacing
+        let extra = usedRect.height * lineSpacing
         var rect = rect
         var used = usedRect
         rect.size.height += extra
@@ -440,7 +446,7 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         guard let container = textContainers.first, let (top, bottom) = verticalExtent(of: block) else { return nil }
         let pad = container.lineFragmentPadding
         return NSRect(x: pad, y: top, width: container.size.width - 2 * pad, height: bottom - top)
-            .insetBy(dx: 0, dy: -Self.codeOutset)
+            .insetBy(dx: 0, dy: Self.codeMargin)
     }
 
     /// The language label's rect: top right, inside the padding.
@@ -541,7 +547,7 @@ extension LiveLayout.State {
                 languages[e.scope.location] = language.isEmpty ? "plain text" : language
                 for m in e.markers {
                     hide(m)
-                    lineHeights[m.location] = LiveLayout.codePadding
+                    lineHeights[m.location] = LiveLayout.codeMargin + LiveLayout.codePadding
                 }
             case let .mathBlock(tex):
                 // Drawn by WebKit; until then, and when empty, a placeholder.
@@ -550,10 +556,11 @@ extension LiveLayout.State {
                     : rendered("$$\n\(tex)\n$$") ?? Self.placeholder(tex, font: small)
                 fold(e.range, into: image, centered: true)
             case .table:
-                // Laid out to the text's width, as on the page. Rounded so a
-                // window resize doesn't render every pixel width.
+                // Laid out to the text's width, as on the page, so its edges
+                // line up with code blocks. The width only changes in windows
+                // narrower than the measure.
                 let source = string.substring(with: e.range)
-                fold(e.range, into: rendered(source, width: (width / 20).rounded(.down) * 20) ?? Self.placeholder(source, font: small))
+                fold(e.range, into: rendered(source, width: width.rounded(.down)) ?? Self.placeholder(source, font: small))
             case let .image(source):
                 let url = URL(string: source).flatMap { $0.scheme == nil ? nil : $0 }
                     ?? URL(filePath: source.removingPercentEncoding ?? source, relativeTo: baseURL)

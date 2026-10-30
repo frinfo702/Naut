@@ -85,7 +85,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     private var keywords: [String] {
         switch self {
         case .appearance: ["theme", "dark", "light", "color", "colour", "scheme"]
-        case .editor: ["font", "size", "typography", "live", "preview", "split", "markdown", "source"]
+        case .editor: ["font", "size", "typography", "live", "preview", "split", "markdown", "source", "line", "spacing", "density", "compact", "comfortable"]
         case .notes: ["folder", "files", "markdown", "finder", "location"]
         case .publishing: ["cloudflare", "web", "publish", "token", "account", "workers", "terraform"]
         case .shortcuts: ["keyboard", "keys", "bindings", "hotkeys"]
@@ -451,20 +451,28 @@ private struct EditorPane: View {
             }
         }
 
-        SettingsGroup(title: "Text", footer: "The page and Live Preview.") {
-            SettingsRow(title: "Font") { fontPicker($store.textFont) }
-            SettingsRow(title: "Size", divider: false) { sizeStepper($store.textSize, range: 12...28) }
+        SettingsGroup(title: "Text", footer: "The page and Live Preview. The default is Suisse Intl when it's installed, otherwise the system font.") {
+            SettingsRow(title: "Font") { fontPicker($store.textFont, defaultName: Metrics.textFamily) }
+            SettingsRow(title: "Size") { sizeStepper($store.textSize, range: 12...28) }
+            SettingsRow(title: "Line spacing", divider: false) {
+                Picker("", selection: $store.density) {
+                    ForEach(Store.Density.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
         }
 
         SettingsGroup(title: "Source", footer: "The Markdown editor in Split, and code everywhere.") {
-            SettingsRow(title: "Font") { fontPicker($store.sourceFont) }
+            SettingsRow(title: "Font") { fontPicker($store.sourceFont, defaultName: "System Mono") }
             SettingsRow(title: "Size", divider: false) { sizeStepper($store.sourceSize, range: 9...24) }
         }
     }
 
-    private func fontPicker(_ selection: Binding<String>) -> some View {
+    private func fontPicker(_ selection: Binding<String>, defaultName: String) -> some View {
         Picker("", selection: selection) {
-            Text("Default").tag("")
+            Text("Default (\(defaultName))").tag("")
             Divider()
             ForEach(families, id: \.self) { Text($0).tag($0) }
         }

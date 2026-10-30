@@ -78,6 +78,9 @@ enum Metrics {
     static let editorInset: CGFloat = 24
     /// Body text in the preview and live editor, as in page.css.
     static let textFontSize: CGFloat = 17
+    /// The default text font when installed, first in page.css's --font.
+    /// It's commercial, so it isn't shipped; without it, the system font.
+    static let textFamily = "Suisse Intl"
     /// Line length of the live editor, page.css's --measure.
     static let measure: CGFloat = 760
 

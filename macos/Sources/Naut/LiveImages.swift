@@ -89,7 +89,7 @@ final class LiveImages: NSObject, WKNavigationDelegate {
             document.body.style.cssText = "margin:0;padding:0;background:transparent;font-size:" + size + "px";
             const main = document.querySelector("main");
             main.style.maxWidth = "none";
-            main.innerHTML = '<div id="m" style="display:' + (width ? 'block;width:' + width + 'px' : 'inline-block') + ';padding:2px 1px">' + html + '</div>';
+            main.innerHTML = '<div id="m" style="display:' + (width ? 'block;width:' + width + 'px;padding:2px 0' : 'inline-block;padding:2px 1px') + '">' + html + '</div>';
             main.querySelectorAll("p, div.math, math, div.table").forEach(e => e.style.margin = "0");
             const r = document.getElementById("m").getBoundingClientRect();
             return [r.left, r.top, r.width, r.height];
