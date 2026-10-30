@@ -5,11 +5,18 @@
   color-scheme: dark light;
 
   /* Surfaces */
-  --bg: #111211;
-  --surface: #1a1b1a;
+  --bg: #10120f;
+  --surface: #191c17;
   --surface-raised: #1f201f;
   --line: #2c2d2b;
   --guide: #3e3f3c;
+
+  /* Lit edge: raised surfaces look lit from above, so their border is
+     brightest on top and fades down the sides. Measured from Rex's docs:
+     #373936 on top, #1e201d at the bottom, over #10120f. */
+  --edge-top: rgb(255 255 255 / 0.16);
+  --edge-bottom: rgb(255 255 255 / 0.06);
+  --lift: rgb(0 0 0 / 0.45);
 
   /* Text */
   --fg: #f1f1ee;
@@ -40,6 +47,9 @@
     --surface-raised: #ecece8;
     --line: #e0e0db;
     --guide: #cfcfca;
+    --edge-top: rgb(0 0 0 / 0.06);
+    --edge-bottom: rgb(0 0 0 / 0.13);
+    --lift: rgb(0 0 0 / 0.06);
     --fg: #161715;
     --fg-body: #3b3d39;
     --fg-dim: #7a7c76;
@@ -158,10 +168,20 @@ code {
   border-radius: var(--radius-sm);
 }
 
+/* A raised surface with a lit edge. The gradient border is painted as a
+   border-box background under an opaque padding-box one, because
+   border-image doesn't follow border-radius. */
+pre, .table {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    linear-gradient(var(--edge-top), var(--edge-bottom)) border-box,
+    linear-gradient(var(--bg), var(--bg)) border-box;
+  box-shadow: 0 1px 3px var(--lift);
+}
+
 pre {
   position: relative;
-  background: var(--surface);
-  border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 18px 22px;
   overflow-x: auto;
@@ -189,7 +209,6 @@ pre .copy:hover { color: var(--fg); background: var(--surface-raised); }
 /* Tables ------------------------------------------------------------ */
 
 .table {
-  border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow-x: auto;
 }
