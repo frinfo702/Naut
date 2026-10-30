@@ -439,7 +439,7 @@ private struct EditorPane: View {
 
         SettingsGroup(
             title: "Mode",
-            footer: "Split shows the Markdown beside the page. Live Preview is one pane that reads like the page and shows Markdown only on the line you're editing."
+            footer: "Split shows the Markdown beside the page. Live Preview is one pane edited like the page, as in Notion: Markdown shortcuts format as you type and never show; click an equation, table or image to edit it."
         ) {
             SettingsRow(title: "Editing", divider: false) {
                 Picker("", selection: $store.editorMode) {

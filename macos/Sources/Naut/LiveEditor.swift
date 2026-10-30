@@ -2,17 +2,19 @@ import AppKit
 import NautKit
 import SwiftUI
 
-/// One pane that is both source and page, like Obsidian's Live Preview.
-/// The Markdown is styled as it will read; its syntax (`##`, `**`, link
-/// targets, code fences) shows only where the caret is, and math is drawn
-/// as on the page until the caret enters it. The file stays plain
-/// Markdown: only drawing changes, never the characters.
+/// One pane that reads like the page and is edited in place, like Notion.
+/// Markdown syntax is never shown: `## ` makes a heading as it is typed
+/// and then hides, `**` wraps bold, Return continues a list, ``` or $$
+/// then Return makes a block. Math, tables and pictures are always drawn;
+/// a click edits their source in a popover. The file stays plain Markdown:
+/// only drawing changes, never the characters. How the caret moves and
+/// what deleting does around hidden syntax is `LiveEditing`, in NautKit.
 ///
 /// Built on TextKit 1 because it can hide glyphs without touching the
-/// text (glyph properties, WWDC 2018 "TextKit Best Practices") and lets the line-height delegate move the baseline and
-/// the used rect together, which keeps the caret and the input method's
-/// candidate window at the height of the text instead of the line.
-///
+/// text (glyph properties, WWDC 2018 "TextKit Best Practices") and lets
+/// the line-height delegate move the baseline and the used rect together,
+/// which keeps the caret and the input method's candidate window at the
+/// height of the text instead of the line.
 struct LiveEditor: NSViewRepresentable {
     @Binding var text: String
     let font: NSFont
@@ -57,6 +59,9 @@ struct LiveEditor: NSViewRepresentable {
         c.layout = layout
         view.appearanceChanged = { [weak c] in c?.refresh() }
         view.widthChanged = { [weak c] in c?.refresh() }
+        view.click = { [weak c] in c?.click(at: $0) ?? false }
+        view.key = { [weak c] in c?.key($0) ?? false }
+        view.adjustSelection = { [weak c] in c?.adjust(from: $0, to: $1) ?? $1 }
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -68,12 +73,13 @@ struct LiveEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let view = scroll.documentView as? LiveTextView else { return }
         let c = context.coordinator
-        var dirty = c.font != font || c.mono != mono
+        var dirty = c.font != font || c.mono != mono || c.baseURL != baseURL
         c.font = font
         c.mono = mono
         c.baseURL = baseURL
         // Only a different note gets here: edits already updated `text`.
         if view.string != text, !view.hasMarkedText() {
+            c.closePopover()
             view.string = text
             view.setSelectedRange(NSRange(location: 0, length: 0))
             // Undo would otherwise apply the last note's edits to this one.
@@ -97,10 +103,24 @@ struct LiveEditor: NSViewRepresentable {
         var mono = NSFont.monospacedSystemFont(ofSize: Metrics.editorFontSize, weight: .regular)
         var baseURL = URL.documentsDirectory
 
-        private var elements: [LiveMarkdown.Element] = []
-        /// Indexes into `elements` the caret is in.
-        private var editing: Set<Int> = []
+        private var editing = LiveEditing(text: "", elements: [])
         private var observer: NSObjectProtocol?
+        /// Set while applying our own edit, so the delegate lets it through.
+        private var applying = false
+        /// Set from a change being allowed until it lands: selection
+        /// changes meanwhile are the text view's own and must not snap
+        /// against the parse of the old text.
+        private var changing = false
+        /// Set while we place the caret ourselves.
+        private var placing = false
+
+        private var popover: SourcePopover?
+        /// The source the popover edits, kept current as it edits.
+        private var popoverRange = NSRange(location: 0, length: 0)
+        /// Whether that source is a block's, so closing moves below it.
+        private var popoverIsBlock = false
+        /// Where the caret goes back to on closing, if not after the source.
+        private var popoverReturn: NSRange?
 
         init(text: Binding<String>) {
             _text = text
@@ -110,21 +130,53 @@ struct LiveEditor: NSViewRepresentable {
             }
         }
 
-        // MARK: Input
+        // MARK: Text changes
+
+        func textView(_ view: NSTextView, shouldChangeTextIn range: NSRange, replacementString string: String?) -> Bool {
+            // Our own edits, input method composition, and attribute-only
+            // changes go through as they are.
+            guard !applying, let string, !view.hasMarkedText() else {
+                changing = true
+                return true
+            }
+            let edit = string.isEmpty
+                ? editing.delete(range, selection: view.selectedRange())
+                : editing.insert(range, string)
+            guard edit != .allow else {
+                changing = true
+                return true
+            }
+            // Not from inside the text view's own change.
+            DispatchQueue.main.async { self.apply(edit) }
+            return false
+        }
 
         func textDidChange(_ note: Notification) {
             guard let view else { return }
+            changing = false
             text = view.string
             // While an input method is composing, its marked text carries
             // the composition's underline; restyling would wipe it. The
             // commit is another change, and restyles then.
             guard !view.hasMarkedText() else { return }
             restyle()
+            // Typing that completes a table leaves the caret in it: carry on
+            // in the popover.
+            if !applying, popover == nil { openIfInside() }
         }
 
-        func textViewDidChangeSelection(_ note: Notification) {
-            guard let view, !view.hasMarkedText() else { return }
-            updateEditing(invalidate: true)
+        func textView(_ view: NSTextView, doCommandBy selector: Selector) -> Bool {
+            guard !view.hasMarkedText(), selector == #selector(NSResponder.insertNewline(_:)) else { return false }
+            // Return on a selected block edits it.
+            let selection = view.selectedRange()
+            if let zone = editing.zone(at: selection.location), selection == zone.range {
+                open(zone.element)
+                return true
+            }
+            let edit = editing.newline(selection)
+            guard edit != .allow else { return false }
+            apply(edit)
+            return true
         }
 
         /// Keep the layout state on the same characters as text moves
@@ -142,6 +194,227 @@ struct LiveEditor: NSViewRepresentable {
             }
         }
 
+        // MARK: Selection
+
+        /// The caret steps over hidden syntax instead of stopping in it.
+        func textView(
+            _ view: NSTextView,
+            willChangeSelectionFromCharacterRanges old: [NSValue],
+            toCharacterRanges new: [NSValue]
+        ) -> [NSValue] {
+            guard new.count == 1, let from = old.first?.rangeValue else { return new }
+            return [NSValue(range: adjust(from: from, to: new[0].rangeValue))]
+        }
+
+        /// Where a selection moving from `from` to `to` should be instead.
+        /// Asked by the delegate method above and, while the mouse is
+        /// down, by the text view itself: it doesn't ask its delegate
+        /// until the mouse comes up, and until then would draw the caret
+        /// inside hidden syntax (above an equation, say) and then jump.
+        func adjust(from: NSRange, to: NSRange) -> NSRange {
+            guard !placing, !changing, let view, !view.hasMarkedText() else { return to }
+            guard to.length == 0 else { return editing.expand(to) }
+            let mouse: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+            let motion: LiveEditing.Motion = NSApp.currentEvent.map { mouse.contains($0.type) } == true
+                ? .nearest
+                : to.location >= from.location ? .forward : .backward
+            return NSRange(location: editing.snap(to.location, from: from.location, motion), length: 0)
+        }
+
+        func textViewDidChangeSelection(_ note: Notification) {
+            // Selected blocks draw their own highlight.
+            view?.needsDisplay = true
+        }
+
+        // MARK: Editing
+
+        private func apply(_ edit: LiveEditing.Edit) {
+            guard let view else { return }
+            switch edit {
+            case .allow, .ignore:
+                return
+            case let .select(r):
+                place(r)
+                view.scrollRangeToVisible(r)
+            case let .replace(r, s, select):
+                replace(r, with: s)
+                place(select)
+                openIfInside()
+            }
+        }
+
+        /// Replace text as an undoable edit of the text view.
+        private func replace(_ range: NSRange, with string: String) {
+            guard let view, let storage = view.textStorage else { return }
+            applying = true
+            defer { applying = false }
+            guard view.shouldChangeText(in: range, replacementString: string) else { return }
+            storage.replaceCharacters(in: range, with: string)
+            view.didChangeText()
+        }
+
+        private func place(_ r: NSRange) {
+            placing = true
+            view?.setSelectedRange(r)
+            placing = false
+        }
+
+        func key(_ event: NSEvent) -> Bool {
+            guard let view, !view.hasMarkedText() else { return false }
+            let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            let selection = view.selectedRange()
+            switch (flags, event.charactersIgnoringModifiers?.lowercased()) {
+            case ([.command], "b"): apply(editing.toggle(.strong, marker: "**", selection: selection))
+            case ([.command], "i"): apply(editing.toggle(.emphasis, marker: "*", selection: selection))
+            case ([.command], "e"): apply(editing.toggle(.code, marker: "`", selection: selection))
+            case ([.command, .shift], "x"): apply(editing.toggle(.strikethrough, marker: "~~", selection: selection))
+            case ([.command], "k"): link(selection)
+            default: return false
+            }
+            return true
+        }
+
+        /// ⌘K: edit the URL of the link at the selection, or make the
+        /// selection a link and ask for its URL.
+        private func link(_ selection: NSRange) {
+            if let i = editing.elements.firstIndex(where: { $0.kind == .link && NSLocationInRange(selection.location, $0.range) }) {
+                open(i)
+                return
+            }
+            let label = editing.text.substring(with: selection)
+            guard selection.length > 0, !label.contains("\n") else { return }
+            replace(selection, with: "[\(label)]()")
+            if let i = editing.elements.firstIndex(where: { $0.kind == .link && $0.range.location == selection.location }) {
+                open(i)
+            }
+        }
+
+        // MARK: Popover
+
+        func click(at point: NSPoint) -> Bool {
+            guard let view, let layout else { return false }
+            let p = NSPoint(x: point.x - view.textContainerOrigin.x, y: point.y - view.textContainerOrigin.y)
+            // A task's box checks and unchecks it.
+            if let c = layout.task(at: p) {
+                let mark = NSRange(location: c + 1, length: 1)
+                replace(mark, with: editing.text.substring(with: mark) == " " ? "x" : " ")
+                return true
+            }
+            if let c = layout.languageLabel(at: p), let i = editing.elements.firstIndex(where: { $0.scope.location == c }) {
+                open(i)
+                return true
+            }
+            // The layout keys what it draws by its first character.
+            guard let c = layout.atom(at: p), let i = editing.atoms.first(where: { editing.elements[$0].range.location == c }) else { return false }
+            open(i)
+            return true
+        }
+
+        /// Opens the popover if the caret has ended up inside a block.
+        private func openIfInside() {
+            guard let view, view.selectedRange().length == 0 else { return }
+            let p = view.selectedRange().location
+            guard let zone = editing.zone(at: p) else { return }
+            open(zone.element, caret: p)
+        }
+
+        /// Edit element `i`'s source in a popover.
+        func open(_ i: Int, caret: Int? = nil) {
+            guard let view, let layout, let container = view.textContainer, i < editing.elements.count else { return }
+            let e = editing.elements[i]
+            let t = editing.text
+            let range: NSRange, multiline: Bool, title: String, anchor: NSRect
+            var select = e.range
+            switch e.kind {
+            case .mathBlock:
+                (range, multiline, title) = (e.content, true, "Equation")
+            case .math:
+                (range, multiline, title) = (e.content, false, "Inline equation")
+            case .table:
+                (range, multiline, title) = (e.range, true, "Table")
+            case .image:
+                (range, multiline, title) = (e.content, false, "Image URL")
+            case .link:
+                // Between "](" and ")".
+                let m = e.markers[1]
+                (range, multiline, title) = (NSRange(location: m.location + 2, length: m.length - 3), false, "Link URL")
+                select = NSRange(location: NSMaxRange(e.range), length: 0)
+            case .codeBlock:
+                // After the ``` of the opening fence.
+                let fence = e.markers[0]
+                let ticks = (t.substring(with: fence) as NSString).range(of: "^[ \\t]*[`~]{3}[ \\t]*", options: .regularExpression)
+                (range, multiline, title) = (NSRange(location: fence.location + ticks.length, length: fence.length - ticks.length), false, "Language")
+                select = view.selectedRange()
+            default:
+                return
+            }
+            switch e.kind {
+            case .codeBlock:
+                anchor = layout.labelRect(e.scope) ?? .zero
+            case .link:
+                anchor = layout.boundingRect(forGlyphRange: layout.glyphRange(forCharacterRange: e.content, actualCharacterRange: nil), in: container)
+            default:
+                anchor = layout.rect(of: e.range.location) ?? .zero
+                select = editing.zone(at: e.range.location)?.range ?? e.range
+            }
+
+            closePopover()
+            popoverRange = range
+            popoverIsBlock = editing.zone(at: e.range.location) != nil
+            if case .codeBlock = e.kind { popoverReturn = view.selectedRange() } else { popoverReturn = nil }
+            let popover = SourcePopover(
+                title: title,
+                text: t.substring(with: range),
+                multiline: multiline,
+                font: mono,
+                onChange: { [weak self] in self?.popoverChanged($0) },
+                onClose: { [weak self] in self?.popoverClosed() }
+            )
+            self.popover = popover
+            // The block shows as selected while it is edited.
+            place(select)
+            popover.show(
+                relativeTo: anchor.offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y),
+                of: view,
+                caret: caret.map { $0 - range.location }
+            )
+        }
+
+        private func popoverChanged(_ source: String) {
+            replace(popoverRange, with: source)
+            popoverRange.length = (source as NSString).length
+            if popoverIsBlock, let zone = editing.zone(at: popoverRange.location) { place(zone.range) }
+        }
+
+        private func popoverClosed() {
+            guard popover != nil, let view else { return }
+            popover = nil
+            view.window?.makeFirstResponder(view)
+            // Carry on after what was edited: below a block, on a new line
+            // if the block ends the note.
+            if let back = popoverReturn {
+                place(back)
+                return
+            }
+            var caret = NSMaxRange(popoverRange)
+            if popoverIsBlock, let zone = editing.zone(at: popoverRange.location) {
+                if NSMaxRange(zone.range) == editing.text.length {
+                    replace(NSRange(location: editing.text.length, length: 0), with: "\n")
+                }
+                caret = NSMaxRange(zone.range) + 1
+            } else if let span = editing.inline.first(where: { NSLocationInRange(caret, $0) }) {
+                // After a link's or an equation's closing syntax.
+                caret = NSMaxRange(span)
+            }
+            place(NSRange(location: min(caret, editing.text.length), length: 0))
+        }
+
+        func closePopover() {
+            let p = popover
+            popover = nil
+            p?.close()
+        }
+
         // MARK: Styling
 
         /// Parse and style the whole note.
@@ -151,10 +424,10 @@ struct LiveEditor: NSViewRepresentable {
         /// long ones ever lag.
         func restyle() {
             guard let view, let storage = view.textStorage else { return }
-            elements = LiveMarkdown.parse(storage.string)
+            let elements = LiveMarkdown.parse(storage.string)
+            editing = LiveEditing(text: storage.string, elements: elements)
             let style = LiveStyle(font: font, mono: mono)
-            editing = []
-            updateEditing(invalidate: false)
+            updateLayout()
             storage.beginEditing()
             storage.setAttributes(style.body, range: NSRange(location: 0, length: storage.length))
             for e in elements { style.apply(e, to: storage) }
@@ -162,48 +435,29 @@ struct LiveEditor: NSViewRepresentable {
             if storage.length == 0 { view.typingAttributes = style.body }
         }
 
-        /// Redo the layout state, e.g. when math images arrive or the
-        /// appearance changes.
+        /// Redo the layout state, e.g. when images arrive or the
+        /// appearance or width changes.
         func refresh() {
             guard let layout, let storage = view?.textStorage else { return }
-            updateEditing(invalidate: false)
+            updateLayout()
             let all = NSRange(location: 0, length: storage.length)
             layout.invalidateGlyphs(forCharacterRange: all, changeInLength: 0, actualCharacterRange: nil)
             layout.invalidateLayout(forCharacterRange: all, actualCharacterRange: nil)
             view?.needsDisplay = true
         }
 
-        /// Work out which elements the caret is in and what that hides.
-        private func updateEditing(invalidate: Bool) {
+        private func updateLayout() {
             guard let view, let layout else { return }
-            let string = view.string as NSString
-            let selection = view.selectedRange()
-            let caretLines = string.lineRange(for: selection)
-            func isEditing(_ scope: NSRange) -> Bool {
-                NSIntersectionRange(scope, caretLines).length > 0
-                    || NSLocationInRange(selection.location, scope)
-                    // The end of a last line with no newline after it.
-                    || (selection.location == NSMaxRange(scope) && selection.location == string.length)
-            }
-            let now = Set(elements.indices.filter { isEditing(elements[$0].scope) })
-            let changed = now.symmetricDifference(editing)
-            editing = now
-            let container = view.textContainer.map { $0.size.width - 2 * $0.lineFragmentPadding } ?? Metrics.measure
+            let width = view.textContainer.map { $0.size.width - 2 * $0.lineFragmentPadding } ?? Metrics.measure
             layout.state = LiveLayout.State(
-                elements: elements, editing: now, string: string,
-                font: font, dark: view.effectiveAppearance.isDark, width: container, baseURL: baseURL
+                elements: editing.elements, string: editing.text, font: font, mono: mono,
+                dark: view.effectiveAppearance.isDark, width: width, baseURL: baseURL
             )
-
-            guard invalidate, !changed.isEmpty else { return }
-            let range = changed.map { elements[$0].scope }.reduce(elements[changed.first!].scope, NSUnionRange)
-            layout.invalidateGlyphs(forCharacterRange: range, changeInLength: 0, actualCharacterRange: nil)
-            layout.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
-            view.needsDisplay = true
         }
 
         func scroll(toHeading index: Int) {
             // libnaut and LiveMarkdown both list headings in source order.
-            let headings = elements.filter { if case .heading = $0.kind { true } else { false } }
+            let headings = editing.elements.filter { if case .heading = $0.kind { true } else { false } }
             guard let view, let layout, let container = view.textContainer, index < headings.count else { return }
             let glyphs = layout.glyphRange(forCharacterRange: headings[index].range, actualCharacterRange: nil)
             let rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
@@ -218,6 +472,12 @@ final class LiveTextView: NSTextView {
     var appearanceChanged: (() -> Void)?
     /// Tables and pictures are laid out to the text's width.
     var widthChanged: (() -> Void)?
+    /// A click on something drawn rendered; true if it was handled.
+    var click: ((NSPoint) -> Bool)?
+    /// Formatting shortcuts; true if handled.
+    var key: ((NSEvent) -> Bool)?
+    /// The selection to make instead of one being made with the mouse.
+    var adjustSelection: ((_ from: NSRange, _ to: NSRange) -> NSRange)?
 
     /// Keep lines to page.css's measure, centred, like the preview.
     override func setFrameSize(_ size: NSSize) {
@@ -234,464 +494,27 @@ final class LiveTextView: NSTextView {
         super.viewDidChangeEffectiveAppearance()
         appearanceChanged?()
     }
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        var ranges = ranges
+        if stillSelecting, ranges.count == 1, let adjustSelection {
+            ranges = [NSValue(range: adjustSelection(selectedRange(), ranges[0].rangeValue))]
+        }
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 1, click?(convert(event.locationInWindow, from: nil)) == true { return }
+        super.mouseDown(with: event)
+    }
+
+    // Before the main menu, whose ⌘E toggles the Split editor.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, key?(event) == true { return true }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 extension NSAppearance {
     var isDark: Bool { bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
-}
-
-// MARK: - Attributes
-
-/// The look of each element, after page.css. Caret-independent: what
-/// hides when is the layout's business.
-struct LiveStyle {
-    let font: NSFont
-    let mono: NSFont
-
-    /// page.css's h1–h6 sizes, in em.
-    static let headingScale: [CGFloat] = [2.6, 1.6, 1.25, 1, 1, 1]
-    /// page.css pads code blocks 22px at the sides.
-    static let codeInset: CGFloat = 22
-    static let quoteInset: CGFloat = 18
-
-    var body: [NSAttributedString.Key: Any] {
-        [.font: font, .foregroundColor: NSColor(token: .fgBody), .paragraphStyle: NSParagraphStyle.default]
-    }
-
-    func apply(_ e: LiveMarkdown.Element, to s: NSTextStorage) {
-        let fg = NSColor(token: .fg)
-        let dim = NSColor(token: .fgDim)
-        switch e.kind {
-        case let .heading(level):
-            let size = font.pointSize * Self.headingScale[level - 1]
-            let p = NSMutableParagraphStyle()
-            p.paragraphSpacingBefore = level == 1 ? 0 : size * 0.6
-            p.paragraphSpacing = size * 0.15
-            s.addAttributes([.font: weighted(font, .medium, size: size), .foregroundColor: fg, .paragraphStyle: p], range: e.scope)
-        case .strong:
-            s.addAttribute(.foregroundColor, value: fg, range: e.range)
-            convert(e.range, in: s) { weighted($0, .semibold, size: $0.pointSize) }
-        case .emphasis:
-            convert(e.range, in: s) { NSFontManager.shared.convert($0, toHaveTrait: .italicFontMask) }
-        case .strikethrough:
-            s.addAttributes([.strikethroughStyle: NSUnderlineStyle.single.rawValue, .foregroundColor: dim], range: e.content)
-        case .code, .math:
-            s.addAttribute(.foregroundColor, value: fg, range: e.range)
-            convert(e.range, in: s) { NSFont(descriptor: mono.fontDescriptor, size: $0.pointSize * 0.88) ?? $0 }
-        case .link:
-            s.addAttributes([.foregroundColor: fg, .underlineStyle: NSUnderlineStyle.single.rawValue, .underlineColor: dim], range: e.content)
-        case .codeBlock, .mathBlock, .table:
-            let p = NSMutableParagraphStyle()
-            p.firstLineHeadIndent = Self.codeInset
-            p.headIndent = Self.codeInset
-            p.tailIndent = -Self.codeInset
-            s.addAttributes([.font: mono, .foregroundColor: fg, .paragraphStyle: p], range: e.scope)
-            if case let .codeBlock(language) = e.kind {
-                // libnaut's lexer, so the colours match the page's.
-                let code = (s.string as NSString).substring(with: e.content)
-                for (r, c) in Highlight.spans(code, language: language) {
-                    s.addAttribute(.foregroundColor, value: Self.color(c), range: NSRange(location: e.content.location + r.location, length: r.length))
-                }
-            }
-        case .image:
-            s.addAttribute(.foregroundColor, value: dim, range: e.range)
-        case .quote:
-            let p = NSMutableParagraphStyle()
-            p.firstLineHeadIndent = Self.quoteInset
-            p.headIndent = Self.quoteInset
-            s.addAttributes([.foregroundColor: dim, .paragraphStyle: p], range: e.scope)
-        case .listItem:
-            // A hanging indent, so wrapped lines start under the text.
-            let prefix = (s.string as NSString).substring(with: NSRange(location: e.range.location, length: e.content.location - e.range.location))
-            let p = NSMutableParagraphStyle()
-            p.headIndent = (prefix as NSString).size(withAttributes: [.font: font]).width
-            s.addAttribute(.paragraphStyle, value: p, range: e.scope)
-        }
-        for m in e.markers { s.addAttribute(.foregroundColor, value: dim, range: m) }
-    }
-
-    /// page.css's .hl-* colours.
-    private static func color(_ c: Highlight.Class) -> NSColor {
-        switch c {
-        case .keyword: NSColor(token: .synKeyword)
-        case .string: NSColor(token: .synString)
-        case .number: NSColor(token: .synNumber)
-        case .comment: NSColor(token: .synComment)
-        case .function, .variable: NSColor(token: .synAttr)
-        }
-    }
-
-    /// Change the font across a range that may already mix fonts, e.g.
-    /// emphasis inside a heading.
-    private func convert(_ range: NSRange, in s: NSTextStorage, _ f: (NSFont) -> NSFont) {
-        s.enumerateAttribute(.font, in: range) { value, r, _ in
-            s.addAttribute(.font, value: f(value as? NSFont ?? font), range: r)
-        }
-    }
-
-    private func weighted(_ font: NSFont, _ weight: NSFont.Weight, size: CGFloat) -> NSFont {
-        let d = font.fontDescriptor.addingAttributes([.traits: [NSFontDescriptor.TraitKey.weight: weight]])
-        return NSFont(descriptor: d, size: size) ?? font
-    }
-}
-
-// MARK: - Layout
-
-/// Lays the note out with its syntax hidden or shown, and draws what
-/// attributes can't: code block and inline code backgrounds, quote bars,
-/// and math.
-final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
-    /// What the caret position means for layout. Indexes are characters.
-    struct State {
-        /// Characters laid out with no width and not drawn.
-        var hidden = IndexSet()
-        /// Inline math: the formula's first character is drawn as its
-        /// image and the rest are hidden.
-        var inlineMath: [Int: NSImage] = [:]
-        /// Display math, tables and pictures, each drawn in its first line.
-        var blocks: [Int: Block] = [:]
-        /// Lines (by first character) with a set height: hidden fences
-        /// become a code block's padding; blocks fold to their image.
-        var lineHeights: [Int: CGFloat] = [:]
-        var codeBlocks: [NSRange] = []
-        var inlineCode: [NSRange] = []
-        var quotes: [NSRange] = []
-        /// List markers drawn as a bullet.
-        var bullets: Set<Int> = []
-    }
-
-    struct Block {
-        var image: NSImage
-        /// Drawn at this size, fitted to the text's width.
-        var size: NSSize
-        var centered = false
-        var radius: CGFloat = 0
-    }
-
-    var state = State()
-
-    /// Extra space per line as a fraction of its text height, split above
-    /// and below: page.css sets 1.75 against a font's own ~1.2.
-    static let lineSpacing: CGFloat = 0.45
-    /// A hidden fence's line height, plus the outset below, is a code
-    /// block's padding: page.css's 18px.
-    static let codePadding: CGFloat = 12
-    static let codeOutset: CGFloat = 6
-    static let blockMargin: CGFloat = 10
-
-    override init() {
-        super.init()
-        delegate = self
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    // MARK: Glyphs
-
-    func layoutManager(
-        _ layoutManager: NSLayoutManager,
-        shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>,
-        properties props: UnsafePointer<NSLayoutManager.GlyphProperty>,
-        characterIndexes chars: UnsafePointer<Int>,
-        font: NSFont,
-        forGlyphRange range: NSRange
-    ) -> Int {
-        let indexes = UnsafeBufferPointer(start: chars, count: range.length)
-        guard let first = indexes.first, let last = indexes.last,
-              state.hidden.intersects(integersIn: first..<last + 1) || !state.inlineMath.isEmpty
-        else { return 0 }
-        var out = Array(UnsafeBufferPointer(start: props, count: range.length))
-        var touched = false
-        for (i, c) in indexes.enumerated() {
-            if state.inlineMath[c] != nil || state.hidden.contains(c) || state.bullets.contains(c) {
-                out[i] = .controlCharacter
-                touched = true
-            }
-        }
-        guard touched else { return 0 }
-        out.withUnsafeBufferPointer {
-            setGlyphs(glyphs, properties: $0.baseAddress!, characterIndexes: chars, font: font, forGlyphRange: range)
-        }
-        return range.length
-    }
-
-    /// Hidden characters lay out with no width and draw nothing. Not the
-    /// null glyph: TextKit moves null glyphs at the start of a line onto
-    /// the line before, so a hidden fence would no longer be its own line.
-    /// Inline math's first character stands in for the formula: a space
-    /// as wide as its image.
-    func layoutManager(
-        _ layoutManager: NSLayoutManager,
-        shouldUse action: NSLayoutManager.ControlCharacterAction,
-        forControlCharacterAt charIndex: Int
-    ) -> NSLayoutManager.ControlCharacterAction {
-        if state.inlineMath[charIndex] != nil || state.bullets.contains(charIndex) { return .whitespace }
-        if state.hidden.contains(charIndex) { return .zeroAdvancement }
-        return action
-    }
-
-    func layoutManager(
-        _ layoutManager: NSLayoutManager,
-        boundingBoxForControlGlyphAt glyphIndex: Int,
-        for textContainer: NSTextContainer,
-        proposedLineFragment: NSRect,
-        glyphPosition: NSPoint,
-        characterIndex: Int
-    ) -> NSRect {
-        if let image = state.inlineMath[characterIndex] {
-            return NSRect(origin: glyphPosition, size: NSSize(width: image.size.width, height: 1))
-        }
-        // As wide as the "-" it replaces, so the hanging indent still fits.
-        let font = textStorage?.attribute(.font, at: characterIndex, effectiveRange: nil) as? NSFont ?? .systemFont(ofSize: 13)
-        return NSRect(origin: glyphPosition, size: NSSize(width: ("-" as NSString).size(withAttributes: [.font: font]).width, height: 1))
-    }
-
-    // MARK: Lines
-
-    /// Taller lines with the text centred in them. The baseline and the
-    /// used rect move together: the caret and the input method's window
-    /// follow the used rect, so they stay the text's height and on it.
-    func layoutManager(
-        _ layoutManager: NSLayoutManager,
-        shouldSetLineFragmentRect rect: UnsafeMutablePointer<NSRect>,
-        lineFragmentUsedRect used: UnsafeMutablePointer<NSRect>,
-        baselineOffset: UnsafeMutablePointer<CGFloat>,
-        in textContainer: NSTextContainer,
-        forGlyphRange glyphs: NSRange
-    ) -> Bool {
-        let chars = characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
-        if let height = state.lineHeights[chars.location] {
-            rect.pointee.size.height = height
-            used.pointee.size.height = min(used.pointee.height, height)
-            return true
-        }
-        var extra = used.pointee.height * Self.lineSpacing
-        for (c, image) in state.inlineMath where NSLocationInRange(c, chars) {
-            extra = max(extra, image.size.height + 4 - used.pointee.height)
-        }
-        rect.pointee.size.height += extra
-        used.pointee.origin.y += extra / 2
-        baselineOffset.pointee += extra / 2
-        return true
-    }
-
-    /// The empty line after a final newline. Same spacing, same caret.
-    override func setExtraLineFragmentRect(_ rect: NSRect, usedRect: NSRect, textContainer container: NSTextContainer) {
-        let extra = usedRect.height * Self.lineSpacing
-        var rect = rect
-        var used = usedRect
-        rect.size.height += extra
-        used.origin.y += extra / 2
-        super.setExtraLineFragmentRect(rect, usedRect: used, textContainer: container)
-    }
-
-    // MARK: Drawing
-
-    override func drawBackground(forGlyphRange glyphs: NSRange, at origin: NSPoint) {
-        guard let container = textContainers.first else { return super.drawBackground(forGlyphRange: glyphs, at: origin) }
-        let visible = characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
-        let pad = container.lineFragmentPadding
-        let width = container.size.width - 2 * pad
-
-        for block in state.codeBlocks where NSIntersectionRange(block, visible).length > 0 {
-            guard let (top, bottom) = verticalExtent(of: block) else { continue }
-            let r = NSRect(x: origin.x + pad, y: origin.y + top, width: width, height: bottom - top)
-                .insetBy(dx: 0, dy: -Self.codeOutset)
-            let path = NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: 14, yRadius: 14)
-            NSColor(token: .surface).setFill()
-            path.fill()
-            NSColor(token: .edgeTop).setStroke()
-            path.lineWidth = 1
-            path.stroke()
-        }
-
-        NSColor(token: .surfaceRaised).setFill()
-        for code in state.inlineCode where NSIntersectionRange(code, visible).length > 0 {
-            let g = glyphRange(forCharacterRange: code, actualCharacterRange: nil)
-            enumerateLineFragments(forGlyphRange: g) { _, used, _, line, _ in
-                let part = NSIntersectionRange(g, line)
-                guard part.length > 0 else { return }
-                let b = self.boundingRect(forGlyphRange: part, in: container)
-                let r = NSRect(x: b.minX - 3, y: used.minY + 1, width: b.width + 6, height: used.height - 2)
-                NSBezierPath(roundedRect: r.offsetBy(dx: origin.x, dy: origin.y), xRadius: 5, yRadius: 5).fill()
-            }
-        }
-
-        NSColor(token: .line).setFill()
-        for quote in state.quotes where NSIntersectionRange(quote, visible).length > 0 {
-            guard let (top, bottom) = verticalExtent(of: quote) else { continue }
-            NSRect(x: origin.x + pad, y: origin.y + top + 4, width: 2, height: bottom - top - 8).fill()
-        }
-
-        super.drawBackground(forGlyphRange: glyphs, at: origin)
-    }
-
-    override func drawGlyphs(forGlyphRange glyphs: NSRange, at origin: NSPoint) {
-        super.drawGlyphs(forGlyphRange: glyphs, at: origin)
-        guard let container = textContainers.first, let storage = textStorage else { return }
-        let visible = characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
-
-        for (c, image) in state.inlineMath where NSLocationInRange(c, visible) {
-            let g = glyphIndexForCharacter(at: c)
-            let line = lineFragmentRect(forGlyphAt: g, effectiveRange: nil)
-            let at = location(forGlyphAt: g)
-            // Centre on the text's x-height, where operators sit.
-            let font = storage.attribute(.font, at: c, effectiveRange: nil) as? NSFont
-            let middle = line.minY + at.y - (font?.xHeight ?? 0) / 2
-            draw(image, in: NSRect(x: line.minX + at.x, y: middle - image.size.height / 2, width: image.size.width, height: image.size.height), at: origin)
-        }
-
-        for c in state.bullets where NSLocationInRange(c, visible) {
-            let g = glyphIndexForCharacter(at: c)
-            let line = lineFragmentRect(forGlyphAt: g, effectiveRange: nil)
-            let at = location(forGlyphAt: g)
-            let font = storage.attribute(.font, at: c, effectiveRange: nil) as? NSFont ?? .systemFont(ofSize: 13)
-            let bullet = NSAttributedString(string: "•", attributes: [.font: font, .foregroundColor: NSColor(token: .fgDim)])
-            let width = ("-" as NSString).size(withAttributes: [.font: font]).width
-            let size = bullet.size()
-            bullet.draw(at: NSPoint(x: origin.x + line.minX + at.x + (width - size.width) / 2, y: origin.y + line.minY + at.y - font.ascender))
-        }
-
-        for (c, block) in state.blocks where NSLocationInRange(c, visible) {
-            let line = lineFragmentRect(forGlyphAt: glyphIndexForCharacter(at: c), effectiveRange: nil)
-            let x = block.centered ? (container.size.width - block.size.width) / 2 : container.lineFragmentPadding
-            let rect = NSRect(x: x, y: line.midY - block.size.height / 2, width: block.size.width, height: block.size.height)
-            NSGraphicsContext.saveGraphicsState()
-            if block.radius > 0 {
-                NSBezierPath(roundedRect: rect.offsetBy(dx: origin.x, dy: origin.y), xRadius: block.radius, yRadius: block.radius).addClip()
-            }
-            draw(block.image, in: rect, at: origin)
-            NSGraphicsContext.restoreGraphicsState()
-        }
-    }
-
-    private func draw(_ image: NSImage, in rect: NSRect, at origin: NSPoint) {
-        image.draw(in: rect.offsetBy(dx: origin.x, dy: origin.y), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-    }
-
-    /// Top of a range's first line to the bottom of its last, in the
-    /// container.
-    private func verticalExtent(of range: NSRange) -> (CGFloat, CGFloat)? {
-        let g = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-        guard g.length > 0 else { return nil }
-        let top = lineFragmentRect(forGlyphAt: g.location, effectiveRange: nil)
-        let bottom = lineFragmentRect(forGlyphAt: NSMaxRange(g) - 1, effectiveRange: nil)
-        return (top.minY, bottom.maxY)
-    }
-
-    // MARK: Editing
-
-    /// Move the state with an edit of `edited` (its range after the edit),
-    /// dropping whatever was inside the replaced text.
-    func shift(edited: NSRange, delta: Int) {
-        guard delta != 0 || edited.length > 0 else { return }
-        let oldEnd = NSMaxRange(edited) - delta
-        func move(_ i: Int) -> Int? {
-            if i < edited.location { return i }
-            if i >= oldEnd { return i + delta }
-            return nil
-        }
-        func move(_ r: NSRange) -> NSRange? {
-            guard let start = move(r.location) ?? (r.location < edited.location ? r.location : nil) else { return nil }
-            let end = NSMaxRange(r) >= oldEnd ? NSMaxRange(r) + delta : min(NSMaxRange(r), edited.location)
-            return end >= start ? NSRange(location: start, length: end - start) : nil
-        }
-        func move<V>(_ d: [Int: V]) -> [Int: V] {
-            Dictionary(d.compactMap { k, v in move(k).map { ($0, v) } }, uniquingKeysWith: { a, _ in a })
-        }
-        var s = state
-        s.hidden = IndexSet(s.hidden.compactMap(move))
-        s.inlineMath = move(s.inlineMath)
-        s.blocks = move(s.blocks)
-        s.lineHeights = move(s.lineHeights)
-        s.codeBlocks = s.codeBlocks.compactMap(move)
-        s.inlineCode = s.inlineCode.compactMap(move)
-        s.quotes = s.quotes.compactMap(move)
-        s.bullets = Set(s.bullets.compactMap(move))
-        state = s
-    }
-}
-
-extension LiveLayout.State {
-    /// The state for `elements` with the caret in `editing`.
-    @MainActor
-    init(elements: [LiveMarkdown.Element], editing: Set<Int>, string: NSString, font: NSFont, dark: Bool, width: CGFloat, baseURL: URL) {
-        func lines(_ range: NSRange) -> [NSRange] {
-            var out: [NSRange] = []
-            string.enumerateSubstrings(in: range, options: [.byLines, .substringNotRequired]) { _, line, _, _ in out.append(line) }
-            return out
-        }
-        func rendered(_ markdown: String, width: Double? = nil) -> NSImage? {
-            LiveImages.shared.image(.init(markdown: markdown, width: width, size: font.pointSize, dark: dark))
-        }
-        // Fold every line to nothing but the first, which holds the
-        // image. Newlines stay glyphs: they are what breaks lines.
-        func fold(_ scope: NSRange, into block: LiveLayout.Block) {
-            for row in lines(scope) {
-                hidden.insert(integersIn: Range(row)!)
-                lineHeights[row.location] = 0.01
-            }
-            lineHeights[scope.location] = block.size.height + 2 * LiveLayout.blockMargin
-            blocks[scope.location] = block
-        }
-        func fitted(_ size: NSSize) -> NSSize {
-            size.width <= width ? size : NSSize(width: width, height: size.height * width / size.width)
-        }
-
-        for (i, e) in elements.enumerated() {
-            let isEditing = editing.contains(i)
-            switch e.kind {
-            case .table where isEditing:
-                codeBlocks.append(e.scope)
-            case .codeBlock:
-                codeBlocks.append(e.scope)
-                guard !isEditing else { continue }
-                for m in e.markers {
-                    hidden.insert(integersIn: Range(m)!)
-                    lineHeights[m.location] = LiveLayout.codePadding
-                }
-            case let .mathBlock(tex):
-                // Until the image is ready, or while editing, the source.
-                guard !isEditing, let image = rendered("$$\n\(tex)\n$$") else {
-                    codeBlocks.append(e.scope)
-                    continue
-                }
-                fold(e.scope, into: .init(image: image, size: fitted(image.size), centered: true))
-            case .table:
-                // Laid out to the text's width, as on the page. Rounded so a
-                // window resize doesn't render every pixel width.
-                guard let image = rendered(string.substring(with: e.range), width: (width / 20).rounded(.down) * 20) else {
-                    codeBlocks.append(e.scope)
-                    continue
-                }
-                fold(e.scope, into: .init(image: image, size: fitted(image.size)))
-            case let .image(source):
-                let url = URL(string: source).flatMap { $0.scheme == nil ? nil : $0 }
-                    ?? URL(filePath: source.removingPercentEncoding ?? source, relativeTo: baseURL)
-                guard !isEditing, let image = LiveImages.shared.picture(url) else { continue }
-                // page.css: img { border-radius: var(--radius-sm) }
-                fold(e.scope, into: .init(image: image, size: fitted(image.size), radius: 6))
-            case let .math(tex):
-                guard !isEditing, let image = rendered("$\(tex)$") else {
-                    inlineCode.append(e.range)
-                    continue
-                }
-                hidden.insert(integersIn: Range(e.range)!)
-                hidden.remove(e.range.location)
-                inlineMath[e.range.location] = image
-            case .code:
-                inlineCode.append(e.range)
-                if !isEditing { for m in e.markers { hidden.insert(integersIn: Range(m)!) } }
-            case .quote:
-                quotes.append(e.scope)
-                if !isEditing { for m in e.markers { hidden.insert(integersIn: Range(m)!) } }
-            case .listItem:
-                // Numbers stay; "-", "*" and "+" read as a bullet.
-                let m = e.markers[0]
-                if !isEditing, m.length == 1, "-*+".contains(string.substring(with: m)) { bullets.insert(m.location) }
-            case .heading, .strong, .emphasis, .strikethrough, .link:
-                if !isEditing { for m in e.markers { hidden.insert(integersIn: Range(m)!) } }
-            }
-        }
-    }
 }

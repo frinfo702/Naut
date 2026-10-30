@@ -18,8 +18,7 @@ public enum LiveMarkdown {
             case math(tex: String)
             /// A `$$` block; `markers` are its two fence lines.
             case mathBlock(tex: String)
-            /// A fenced code block; `markers` are its fence lines, and a
-            /// missing closing fence runs it to the end of the note.
+            /// A fenced code block; `markers` are its two fence lines.
             case codeBlock(language: String)
             /// A GFM table; `range` is all its rows.
             case table
@@ -55,17 +54,13 @@ public enum LiveMarkdown {
             let (line, enclosing) = lines[i]
             let trimmed = text.substring(with: line).trimmingCharacters(in: .whitespaces)
 
-            if let fence = fence(trimmed) {
-                var j = i + 1
-                while j < lines.count, !text.substring(with: lines[j].line).trimmingCharacters(in: .whitespaces).hasPrefix(fence) { j += 1 }
-                let last = min(j, lines.count - 1)
-                let scope = union(enclosing, lines[last].enclosing)
+            if let fence = fence(trimmed), let j = closing(fence, after: i, in: lines, text) {
+                let scope = union(enclosing, lines[j].enclosing)
                 let inner = i + 1 <= j - 1 ? union(lines[i + 1].line, lines[j - 1].line) : NSRange(location: NSMaxRange(enclosing), length: 0)
-                var markers = [line]
-                if j < lines.count { markers.append(lines[j].line) }
+                let markers = [line, lines[j].line]
                 // ```math is display math, as libnaut renders it.
                 let language = trimmed.dropFirst(fence.count).split(separator: " ").first.map(String.init) ?? ""
-                let kind: Element.Kind = language == "math" && j < lines.count ? .mathBlock(tex: text.substring(with: inner)) : .codeBlock(language: language)
+                let kind: Element.Kind = language == "math" ? .mathBlock(tex: text.substring(with: inner)) : .codeBlock(language: language)
                 out.append(Element(kind: kind, range: scope, markers: markers, content: inner, scope: scope))
                 i = j + 1
                 continue
@@ -165,6 +160,14 @@ public enum LiveMarkdown {
         return out
     }
 
+    /// The line closing a fence opened on line `i`. Without one the fence
+    /// is text: libnaut would run it to the end of the note, but in an
+    /// editor that means everything below turns to code while ``` is
+    /// being typed.
+    private static func closing(_ fence: String, after i: Int, in lines: [(line: NSRange, enclosing: NSRange)], _ text: NSString) -> Int? {
+        (i + 1..<lines.count).first { text.substring(with: lines[$0].line).trimmingCharacters(in: .whitespaces).hasPrefix(fence) }
+    }
+
     private static func fence(_ trimmed: String) -> String? {
         ["```", "~~~"].first { trimmed.hasPrefix($0) }
     }
@@ -181,7 +184,9 @@ public enum LiveMarkdown {
     /// The whole line, an optional title after the URL.
     private static let image = try! NSRegularExpression(pattern: "^[ \\t]*!\\[[^\\]\\n]*\\]\\(([^)\\s]+)(?:[ \\t]+\"[^\"\\n]*\")?\\)[ \\t]*$")
 
-    private static let code = try! NSRegularExpression(pattern: "(`+)(.+?)\\1")
+    /// The content can't start or end with a backtick, so ``` alone (a
+    /// fence being typed) isn't a span around one backtick.
+    private static let code = try! NSRegularExpression(pattern: "(`+)(?!`)(.+?)(?<!`)\\1")
     /// libnaut's rule, after Pandoc: no space inside either `$`, and no
     /// digit right after the closing one, so "$5 and $10" stays text.
     private static let math = try! NSRegularExpression(pattern: "\\$(?![ $])((?:\\\\.|[^$\\\\\\n])+?)(?<! )\\$(?!\\d)")
