@@ -82,12 +82,14 @@ pub const Sheet = struct {
         const ref = std.mem.trim(u8, inner[0 .. comma orelse inner.len], " \t\n");
         const replacement = try self.resolveDepth(alloc, ref, scheme, depth + 1) orelse fallback: {
             const c = comma orelse return null;
-            break :fallback try self.substitute(alloc, std.mem.trim(u8, inner[c + 1 ..], " \t\n"), scheme, depth + 1) orelse return null;
+            break :fallback try self.substitute(alloc, std.mem.trim(u8, inner[c + 1 ..], " \t\n"), scheme, depth) orelse return null;
         };
 
         const joined = try std.mem.concat(alloc, u8, &.{ value[0..start], replacement, value[close + 1 ..] });
-        // There may be more var() after this one.
-        return self.substitute(alloc, joined, scheme, depth + 1);
+        // There may be more var() after this one. Same depth: depth counts
+        // reference hops, not occurrences. This terminates because
+        // `replacement` is fully resolved, so each pass removes one var().
+        return self.substitute(alloc, joined, scheme, depth);
     }
 
     /// A custom property parsed as a colour.
@@ -181,7 +183,7 @@ const Parser = struct {
             const colon = std.mem.indexOfScalar(u8, decl, ':') orelse continue;
             const name = std.mem.trim(u8, decl[0..colon], " \t\r\n");
             if (!std.mem.startsWith(u8, name, "--")) continue;
-            const value = std.mem.trim(u8, decl[colon + 1 ..], " \t\r\n");
+            const value = try stripComments(alloc, decl[colon + 1 ..]);
             try vars.append(alloc, .{ .name = name, .value = value, .scheme = scheme });
         }
     }
@@ -237,6 +239,32 @@ const Parser = struct {
         }
     }
 };
+
+/// Trim a declaration value and remove comments from it, so
+/// `#fff /* note */` is `#fff`. Values without comments are returned as a
+/// slice of the input; only commented ones allocate. Comment markers
+/// inside strings are left alone.
+fn stripComments(alloc: Allocator, value: []const u8) Allocator.Error![]const u8 {
+    const ws = " \t\r\n";
+    if (std.mem.indexOf(u8, value, "/*") == null) return std.mem.trim(u8, value, ws);
+
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < value.len) {
+        const c = value[i];
+        if (c == '"' or c == '\'') {
+            const end = if (std.mem.indexOfScalarPos(u8, value, i + 1, c)) |e| e + 1 else value.len;
+            try out.appendSlice(alloc, value[i..end]);
+            i = end;
+        } else if (std.mem.startsWith(u8, value[i..], "/*")) {
+            i = if (std.mem.indexOfPos(u8, value, i + 2, "*/")) |e| e + 2 else value.len;
+        } else {
+            try out.append(alloc, c);
+            i += 1;
+        }
+    }
+    return std.mem.trim(u8, out.items, ws);
+}
 
 /// True for a selector list containing `:root` on its own.
 fn isRoot(prelude: []const u8) bool {
@@ -371,6 +399,31 @@ test "css: colors" {
     try std.testing.expect(Color.parse("#12345") == null);
     try std.testing.expect(Color.parse("rgb(1 2)") == null);
     try std.testing.expect(Color.parse("hsl(1 2 3)") == null);
+}
+
+test "css: comments inside values are removed" {
+    // Regression: the comment stayed in the value, so the token stopped
+    // parsing as a colour and the app drew it magenta.
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+    const sheet = try Sheet.parse(alloc, ":root { --a: #fff /* note */; --b: \"/* kept */\" /* gone */; }");
+    try std.testing.expect((try sheet.color(alloc, "--a", .dark)) != null);
+    try std.testing.expectEqualStrings("\"/* kept */\"", sheet.raw("--b", .dark).?);
+}
+
+test "css: many var() in one value is not a cycle" {
+    // Regression: each substitution counted toward the cycle limit.
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+    var src: std.ArrayList(u8) = .empty;
+    try src.appendSlice(alloc, ":root { --x: a; --many:");
+    for (0..20) |_| try src.appendSlice(alloc, " var(--x)");
+    try src.appendSlice(alloc, "; }");
+    const sheet = try Sheet.parse(alloc, src.items);
+    const v = (try sheet.resolve(alloc, "--many", .dark)).?;
+    try std.testing.expectEqual(20, std.mem.count(u8, v, "a"));
 }
 
 test "css: malformed input does not crash" {
