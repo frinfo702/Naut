@@ -1,4 +1,5 @@
 import AppKit
+import NautKit
 import SwiftUI
 
 @main
@@ -38,16 +39,22 @@ struct NautApp: App {
     }
 }
 
-/// Colours mirror the tokens in src/page.css so the native chrome and the
-/// rendered note read as one surface. Each adapts to light and dark.
+/// Colours are read from the tokens in src/page.css through libnaut, so the
+/// native chrome and the rendered note are one palette by construction.
+/// Each adapts to light and dark. The token list is checked by a test in
+/// src/c.zig.
 enum Theme {
-    static let bg = Color(dark: 0x111211, light: 0xFBFBF9)
-    static let surface = Color(dark: 0x1A1B1A, light: 0xF3F3F0)
-    static let line = Color(dark: 0x2C2D2B, light: 0xE0E0DB)
-    static let guide = Color(dark: 0x3E3F3C, light: 0xCFCFCA)
-    static let fg = Color(dark: 0xF1F1EE, light: 0x161715)
-    static let fgDim = Color(dark: 0x8B8D87, light: 0x7A7C76)
-    static let accent = Color(dark: 0xF2876A, light: 0xC8502D)
+    static let bg = Color(token: "--bg")
+    static let surface = Color(token: "--surface")
+    static let guide = Color(token: "--guide")
+    static let fg = Color(token: "--fg")
+    static let fgDim = Color(token: "--fg-dim")
+    /// The lit edge: brightest on top, fading down the sides.
+    static let edge = LinearGradient(
+        colors: [Color(token: "--edge-top"), Color(token: "--edge-bottom")],
+        startPoint: .top,
+        endPoint: .bottom
+    )
 }
 
 enum Metrics {
@@ -75,15 +82,20 @@ enum Metrics {
 }
 
 extension Color {
-    init(dark: UInt32, light: UInt32) {
+    /// A token from page.css. Both schemes are resolved once, up front;
+    /// the dynamic provider runs on every redraw and must stay cheap.
+    init(token: String) {
+        func resolve(dark: Bool) -> NSColor {
+            guard let c = Tokens.color(token, dark: dark) else {
+                assertionFailure("missing colour token \(token)")
+                return .magenta
+            }
+            return NSColor(srgbRed: c.red, green: c.green, blue: c.blue, alpha: c.alpha)
+        }
+        let dark = resolve(dark: true)
+        let light = resolve(dark: false)
         self.init(nsColor: NSColor(name: nil) { appearance in
-            let hex = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-            return NSColor(
-                srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
-                green: CGFloat((hex >> 8) & 0xFF) / 255,
-                blue: CGFloat(hex & 0xFF) / 255,
-                alpha: 1
-            )
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
         })
     }
 }

@@ -23,6 +23,18 @@ public enum Markdown {
     }
 }
 
+/// Design tokens from the page stylesheet, so native UI uses the same
+/// palette as rendered notes.
+public enum Tokens {
+    /// sRGB components in 0...1, or nil if `name` (e.g. "--bg") is missing
+    /// or not a colour.
+    public static func color(_ name: String, dark: Bool) -> (red: Double, green: Double, blue: Double, alpha: Double)? {
+        var c = naut_color_s()
+        guard naut_theme_color(name, dark, &c) else { return nil }
+        return (Double(c.r), Double(c.g), Double(c.b), Double(c.a))
+    }
+}
+
 public struct Heading: Decodable, Hashable, Sendable {
     public let level: Int
     public let text: String

@@ -14,6 +14,9 @@ const Writer = std.Io.Writer;
 const markdown = @import("markdown.zig");
 
 const css = @embedFile("page.css");
+
+/// The stylesheet, for reading design tokens with the css module.
+pub const stylesheet = css;
 const js = @embedFile("page.js");
 
 pub const Options = struct {

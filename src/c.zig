@@ -42,6 +42,21 @@ const Cloudflare = extern struct {
     }
 };
 
+/// A design token from page.css as a colour, so the native app draws its
+/// chrome from the same palette as the rendered page. False when the token
+/// doesn't exist or isn't a colour.
+export fn naut_theme_color(name: [*:0]const u8, dark: bool, out: *naut.css.Color) bool {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.c_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+    // Parsing per call keeps this stateless and thread-safe. The sheet is
+    // a few KB and callers look each token up once.
+    const sheet = naut.css.Sheet.parse(alloc, naut.page.stylesheet) catch return false;
+    const color = sheet.color(alloc, std.mem.span(name), if (dark) .dark else .light) catch return false;
+    out.* = color orelse return false;
+    return true;
+}
+
 fn slice(ptr: ?[*]const u8, len: usize) []const u8 {
     return if (ptr) |p| p[0..len] else "";
 }
@@ -157,6 +172,23 @@ test "c: render returns html and outline" {
     try std.testing.expectEqualStrings(
         \\[{"level":1,"text":"A","id":"a"},{"level":2,"text":"B","id":"b"}]
     , outline.ptr.?[0..outline.len]);
+}
+
+test "c: theme colors come from page.css" {
+    // Every token the macOS app reads must exist and be a colour in both
+    // schemes; keep in sync with Theme in NautApp.swift.
+    const tokens = [_][*:0]const u8{
+        "--bg",       "--surface",     "--line",        "--guide", "--fg", "--fg-dim",
+        "--edge-top", "--edge-bottom", "--syn-keyword",
+    };
+    for (tokens) |t| for ([_]bool{ true, false }) |dark| {
+        var c: naut.css.Color = undefined;
+        try std.testing.expect(naut_theme_color(t, dark, &c));
+    };
+    var bg: naut.css.Color = undefined;
+    try std.testing.expect(naut_theme_color("--bg", true, &bg));
+    try std.testing.expectApproxEqAbs(0x10.0 / 255.0, bg.r, 0.001);
+    try std.testing.expect(!naut_theme_color("--font", true, &bg));
 }
 
 test "c: publish reports invalid input without touching the network" {

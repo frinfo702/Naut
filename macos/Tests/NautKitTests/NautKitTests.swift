@@ -19,3 +19,11 @@ import Testing
         try await cf.provision(workdir: .temporaryDirectory)
     }
 }
+
+@Test func tokensResolveForBothSchemes() {
+    // Components cross the C API as Float, so compare loosely.
+    #expect(abs((Tokens.color("--bg", dark: true)?.red ?? 0) - 0x10 / 255) < 0.001)
+    #expect(Tokens.color("--edge-top", dark: true)?.alpha ?? 0 > 0)
+    #expect(Tokens.color("--bg", dark: false) != nil)
+    #expect(Tokens.color("--nope", dark: true) == nil)
+}

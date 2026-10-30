@@ -17,7 +17,8 @@ pub fn build(b: *std.Build) void {
         (builtin.os.tag == .macos);
 
     // Standalone libraries with no dependencies, usable on their own:
-    // b.dependency("naut", ...).module("tex") or .module("highlight").
+    // b.dependency("naut", ...).module("tex"), .module("highlight") or
+    // .module("css").
     const tex = b.addModule("tex", .{
         .root_source_file = b.path("src/tex.zig"),
         .target = target,
@@ -28,9 +29,15 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const css = b.addModule("css", .{
+        .root_source_file = b.path("src/css.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const imports: []const std.Build.Module.Import = &.{
         .{ .name = "tex", .module = tex },
         .{ .name = "highlight", .module = highlight },
+        .{ .name = "css", .module = css },
     };
 
     // The Zig package other projects depend on: b.dependency("naut", ...)
@@ -61,7 +68,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(lib);
 
     const test_step = b.step("test", "Run tests");
-    for ([_]*std.Build.Module{ mod, tex, highlight }) |m| {
+    for ([_]*std.Build.Module{ mod, tex, highlight, css }) |m| {
         const tests = b.addTest(.{ .root_module = m, .filters = test_filters });
         tests.root_module.link_libc = true;
         test_step.dependOn(&b.addRunArtifact(tests).step);

@@ -10,6 +10,7 @@ const std = @import("std");
 pub const markdown = @import("markdown.zig");
 pub const page = @import("page.zig");
 pub const cloudflare = @import("cloudflare.zig");
+pub const css = @import("css");
 
 test {
     std.testing.refAllDecls(@This());

@@ -28,6 +28,11 @@ typedef struct {
   bool toc;
 } naut_page_options_s;
 
+// sRGB, components in 0...1.
+typedef struct {
+  float r, g, b, a;
+} naut_color_s;
+
 typedef struct {
   const char *account_id;  // NUL-terminated, 32 hex characters
   const char *api_token;   // NUL-terminated
@@ -44,6 +49,10 @@ void naut_render(const char *src, size_t len, naut_string_s *html,
 // Markdown to a complete HTML page with styles and scripts.
 naut_string_s naut_render_page(const char *src, size_t len,
                                  const naut_page_options_s *opts);
+
+// A design token from the page stylesheet (e.g. "--bg") as a colour, for
+// the light or dark scheme. Returns false if it is missing or not a colour.
+bool naut_theme_color(const char *name, bool dark, naut_color_s *out);
 
 // Publishing. Each returns true on success. On success *out holds the
 // result (JSON, or empty); on failure *out holds a message for the user.

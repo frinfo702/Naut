@@ -171,6 +171,6 @@ struct SearchField: View {
         .font(.system(size: 14))
         .padding(.horizontal, 12)
         .frame(height: Metrics.searchHeight)
-        .background(Capsule().strokeBorder(Theme.line, lineWidth: 1))
+        .background(Capsule().strokeBorder(Theme.edge, lineWidth: 1))
     }
 }
