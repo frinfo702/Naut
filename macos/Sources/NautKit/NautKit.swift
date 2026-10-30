@@ -29,8 +29,11 @@ public enum Markdown {
 public enum ThemeToken: String, CaseIterable, Sendable {
     case bg = "--bg"
     case surface = "--surface"
+    case surfaceRaised = "--surface-raised"
+    case line = "--line"
     case guide = "--guide"
     case fg = "--fg"
+    case fgBody = "--fg-body"
     case fgDim = "--fg-dim"
     case edgeTop = "--edge-top"
     case edgeBottom = "--edge-bottom"

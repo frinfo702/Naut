@@ -38,14 +38,27 @@ struct ContentView: View {
     @ViewBuilder private var detail: some View {
         @Bindable var store = store
         if let note = store.selectedNote {
-            HSplitView {
-                if store.showEditor {
-                    Editor(text: $store.text)
-                        .frame(minWidth: 280)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
+            Group {
+                switch store.editorMode {
+                case .split:
+                    HSplitView {
+                        if store.showEditor {
+                            Editor(text: $store.text, font: store.sourceNSFont)
+                                .frame(minWidth: 280)
+                                .transition(.move(edge: .leading).combined(with: .opacity))
+                        }
+                        Preview(html: store.html, baseURL: store.folder, style: previewStyle, scrollTarget: $scrollTarget)
+                            .frame(minWidth: 320)
+                    }
+                case .live:
+                    LiveEditor(
+                        text: $store.text,
+                        font: store.textNSFont,
+                        mono: store.sourceNSFont,
+                        outline: store.outline,
+                        scrollTarget: $scrollTarget
+                    )
                 }
-                Preview(html: store.html, baseURL: store.folder, scrollTarget: $scrollTarget)
-                    .frame(minWidth: 320)
             }
             .background(Theme.bg)
             .navigationTitle(note.name)
@@ -58,18 +71,24 @@ struct ContentView: View {
         }
     }
 
+    private var previewStyle: Preview.Style {
+        Preview.Style(textFont: store.textFont, textSize: store.textSize, sourceFont: store.sourceFont)
+    }
+
     @ToolbarContentBuilder
     private func toolbar(_ note: Note) -> some ToolbarContent {
         ToolbarItemGroup {
             PublishButton(note: note, openSettings: { openSettings() })
 
             // Last, so it sits at the trailing edge like other panel toggles.
-            Button {
-                withAnimation(.snappy(duration: Metrics.toggleDuration)) { store.showEditor.toggle() }
-            } label: {
-                Label("Editor", systemImage: "sidebar.squares.left")
+            if store.editorMode == .split {
+                Button {
+                    withAnimation(.snappy(duration: Metrics.toggleDuration)) { store.showEditor.toggle() }
+                } label: {
+                    Label("Editor", systemImage: "sidebar.squares.left")
+                }
+                .help(store.showEditor ? "Hide Editor (⌘E)" : "Show Editor (⌘E)")
             }
-            .help(store.showEditor ? "Hide Editor (⌘E)" : "Show Editor (⌘E)")
         }
     }
 }
@@ -150,10 +169,11 @@ struct PublishPopover: View {
 
 struct Editor: View {
     @Binding var text: String
+    let font: NSFont
 
     var body: some View {
         TextEditor(text: $text)
-            .font(.system(size: Metrics.editorFontSize, design: .monospaced))
+            .font(Font(font as CTFont))
             .foregroundStyle(Theme.fg)
             .scrollContentBackground(.hidden)
             // contentMargins has no effect on TextEditor (it was set here

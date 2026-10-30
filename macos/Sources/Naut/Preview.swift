@@ -9,7 +9,36 @@ struct Preview: NSViewRepresentable {
     /// The rendered note body, from `Markdown.render`.
     let html: String
     let baseURL: URL
+    let style: Style
     @Binding var scrollTarget: String?
+
+    /// The user's font settings, applied over page.css's defaults. An
+    /// empty family keeps the stylesheet's own stack.
+    struct Style: Equatable {
+        var textFont: String
+        var textSize: Double
+        var sourceFont: String
+
+        var script: String {
+            func stack(_ family: String, _ fallback: String) -> String {
+                family.isEmpty ? "" : "\"\(family)\", \(fallback)"
+            }
+            let json = (try? JSONEncoder().encode([
+                stack(textFont, "-apple-system, sans-serif"),
+                stack(sourceFont, "ui-monospace, monospace"),
+                "\(textSize)px",
+            ])).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
+            return """
+                (() => {
+                  const [font, mono, size] = \(json);
+                  const s = document.documentElement.style;
+                  s.setProperty("--font", font);
+                  s.setProperty("--mono", mono);
+                  document.body.style.fontSize = size;
+                })()
+                """
+        }
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -25,6 +54,7 @@ struct Preview: NSViewRepresentable {
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
+        context.coordinator.apply(style, in: view)
         context.coordinator.show(html, in: view)
         if let id = scrollTarget {
             context.coordinator.scroll(to: id, in: view)
@@ -37,6 +67,15 @@ struct Preview: NSViewRepresentable {
         private var loaded = false
         private var pending: String?
         private var shown: String?
+        private var style: Style?
+        private var styled: Style?
+
+        func apply(_ style: Style, in view: WKWebView) {
+            self.style = style
+            guard loaded, style != styled else { return }
+            styled = style
+            view.evaluateJavaScript(style.script)
+        }
 
         func show(_ html: String, in view: WKWebView) {
             guard html != shown else { return }
@@ -62,6 +101,7 @@ struct Preview: NSViewRepresentable {
 
         func webView(_ view: WKWebView, didFinish navigation: WKNavigation!) {
             loaded = true
+            if let style { apply(style, in: view) }
             if let html = pending {
                 pending = nil
                 show(html, in: view)

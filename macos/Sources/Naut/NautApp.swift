@@ -29,6 +29,7 @@ struct NautApp: App {
                     withAnimation(.snappy(duration: Metrics.toggleDuration)) { store.showEditor.toggle() }
                 }
                 .keyboardShortcut("e")
+                .disabled(store.editorMode == .live)
             }
         }
 
@@ -75,6 +76,10 @@ enum Metrics {
     // MARK: - Editor
     static let editorFontSize: CGFloat = 13
     static let editorInset: CGFloat = 24
+    /// Body text in the preview and live editor, as in page.css.
+    static let textFontSize: CGFloat = 17
+    /// Line length of the live editor, page.css's --measure.
+    static let measure: CGFloat = 760
 
     // MARK: - Animation
     static let toggleDuration = 0.2 // fast enough to feel instant, slow enough to track
@@ -85,6 +90,12 @@ extension Color {
     /// A token from page.css. Both schemes are resolved once, up front;
     /// the dynamic provider runs on every redraw and must stay cheap.
     init(token: ThemeToken) {
+        self.init(nsColor: NSColor(token: token))
+    }
+}
+
+extension NSColor {
+    convenience init(token: ThemeToken) {
         func resolve(dark: Bool) -> NSColor {
             guard let c = token.color(dark: dark) else {
                 assertionFailure("missing colour token \(token.rawValue)")
@@ -94,8 +105,8 @@ extension Color {
         }
         let dark = resolve(dark: true)
         let light = resolve(dark: false)
-        self.init(nsColor: NSColor(name: nil) { appearance in
+        self.init(name: nil) { appearance in
             appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-        })
+        }
     }
 }

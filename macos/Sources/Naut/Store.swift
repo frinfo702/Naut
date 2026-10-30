@@ -90,6 +90,50 @@ final class Store {
         }
     }
 
+    // MARK: - Editor
+
+    enum EditorMode: String, CaseIterable {
+        /// Markdown source beside the rendered page.
+        case split
+        /// One pane: the source styled as it will read, markers shown
+        /// only on the line being edited, like Obsidian's Live Preview.
+        case live
+
+        var title: String { self == .split ? "Split" : "Live Preview" }
+    }
+
+    var editorMode = EditorMode(rawValue: UserDefaults.standard.string(forKey: "editorMode") ?? "") ?? .split {
+        didSet { UserDefaults.standard.set(editorMode.rawValue, forKey: "editorMode") }
+    }
+
+    /// Font families; empty means the default (the system font for text,
+    /// the system monospaced font for source and code).
+    var textFont = UserDefaults.standard.string(forKey: "textFont") ?? "" {
+        didSet { UserDefaults.standard.set(textFont, forKey: "textFont") }
+    }
+
+    var textSize = UserDefaults.standard.object(forKey: "textSize") as? Double ?? Double(Metrics.textFontSize) {
+        didSet { UserDefaults.standard.set(textSize, forKey: "textSize") }
+    }
+
+    var sourceFont = UserDefaults.standard.string(forKey: "sourceFont") ?? "" {
+        didSet { UserDefaults.standard.set(sourceFont, forKey: "sourceFont") }
+    }
+
+    var sourceSize = UserDefaults.standard.object(forKey: "sourceSize") as? Double ?? Double(Metrics.editorFontSize) {
+        didSet { UserDefaults.standard.set(sourceSize, forKey: "sourceSize") }
+    }
+
+    var textNSFont: NSFont { Self.font(textFont, size: textSize, fallback: .systemFont(ofSize: textSize)) }
+    var sourceNSFont: NSFont {
+        Self.font(sourceFont, size: sourceSize, fallback: .monospacedSystemFont(ofSize: sourceSize, weight: .regular))
+    }
+
+    private static func font(_ family: String, size: Double, fallback: NSFont) -> NSFont {
+        guard !family.isEmpty else { return fallback }
+        return NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size) ?? fallback
+    }
+
     /// Set while `load` assigns `text`, so loading isn't mistaken for an edit.
     private var loading = false
     private var saveTask: Task<Void, Never>?

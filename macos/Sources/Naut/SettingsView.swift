@@ -20,6 +20,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: SettingsMetrics.groupSpacing) {
                     switch pane {
                     case .appearance: AppearancePane()
+                    case .editor: EditorPane()
                     case .notes: NotesPane()
                     case .publishing: PublishingPane()
                     case .shortcuts: ShortcutsPane()
@@ -54,13 +55,14 @@ struct SettingsView: View {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case appearance, notes, publishing, shortcuts
+    case appearance, editor, notes, publishing, shortcuts
 
     var id: Self { self }
 
     var title: String {
         switch self {
         case .appearance: "Appearance"
+        case .editor: "Editor"
         case .notes: "Notes"
         case .publishing: "Publishing"
         case .shortcuts: "Shortcuts"
@@ -70,6 +72,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     var icon: SettingsIcon.Kind {
         switch self {
         case .appearance: .palette
+        case .editor: .symbol("textformat", top: 0x64D2FF, bottom: 0x0A84FF)
         case .notes: .symbol("folder.fill", top: 0xFFD60A, bottom: 0xFF9F0A)
         // Purple globe, like Rex's Remote Hosts. The Cloudflare mark stays
         // on the status card so the two don't repeat each other.
@@ -82,6 +85,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     private var keywords: [String] {
         switch self {
         case .appearance: ["theme", "dark", "light", "color", "colour", "scheme"]
+        case .editor: ["font", "size", "typography", "live", "preview", "split", "markdown", "source"]
         case .notes: ["folder", "files", "markdown", "finder", "location"]
         case .publishing: ["cloudflare", "web", "publish", "token", "account", "workers", "terraform"]
         case .shortcuts: ["keyboard", "keys", "bindings", "hotkeys"]
@@ -423,6 +427,57 @@ private struct DiagonalHalf: Shape {
         p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
         p.closeSubpath()
         return p
+    }
+}
+
+private struct EditorPane: View {
+    @Environment(Store.self) private var store
+    private let families = NSFontManager.shared.availableFontFamilies
+
+    var body: some View {
+        @Bindable var store = store
+
+        SettingsGroup(
+            title: "Mode",
+            footer: "Split shows the Markdown beside the page. Live Preview is one pane that reads like the page and shows Markdown only on the line you're editing."
+        ) {
+            SettingsRow(title: "Editing", divider: false) {
+                Picker("", selection: $store.editorMode) {
+                    ForEach(Store.EditorMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+        }
+
+        SettingsGroup(title: "Text", footer: "The page and Live Preview.") {
+            SettingsRow(title: "Font") { fontPicker($store.textFont) }
+            SettingsRow(title: "Size", divider: false) { sizeStepper($store.textSize, range: 12...28) }
+        }
+
+        SettingsGroup(title: "Source", footer: "The Markdown editor in Split, and code everywhere.") {
+            SettingsRow(title: "Font") { fontPicker($store.sourceFont) }
+            SettingsRow(title: "Size", divider: false) { sizeStepper($store.sourceSize, range: 9...24) }
+        }
+    }
+
+    private func fontPicker(_ selection: Binding<String>) -> some View {
+        Picker("", selection: selection) {
+            Text("Default").tag("")
+            Divider()
+            ForEach(families, id: \.self) { Text($0).tag($0) }
+        }
+        .labelsHidden()
+        .frame(maxWidth: 220)
+    }
+
+    private func sizeStepper(_ value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        Stepper(value: value, in: range) {
+            Text("\(Int(value.wrappedValue)) pt")
+                .font(.system(size: 13).monospacedDigit())
+                .foregroundStyle(Theme.fgDim)
+        }
     }
 }
 
