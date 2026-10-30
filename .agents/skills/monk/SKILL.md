@@ -51,6 +51,15 @@ On the web, use utility CSS (Tailwind v4) with CSS custom properties as tokens (
 
 **Agent-native.** Keep an `agents.md` in the repo, accept AI co-authors, and design tools that sit next to Claude Code, Codex and friends. A README can offer a "paste this prompt into your agent" install path.
 
+# Working with UI
+
+- Try and break the built stuff
+- Create state machines to check different scenarios (success, error, different user roles, etc.)
+- When finished, make before/after screenshots
+- Ask me lots of questions about the thing you are working on to validate the idea
+- Create a few variants of a Ul piece so I can try it out
+- setup loops to maintain a quality bar by constantly monitoring
+
 ## How he writes
 
 **Commits.** Imperative, sentence case, no trailing period, no emoji, 2–8 words, and very granular, one visible change each. British spelling in prose.
