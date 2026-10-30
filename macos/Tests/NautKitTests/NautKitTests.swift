@@ -52,7 +52,7 @@ func everyThemeTokenIsAColour(token: ThemeToken, dark: Bool) {
     let block = els.first { $0.kind == .mathBlock(tex: "a_n") }
     #expect(block.map { $0.markers.map(text) } == ["$$", "$$"])
 
-    let code = els.first { $0.kind == .codeBlock }
+    let code = els.first { $0.kind == .codeBlock(language: "") }
     #expect(code.map { text($0.content) } == "# not a heading")
     #expect(!els.contains { $0.kind == .heading(level: 1) })
 
@@ -65,5 +65,25 @@ func everyThemeTokenIsAColour(token: ThemeToken, dark: Bool) {
 @Test func liveMarkdownUnclosedFenceRunsToTheEnd() {
     let els = LiveMarkdown.parse("```\na\nb")
     #expect(els.count == 1)
-    #expect(els[0].kind == .codeBlock && els[0].scope.length == 7)
+    #expect(els[0].kind == .codeBlock(language: "") && els[0].scope.length == 7)
+}
+
+@Test func liveMarkdownFindsTablesAndImages() {
+    let src = "| a | b |\n|:--|--:|\n| 1 | 2 |\n\n![alt](pics/x.png \"t\")\ntext ![inline](y.png)\n```zig\nx\n```"
+    let els = LiveMarkdown.parse(src)
+    let table = els.first { $0.kind == .table }
+    #expect(table.map { (src as NSString).substring(with: $0.range) } == "| a | b |\n|:--|--:|\n| 1 | 2 |")
+    #expect(els.contains { $0.kind == .image(url: "pics/x.png") })
+    // Only an image alone on its line is drawn.
+    #expect(!els.contains { $0.kind == .image(url: "y.png") })
+    #expect(els.contains { $0.kind == .codeBlock(language: "zig") })
+}
+
+@Test func highlightSpansAreUTF16() {
+    // "é" is two UTF-8 bytes and one UTF-16 unit.
+    let spans = Highlight.spans("// é\nconst x = 1;", language: "zig")
+    #expect(spans.map(\.class) == [.comment, .keyword, .number])
+    #expect(spans.first?.range == NSRange(location: 0, length: 4))
+    #expect(spans[1].range == NSRange(location: 5, length: 5))
+    #expect(Highlight.spans("x", language: "nope").isEmpty)
 }

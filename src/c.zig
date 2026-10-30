@@ -102,6 +102,20 @@ export fn naut_render_page(src: ?[*]const u8, len: usize, opts: *const PageOptio
     return .dupe(out.written());
 }
 
+/// Highlight tokens of `src` in the language named by a code fence, as
+/// JSON: [{"start":0,"end":5,"class":"kw"}, ...], byte offsets. Unknown
+/// languages give [].
+export fn naut_highlight(lang: ?[*]const u8, lang_len: usize, src: ?[*]const u8, len: usize) String {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.c_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+    const l = naut.highlight.find(slice(lang, lang_len)) orelse return .dupe("[]");
+    const spans = naut.highlight.spans(alloc, l, slice(src, len)) catch return .dupe("[]");
+    var json: std.Io.Writer.Allocating = .init(alloc);
+    std.json.Stringify.value(spans, .{}, &json.writer) catch return .dupe("[]");
+    return .dupe(json.written());
+}
+
 /// Run one publishing operation with its own arena and Io, and turn the
 /// result or the diagnostic into an owned string.
 fn runPublish(out: *String, comptime f: anytype, args: anytype) bool {

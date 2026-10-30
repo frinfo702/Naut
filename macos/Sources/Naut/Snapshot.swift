@@ -50,7 +50,7 @@ enum Snapshot {
         // SwiftUI names the Settings window's identifier after the scene.
         let isSettings = { (w: NSWindow) in w.identifier?.rawValue.contains("Settings") == true }
         guard let window = NSApp.windows.first(where: {
-            $0.isVisible && $0.contentView != nil && $0.identifier != MathImages.windowID && isSettings($0) == settings
+            $0.isVisible && $0.contentView != nil && $0.identifier != LiveImages.windowID && isSettings($0) == settings
         }),
               let view = window.contentView?.superview ?? window.contentView
         else { fail("no window to capture") }

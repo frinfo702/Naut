@@ -13,13 +13,13 @@ import SwiftUI
 /// the used rect together, which keeps the caret and the input method's
 /// candidate window at the height of the text instead of the line.
 ///
-/// ponytail: tables, images and syntax highlighting stay as source. Split
-/// mode shows them rendered.
 struct LiveEditor: NSViewRepresentable {
     @Binding var text: String
     let font: NSFont
     let mono: NSFont
     let outline: [Heading]
+    /// Relative image paths resolve against this, as in the preview.
+    let baseURL: URL
     @Binding var scrollTarget: String?
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
@@ -56,6 +56,7 @@ struct LiveEditor: NSViewRepresentable {
         c.view = view
         c.layout = layout
         view.appearanceChanged = { [weak c] in c?.refresh() }
+        view.widthChanged = { [weak c] in c?.refresh() }
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -70,6 +71,7 @@ struct LiveEditor: NSViewRepresentable {
         var dirty = c.font != font || c.mono != mono
         c.font = font
         c.mono = mono
+        c.baseURL = baseURL
         // Only a different note gets here: edits already updated `text`.
         if view.string != text, !view.hasMarkedText() {
             view.string = text
@@ -93,6 +95,7 @@ struct LiveEditor: NSViewRepresentable {
         weak var layout: LiveLayout?
         var font = NSFont.systemFont(ofSize: Metrics.textFontSize)
         var mono = NSFont.monospacedSystemFont(ofSize: Metrics.editorFontSize, weight: .regular)
+        var baseURL = URL.documentsDirectory
 
         private var elements: [LiveMarkdown.Element] = []
         /// Indexes into `elements` the caret is in.
@@ -102,7 +105,7 @@ struct LiveEditor: NSViewRepresentable {
         init(text: Binding<String>) {
             _text = text
             super.init()
-            observer = NotificationCenter.default.addObserver(forName: MathImages.didRender, object: nil, queue: .main) { [weak self] _ in
+            observer = NotificationCenter.default.addObserver(forName: LiveImages.didRender, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refresh() }
             }
         }
@@ -185,7 +188,11 @@ struct LiveEditor: NSViewRepresentable {
             let now = Set(elements.indices.filter { isEditing(elements[$0].scope) })
             let changed = now.symmetricDifference(editing)
             editing = now
-            layout.state = LiveLayout.State(elements: elements, editing: now, string: string, font: font, dark: view.effectiveAppearance.isDark)
+            let container = view.textContainer.map { $0.size.width - 2 * $0.lineFragmentPadding } ?? Metrics.measure
+            layout.state = LiveLayout.State(
+                elements: elements, editing: now, string: string,
+                font: font, dark: view.effectiveAppearance.isDark, width: container, baseURL: baseURL
+            )
 
             guard invalidate, !changed.isEmpty else { return }
             let range = changed.map { elements[$0].scope }.reduce(elements[changed.first!].scope, NSUnionRange)
@@ -209,14 +216,18 @@ struct LiveEditor: NSViewRepresentable {
 
 final class LiveTextView: NSTextView {
     var appearanceChanged: (() -> Void)?
+    /// Tables and pictures are laid out to the text's width.
+    var widthChanged: (() -> Void)?
 
     /// Keep lines to page.css's measure, centred, like the preview.
     override func setFrameSize(_ size: NSSize) {
+        let old = textContainer?.size.width
         super.setFrameSize(size)
         let side = max(Metrics.editorInset, (size.width - Metrics.measure) / 2)
         if textContainerInset.width != side {
             textContainerInset = NSSize(width: side, height: Metrics.editorInset * 2)
         }
+        if let old, textContainer?.size.width != old { widthChanged?() }
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -269,12 +280,21 @@ struct LiveStyle {
             convert(e.range, in: s) { NSFont(descriptor: mono.fontDescriptor, size: $0.pointSize * 0.88) ?? $0 }
         case .link:
             s.addAttributes([.foregroundColor: fg, .underlineStyle: NSUnderlineStyle.single.rawValue, .underlineColor: dim], range: e.content)
-        case .codeBlock, .mathBlock:
+        case .codeBlock, .mathBlock, .table:
             let p = NSMutableParagraphStyle()
             p.firstLineHeadIndent = Self.codeInset
             p.headIndent = Self.codeInset
             p.tailIndent = -Self.codeInset
             s.addAttributes([.font: mono, .foregroundColor: fg, .paragraphStyle: p], range: e.scope)
+            if case let .codeBlock(language) = e.kind {
+                // libnaut's lexer, so the colours match the page's.
+                let code = (s.string as NSString).substring(with: e.content)
+                for (r, c) in Highlight.spans(code, language: language) {
+                    s.addAttribute(.foregroundColor, value: Self.color(c), range: NSRange(location: e.content.location + r.location, length: r.length))
+                }
+            }
+        case .image:
+            s.addAttribute(.foregroundColor, value: dim, range: e.range)
         case .quote:
             let p = NSMutableParagraphStyle()
             p.firstLineHeadIndent = Self.quoteInset
@@ -288,6 +308,17 @@ struct LiveStyle {
             s.addAttribute(.paragraphStyle, value: p, range: e.scope)
         }
         for m in e.markers { s.addAttribute(.foregroundColor, value: dim, range: m) }
+    }
+
+    /// page.css's .hl-* colours.
+    private static func color(_ c: Highlight.Class) -> NSColor {
+        switch c {
+        case .keyword: NSColor(token: .synKeyword)
+        case .string: NSColor(token: .synString)
+        case .number: NSColor(token: .synNumber)
+        case .comment: NSColor(token: .synComment)
+        case .function, .variable: NSColor(token: .synAttr)
+        }
     }
 
     /// Change the font across a range that may already mix fonts, e.g.
@@ -317,16 +348,24 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         /// Inline math: the formula's first character is drawn as its
         /// image and the rest are hidden.
         var inlineMath: [Int: NSImage] = [:]
-        /// Display math, drawn in the opening `$$` line.
-        var blockMath: [Int: NSImage] = [:]
+        /// Display math, tables and pictures, each drawn in its first line.
+        var blocks: [Int: Block] = [:]
         /// Lines (by first character) with a set height: hidden fences
-        /// become a code block's padding; math blocks fold to their image.
+        /// become a code block's padding; blocks fold to their image.
         var lineHeights: [Int: CGFloat] = [:]
         var codeBlocks: [NSRange] = []
         var inlineCode: [NSRange] = []
         var quotes: [NSRange] = []
         /// List markers drawn as a bullet.
         var bullets: Set<Int> = []
+    }
+
+    struct Block {
+        var image: NSImage
+        /// Drawn at this size, fitted to the text's width.
+        var size: NSSize
+        var centered = false
+        var radius: CGFloat = 0
     }
 
     var state = State()
@@ -338,7 +377,7 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
     /// block's padding: page.css's 18px.
     static let codePadding: CGFloat = 12
     static let codeOutset: CGFloat = 6
-    static let mathMargin: CGFloat = 10
+    static let blockMargin: CGFloat = 10
 
     override init() {
         super.init()
@@ -513,11 +552,16 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
             bullet.draw(at: NSPoint(x: origin.x + line.minX + at.x + (width - size.width) / 2, y: origin.y + line.minY + at.y - font.ascender))
         }
 
-        for (c, image) in state.blockMath where NSLocationInRange(c, visible) {
+        for (c, block) in state.blocks where NSLocationInRange(c, visible) {
             let line = lineFragmentRect(forGlyphAt: glyphIndexForCharacter(at: c), effectiveRange: nil)
-            let width = min(image.size.width, container.size.width)
-            let x = (container.size.width - width) / 2
-            draw(image, in: NSRect(x: x, y: line.midY - image.size.height / 2, width: width, height: image.size.height), at: origin)
+            let x = block.centered ? (container.size.width - block.size.width) / 2 : container.lineFragmentPadding
+            let rect = NSRect(x: x, y: line.midY - block.size.height / 2, width: block.size.width, height: block.size.height)
+            NSGraphicsContext.saveGraphicsState()
+            if block.radius > 0 {
+                NSBezierPath(roundedRect: rect.offsetBy(dx: origin.x, dy: origin.y), xRadius: block.radius, yRadius: block.radius).addClip()
+            }
+            draw(block.image, in: rect, at: origin)
+            NSGraphicsContext.restoreGraphicsState()
         }
     }
 
@@ -558,7 +602,7 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         var s = state
         s.hidden = IndexSet(s.hidden.compactMap(move))
         s.inlineMath = move(s.inlineMath)
-        s.blockMath = move(s.blockMath)
+        s.blocks = move(s.blocks)
         s.lineHeights = move(s.lineHeights)
         s.codeBlocks = s.codeBlocks.compactMap(move)
         s.inlineCode = s.inlineCode.compactMap(move)
@@ -571,19 +615,34 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
 extension LiveLayout.State {
     /// The state for `elements` with the caret in `editing`.
     @MainActor
-    init(elements: [LiveMarkdown.Element], editing: Set<Int>, string: NSString, font: NSFont, dark: Bool) {
+    init(elements: [LiveMarkdown.Element], editing: Set<Int>, string: NSString, font: NSFont, dark: Bool, width: CGFloat, baseURL: URL) {
         func lines(_ range: NSRange) -> [NSRange] {
             var out: [NSRange] = []
             string.enumerateSubstrings(in: range, options: [.byLines, .substringNotRequired]) { _, line, _, _ in out.append(line) }
             return out
         }
-        func math(_ tex: String, display: Bool) -> NSImage? {
-            MathImages.shared.image(.init(tex: tex, display: display, size: font.pointSize, dark: dark))
+        func rendered(_ markdown: String, width: Double? = nil) -> NSImage? {
+            LiveImages.shared.image(.init(markdown: markdown, width: width, size: font.pointSize, dark: dark))
+        }
+        // Fold every line to nothing but the first, which holds the
+        // image. Newlines stay glyphs: they are what breaks lines.
+        func fold(_ scope: NSRange, into block: LiveLayout.Block) {
+            for row in lines(scope) {
+                hidden.insert(integersIn: Range(row)!)
+                lineHeights[row.location] = 0.01
+            }
+            lineHeights[scope.location] = block.size.height + 2 * LiveLayout.blockMargin
+            blocks[scope.location] = block
+        }
+        func fitted(_ size: NSSize) -> NSSize {
+            size.width <= width ? size : NSSize(width: width, height: size.height * width / size.width)
         }
 
         for (i, e) in elements.enumerated() {
             let isEditing = editing.contains(i)
             switch e.kind {
+            case .table where isEditing:
+                codeBlocks.append(e.scope)
             case .codeBlock:
                 codeBlocks.append(e.scope)
                 guard !isEditing else { continue }
@@ -593,20 +652,27 @@ extension LiveLayout.State {
                 }
             case let .mathBlock(tex):
                 // Until the image is ready, or while editing, the source.
-                guard !isEditing, let image = math(tex, display: true) else {
+                guard !isEditing, let image = rendered("$$\n\(tex)\n$$") else {
                     codeBlocks.append(e.scope)
                     continue
                 }
-                // Fold every line to nothing but the first, which holds the
-                // image. Newlines stay glyphs: they are what breaks lines.
-                for row in lines(e.scope) {
-                    hidden.insert(integersIn: Range(row)!)
-                    lineHeights[row.location] = 0.01
+                fold(e.scope, into: .init(image: image, size: fitted(image.size), centered: true))
+            case .table:
+                // Laid out to the text's width, as on the page. Rounded so a
+                // window resize doesn't render every pixel width.
+                guard let image = rendered(string.substring(with: e.range), width: (width / 20).rounded(.down) * 20) else {
+                    codeBlocks.append(e.scope)
+                    continue
                 }
-                lineHeights[e.scope.location] = image.size.height + 2 * LiveLayout.mathMargin
-                blockMath[e.scope.location] = image
+                fold(e.scope, into: .init(image: image, size: fitted(image.size)))
+            case let .image(source):
+                let url = URL(string: source).flatMap { $0.scheme == nil ? nil : $0 }
+                    ?? URL(filePath: source.removingPercentEncoding ?? source, relativeTo: baseURL)
+                guard !isEditing, let image = LiveImages.shared.picture(url) else { continue }
+                // page.css: img { border-radius: var(--radius-sm) }
+                fold(e.scope, into: .init(image: image, size: fitted(image.size), radius: 6))
             case let .math(tex):
-                guard !isEditing, let image = math(tex, display: false) else {
+                guard !isEditing, let image = rendered("$\(tex)$") else {
                     inlineCode.append(e.range)
                     continue
                 }

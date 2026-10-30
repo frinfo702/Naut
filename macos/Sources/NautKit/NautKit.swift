@@ -35,6 +35,11 @@ public enum ThemeToken: String, CaseIterable, Sendable {
     case fg = "--fg"
     case fgBody = "--fg-body"
     case fgDim = "--fg-dim"
+    case synKeyword = "--syn-keyword"
+    case synString = "--syn-string"
+    case synAttr = "--syn-attr"
+    case synNumber = "--syn-number"
+    case synComment = "--syn-comment"
     case edgeTop = "--edge-top"
     case edgeBottom = "--edge-bottom"
 
@@ -44,6 +49,39 @@ public enum ThemeToken: String, CaseIterable, Sendable {
         var c = naut_color_s()
         guard naut_theme_color(rawValue, dark, &c) else { return nil }
         return (Double(c.r), Double(c.g), Double(c.b), Double(c.a))
+    }
+}
+
+/// libnaut's code highlighter, for text the app colours itself.
+public enum Highlight {
+    /// page.css's .hl-* classes.
+    public enum Class: String, Decodable, Sendable {
+        case keyword = "kw", string = "str", number = "num", comment = "com", function = "fn", variable = "var"
+    }
+
+    /// Classified tokens of `code` as UTF-16 ranges, in order. Empty for a
+    /// language libnaut doesn't know.
+    public static func spans(_ code: String, language: String) -> [(range: NSRange, class: Class)] {
+        struct Span: Decodable {
+            let start: Int
+            let end: Int
+            let `class`: Class
+        }
+        let json = withBytes(language) { lang, langLen in
+            withBytes(code) { take(naut_highlight(lang, langLen, $0, $1)) }
+        }
+        guard let spans = try? JSONDecoder().decode([Span].self, from: Data(json.utf8)), !spans.isEmpty else { return [] }
+        // libnaut counts bytes; AppKit counts UTF-16 units.
+        var utf16 = [Int](repeating: 0, count: code.utf8.count + 1)
+        var b = 0, u = 0
+        for scalar in code.unicodeScalars {
+            let n = UTF8.width(scalar)
+            for k in 0..<n { utf16[b + k] = u }
+            b += n
+            u += UTF16.width(scalar)
+        }
+        utf16[b] = u
+        return spans.map { (NSRange(location: utf16[$0.start], length: utf16[$0.end] - utf16[$0.start]), $0.class) }
     }
 }
 

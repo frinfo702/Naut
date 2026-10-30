@@ -56,6 +56,7 @@ struct ContentView: View {
                         font: store.textNSFont,
                         mono: store.sourceNSFont,
                         outline: store.outline,
+                        baseURL: store.folder,
                         scrollTarget: $scrollTarget
                     )
                 }

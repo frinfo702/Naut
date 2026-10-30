@@ -2,21 +2,23 @@ import AppKit
 import NautKit
 import WebKit
 
-/// TeX as images for the live editor, drawn by the same libnaut MathML
-/// and page.css as the preview so a formula looks the same in both. One
-/// offscreen web view renders one formula at a time; results are cached
-/// for the life of the app.
+/// Images for the live editor: math and tables drawn by the same libnaut
+/// HTML and page.css as the preview, so they look the same in both, and
+/// pictures a note embeds. One offscreen web view renders one snippet at
+/// a time; results are cached for the life of the app.
 @MainActor
-final class MathImages: NSObject, WKNavigationDelegate {
-    static let shared = MathImages()
+final class LiveImages: NSObject, WKNavigationDelegate {
+    static let shared = LiveImages()
     /// Posted when an image is ready; editors lay out again.
-    static let didRender = Notification.Name("MathImagesDidRender")
+    static let didRender = Notification.Name("LiveImagesDidRender")
     /// Snapshot skips this window.
-    static let windowID = NSUserInterfaceItemIdentifier("naut.math")
+    static let windowID = NSUserInterfaceItemIdentifier("naut.render")
 
+    /// A Markdown snippet rendered as the page would.
     struct Key: Hashable {
-        let tex: String
-        let display: Bool
+        let markdown: String
+        /// The width to lay out in; nil shrinks to fit (math).
+        let width: Double?
         let size: Double
         let dark: Bool
     }
@@ -79,25 +81,50 @@ final class MathImages: NSObject, WKNavigationDelegate {
     }
 
     private func render(_ key: Key) async -> NSImage? {
-        let source = key.display ? "$$\n\(key.tex)\n$$" : "$\(key.tex)$"
-        let html = Markdown.render(source).html
+        let html = Markdown.render(key.markdown).html
         // prefers-color-scheme follows the view's appearance.
         web.appearance = NSAppearance(named: key.dark ? .darkAqua : .aqua)
         let script = """
             document.documentElement.style.background = "transparent";
             document.body.style.cssText = "margin:0;padding:0;background:transparent;font-size:" + size + "px";
             const main = document.querySelector("main");
-            main.innerHTML = '<span id="m" style="display:inline-block;padding:2px 1px">' + html + '</span>';
-            main.querySelectorAll("p, div.math, math").forEach(e => e.style.margin = "0");
+            main.style.maxWidth = "none";
+            main.innerHTML = '<div id="m" style="display:' + (width ? 'block;width:' + width + 'px' : 'inline-block') + ';padding:2px 1px">' + html + '</div>';
+            main.querySelectorAll("p, div.math, math, div.table").forEach(e => e.style.margin = "0");
             const r = document.getElementById("m").getBoundingClientRect();
             return [r.left, r.top, r.width, r.height];
             """
-        guard let r = try? await web.callAsyncJavaScript(script, arguments: ["html": html, "size": key.size], contentWorld: .page) as? [Double],
+        guard let r = try? await web.callAsyncJavaScript(script, arguments: ["html": html, "size": key.size, "width": key.width ?? 0], contentWorld: .page) as? [Double],
               r.count == 4, r[2] > 0, r[3] > 0
         else { return nil }
         let config = WKSnapshotConfiguration()
         config.rect = CGRect(x: r[0], y: r[1], width: ceil(r[2]), height: ceil(r[3]))
         config.afterScreenUpdates = true
         return try? await web.takeSnapshot(configuration: config)
+    }
+
+    // MARK: - Pictures
+
+    private var pictures: [URL: NSImage] = [:]
+    private var fetching: Set<URL> = []
+
+    /// A picture by URL: a file loads now, the web loads in the
+    /// background and `didRender` follows. Nil while loading or if it
+    /// can't be read; the editor shows the Markdown then.
+    func picture(_ url: URL) -> NSImage? {
+        if let image = pictures[url] { return image }
+        if url.isFileURL {
+            guard let image = NSImage(contentsOf: url) else { return nil }
+            pictures[url] = image
+            return image
+        }
+        guard fetching.insert(url).inserted else { return nil }
+        Task {
+            if let (data, _) = try? await URLSession.shared.data(from: url), let image = NSImage(data: data) {
+                pictures[url] = image
+                NotificationCenter.default.post(name: Self.didRender, object: nil)
+            }
+        }
+        return nil
     }
 }

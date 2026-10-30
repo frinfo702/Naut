@@ -20,7 +20,11 @@ public enum LiveMarkdown {
             case mathBlock(tex: String)
             /// A fenced code block; `markers` are its fence lines, and a
             /// missing closing fence runs it to the end of the note.
-            case codeBlock
+            case codeBlock(language: String)
+            /// A GFM table; `range` is all its rows.
+            case table
+            /// An image alone on its line: `![alt](url)`.
+            case image(url: String)
             case quote
             /// `markers` is the bullet or number.
             case listItem
@@ -60,8 +64,8 @@ public enum LiveMarkdown {
                 var markers = [line]
                 if j < lines.count { markers.append(lines[j].line) }
                 // ```math is display math, as libnaut renders it.
-                let isMath = trimmed.dropFirst(fence.count).trimmingCharacters(in: .whitespaces) == "math"
-                let kind: Element.Kind = isMath && j < lines.count ? .mathBlock(tex: text.substring(with: inner)) : .codeBlock
+                let language = trimmed.dropFirst(fence.count).split(separator: " ").first.map(String.init) ?? ""
+                let kind: Element.Kind = language == "math" && j < lines.count ? .mathBlock(tex: text.substring(with: inner)) : .codeBlock(language: language)
                 out.append(Element(kind: kind, range: scope, markers: markers, content: inner, scope: scope))
                 i = j + 1
                 continue
@@ -77,6 +81,25 @@ public enum LiveMarkdown {
                     i = j + 1
                     continue
                 }
+            }
+
+            // A header row, then a delimiter row, then rows until a blank.
+            if trimmed.contains("|"), i + 1 < lines.count, text.substring(with: lines[i + 1].line).contains("|"),
+               delimiter.firstMatch(in: source, range: lines[i + 1].line) != nil {
+                var j = i + 2
+                while j < lines.count, text.substring(with: lines[j].line).contains("|") { j += 1 }
+                let scope = union(enclosing, lines[j - 1].enclosing)
+                let rows = union(line, lines[j - 1].line)
+                out.append(Element(kind: .table, range: rows, markers: [], content: rows, scope: scope))
+                i = j
+                continue
+            }
+
+            if let m = image.firstMatch(in: source, range: line) {
+                let url = text.substring(with: m.range(at: 1))
+                out.append(Element(kind: .image(url: url), range: line, markers: [line], content: m.range(at: 1), scope: enclosing))
+                i += 1
+                continue
             }
 
             var inline = line
@@ -152,6 +175,11 @@ public enum LiveMarkdown {
     private static let heading = try! NSRegularExpression(pattern: "^(#{1,6})[ \\t]+")
     private static let quote = try! NSRegularExpression(pattern: "^[ \\t]*>[ \\t]?")
     private static let list = try! NSRegularExpression(pattern: "^[ \\t]*([-*+]|\\d+[.)])[ \\t]+")
+
+    /// `| :-- | --: |`: only dashes and colons between pipes.
+    private static let delimiter = try! NSRegularExpression(pattern: "^[ \\t]*\\|?[ \\t]*:?-+:?[ \\t]*(\\|[ \\t]*:?-+:?[ \\t]*)*\\|?[ \\t]*$")
+    /// The whole line, an optional title after the URL.
+    private static let image = try! NSRegularExpression(pattern: "^[ \\t]*!\\[[^\\]\\n]*\\]\\(([^)\\s]+)(?:[ \\t]+\"[^\"\\n]*\")?\\)[ \\t]*$")
 
     private static let code = try! NSRegularExpression(pattern: "(`+)(.+?)\\1")
     /// libnaut's rule, after Pandoc: no space inside either `$`, and no

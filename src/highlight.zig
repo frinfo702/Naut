@@ -51,7 +51,26 @@ pub fn render(w: *Writer, lang: *const Language, code: []const u8) Writer.Error!
     }
 }
 
-const Class = enum { kw, str, num, com, @"fn", @"var" };
+/// A classified token, for callers that colour text themselves (the
+/// app's live editor) instead of writing HTML. Offsets are bytes.
+pub const Span = struct {
+    start: usize,
+    end: usize,
+    class: Class,
+};
+
+/// The classified tokens of `code`, in order. Unclassified text is left
+/// out.
+pub fn spans(alloc: std.mem.Allocator, lang: *const Language, code: []const u8) std.mem.Allocator.Error![]Span {
+    var out: std.ArrayList(Span) = .empty;
+    var lx: Lexer = .{ .lang = lang, .src = code };
+    while (lx.next()) |tok| {
+        if (tok.class) |class| try out.append(alloc, .{ .start = tok.start, .end = tok.end, .class = class });
+    }
+    return out.toOwnedSlice(alloc);
+}
+
+pub const Class = enum { kw, str, num, com, @"fn", @"var" };
 
 const Token = struct {
     start: usize,
@@ -370,6 +389,17 @@ const languages: std.StaticStringMap(*const Language) = .initComptime(.{
 });
 
 // --- Tests ------------------------------------------------------------------
+
+test "highlight: spans match render" {
+    const alloc = std.testing.allocator;
+    const got = try spans(alloc, find("zig").?, "const s = f(1);");
+    defer alloc.free(got);
+    try std.testing.expectEqualSlices(Span, &.{
+        .{ .start = 0, .end = 5, .class = .kw },
+        .{ .start = 10, .end = 11, .class = .@"fn" },
+        .{ .start = 12, .end = 13, .class = .num },
+    }, got);
+}
 
 fn expectHighlight(lang: []const u8, code: []const u8, expected: []const u8) !void {
     var out: Writer.Allocating = .init(std.testing.allocator);
