@@ -207,6 +207,8 @@ final class Store {
     }
 
     func setPublished(_ note: Note, _ on: Bool) {
+        // A deliberate action replaces whatever error was showing.
+        error = nil
         if on {
             // Names that differ only in case or whitespace share an
             // address; publishing one would overwrite the other's page.
@@ -249,7 +251,8 @@ final class Store {
         let previous = queues[note.name]?.task
         let id = nextQueueID
         nextQueueID += 1
-        error = nil
+        // Not clearing `error` here: autosave republishes come through this
+        // path and would hide an error the user hasn't read yet.
         let task = Task {
             await previous?.value
             do {

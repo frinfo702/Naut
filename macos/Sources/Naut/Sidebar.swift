@@ -17,6 +17,9 @@ struct Sidebar: View {
             ScrollView {
                 // Not lazy: the outline unfolding pushes every row below it,
                 // and a lazy stack doesn't animate rows it hasn't laid out.
+                // ponytail: builds every row each update. Fine for hundreds
+                // of notes; go back to LazyVStack and animate only the
+                // visible range if thousands ever feel slow.
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(store.filteredNotes) { note in
                         row(note)
