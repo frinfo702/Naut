@@ -475,8 +475,10 @@ struct LiveEditor: NSViewRepresentable {
             // display's to say again.
             if let at = caretSource, view.selectedRange() != NSRange(location: projection.display(at: at), length: 0) { caretSource = nil }
             relayoutEnd()
-            // Selected blocks draw their own highlight.
+            // Selected blocks draw their own highlight; a selection also
+            // hides the caret indicator.
             view.needsDisplay = true
+            view.updateInsertionIndicator()
         }
 
         func key(_ event: NSEvent) -> Bool {
@@ -720,6 +722,12 @@ struct LiveEditor: NSViewRepresentable {
 
 // MARK: - Text view
 
+/// The caret is one point wide; it must not intercept the click that puts
+/// it there.
+private final class LiveInsertionIndicator: NSTextInsertionIndicator {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 final class LiveTextView: NSTextView {
     var appearanceChanged: (() -> Void)?
     /// Tables and pictures are laid out to the text's width.
@@ -737,6 +745,82 @@ final class LiveTextView: NSTextView {
 
     /// The note's title, laid out above the text by `LiveDocumentView`.
     var titleField: NSTextField?
+
+    /// NSTextView's own caret snaps on and off. This is the system's
+    /// insertion indicator, which animates the caret instead, so the text
+    /// view's caret is not drawn by `drawInsertionPoint` below.
+    private lazy var insertionIndicator: LiveInsertionIndicator = {
+        let indicator = LiveInsertionIndicator(frame: .zero)
+        indicator.displayMode = .automatic
+        indicator.color = NSColor(token: .fg)
+        indicator.isHidden = true
+        addSubview(indicator, positioned: .above, relativeTo: nil)
+        return indicator
+    }()
+
+    /// The caret rect from the last time AppKit asked for it.
+    private var insertionRect = NSRect.zero
+
+    /// Whether the system indicator should be showing. AppKit still asks
+    /// for the insertion point when the view is not focused or has a
+    /// selection; the indicator follows those questions rather than the
+    /// native caret.
+    private var insertionVisible: Bool {
+        window?.isKeyWindow == true && shouldDrawInsertionPoint && selectedRange().length == 0 && !hasMarkedText()
+    }
+
+    func updateInsertionIndicator() {
+        let visible = insertionVisible && insertionRect.width > 0 && insertionRect.height > 0
+        if insertionIndicator.isHidden == visible {
+            insertionIndicator.isHidden = !visible
+        }
+        guard visible else { return }
+        if insertionIndicator.frame != insertionRect {
+            insertionIndicator.frame = insertionRect
+        }
+    }
+
+    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
+        // The indicator owns the caret's look and blink.
+        insertionRect = rect
+        updateInsertionIndicator()
+    }
+
+    override func setSelectedRange(_ range: NSRange) {
+        super.setSelectedRange(range)
+        updateInsertionIndicator()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        updateInsertionIndicator()
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        updateInsertionIndicator()
+        return accepted
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        if let window {
+            NotificationCenter.default.addObserver(self, selector: #selector(windowChanged), name: NSWindow.didBecomeKeyNotification, object: window)
+            NotificationCenter.default.addObserver(self, selector: #selector(windowChanged), name: NSWindow.didResignKeyNotification, object: window)
+        }
+        updateInsertionIndicator()
+    }
+
+    @objc private func windowChanged() {
+        updateInsertionIndicator()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
 
     func layoutTitle() {
         (superview as? LiveDocumentView)?.layoutContent()
