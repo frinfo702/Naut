@@ -584,6 +584,7 @@ private struct PublishingPane: View {
 /// idea as Rex's "Server — Running" card.
 private struct CloudflareCard: View {
     @Environment(Store.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 12) {
@@ -593,7 +594,12 @@ private struct CloudflareCard: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Theme.fg)
                 HStack(spacing: 5) {
-                    Circle().fill(dot).frame(width: 6, height: 6)
+                    StatusDot(
+                        color: dot,
+                        busy: store.provisioning,
+                        connected: store.site?.url,
+                        reduceMotion: reduceMotion
+                    )
                     Text(status)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -628,6 +634,43 @@ private struct CloudflareCard: View {
     private var dot: Color {
         if store.provisioning { return .orange }
         return store.site == nil ? Theme.fgDim : .green
+    }
+}
+
+/// The connection dot: it breathes while Terraform runs, then lands with
+/// one short pop when the Worker goes live. The pop is triggered by the
+/// site appearing, so opening Settings after setup is still.
+private struct StatusDot: View {
+    let color: Color
+    let busy: Bool
+    let connected: URL?
+    let reduceMotion: Bool
+
+    @State private var breathing = false
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .animation(.easeOut(duration: 0.2), value: color)
+            .frame(width: 6, height: 6)
+            .scaleEffect(breathing ? 1.45 : 1)
+            .opacity(breathing ? 0.55 : 1)
+            .phaseAnimator([1.0, 1.5, 1.0], trigger: connected) { dot, scale in
+                dot.scaleEffect(reduceMotion ? 1 : scale)
+            } animation: { scale in
+                scale == 1.5
+                    ? .easeOut(duration: 0.12)
+                    : .spring(duration: 0.35, bounce: 0.3)
+            }
+            .onChange(of: busy, initial: true) { _, busy in
+                withAnimation(busy && !reduceMotion
+                    ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
+                    : .easeOut(duration: 0.2)
+                ) {
+                    breathing = busy && !reduceMotion
+                }
+            }
+            .accessibilityHidden(true)
     }
 }
 
