@@ -20,6 +20,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: SettingsMetrics.groupSpacing) {
                     switch pane {
                     case .appearance: AppearancePane()
+                    case .editor: EditorPane()
                     case .notes: NotesPane()
                     case .publishing: PublishingPane()
                     case .shortcuts: ShortcutsPane()
@@ -54,13 +55,14 @@ struct SettingsView: View {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case appearance, notes, publishing, shortcuts
+    case appearance, editor, notes, publishing, shortcuts
 
     var id: Self { self }
 
     var title: String {
         switch self {
         case .appearance: "Appearance"
+        case .editor: "Editor"
         case .notes: "Notes"
         case .publishing: "Publishing"
         case .shortcuts: "Shortcuts"
@@ -70,6 +72,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     var icon: SettingsIcon.Kind {
         switch self {
         case .appearance: .palette
+        case .editor: .symbol("textformat", top: 0x64D2FF, bottom: 0x0A84FF)
         case .notes: .symbol("folder.fill", top: 0xFFD60A, bottom: 0xFF9F0A)
         // Purple globe, like Rex's Remote Hosts. The Cloudflare mark stays
         // on the status card so the two don't repeat each other.
@@ -82,6 +85,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     private var keywords: [String] {
         switch self {
         case .appearance: ["theme", "dark", "light", "color", "colour", "scheme"]
+        case .editor: ["font", "size", "typography", "live", "preview", "split", "markdown", "source", "line", "spacing", "density", "compact", "comfortable"]
         case .notes: ["folder", "files", "markdown", "finder", "location"]
         case .publishing: ["cloudflare", "web", "publish", "token", "account", "workers", "terraform"]
         case .shortcuts: ["keyboard", "keys", "bindings", "hotkeys"]
@@ -222,7 +226,9 @@ struct SettingsIcon: View {
 
 enum Logos {
     /// Cloudflare's cloud mark, from the official brand assets via Simple
-    /// Icons. NSImage renders SVG natively, so it ships as source.
+    /// Icons. NSImage renders SVG natively, so it ships as source. NSImage
+    /// is main-actor state, even when it is never mutated.
+    @MainActor
     static let cloudflare: NSImage = NSImage(data: Data("""
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#F38020" d="M16.5088 16.8447c.1475-.5068.0908-.9707-.1553-1.3154-.2246-.3164-.6045-.5-1.0615-.5205l-8.6592-.1123a.1559.1559 0 0 1-.1333-.0713c-.0283-.042-.0351-.0986-.021-.1553.0278-.084.1123-.1484.2036-.1562l8.7359-.1123c1.0351-.0489 2.1601-.8868 2.5537-1.9136l.499-1.3013c.0215-.0561.0293-.1128.0147-.168-.5625-2.5463-2.835-4.4453-5.5499-4.4453-2.5039 0-4.6284 1.6177-5.3876 3.8614-.4927-.3658-1.1187-.5625-1.794-.499-1.2026.119-2.1665 1.083-2.2861 2.2856-.0283.31-.0069.6128.0635.894C1.5683 13.171 0 14.7754 0 16.752c0 .1748.0142.3515.0352.5273.0141.083.0844.1475.1689.1475h15.9814c.0909 0 .1758-.0645.2032-.1553l.12-.4268zm2.7568-5.5634c-.0771 0-.1611 0-.2383.0112-.0566 0-.1054.0415-.127.0976l-.3378 1.1744c-.1475.5068-.0918.9707.1543 1.3164.2256.3164.6055.498 1.0625.5195l1.8437.1133c.0557 0 .1055.0263.1329.0703.0283.043.0351.1074.0214.1562-.0283.084-.1132.1485-.204.1553l-1.921.1123c-1.041.0488-2.1582.8867-2.5527 1.914l-.1406.3585c-.0283.0713.0215.1416.0986.1416h6.5977c.0771 0 .1474-.0489.169-.126.1122-.4082.1757-.837.1757-1.2803 0-2.6025-2.125-4.727-4.7344-4.727"/></svg>
         """.utf8))!
@@ -423,6 +429,65 @@ private struct DiagonalHalf: Shape {
         p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
         p.closeSubpath()
         return p
+    }
+}
+
+private struct EditorPane: View {
+    @Environment(Store.self) private var store
+    private let families = NSFontManager.shared.availableFontFamilies
+
+    var body: some View {
+        @Bindable var store = store
+
+        SettingsGroup(
+            title: "Mode",
+            footer: "Split shows the Markdown beside the page. Live Preview is one pane edited like the page, as in Notion: Markdown shortcuts format as you type and never show; click an equation, table or image to edit it."
+        ) {
+            SettingsRow(title: "Editing", divider: false) {
+                Picker("", selection: $store.editorMode) {
+                    ForEach(Store.EditorMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+        }
+
+        SettingsGroup(title: "Text", footer: "The page and Live Preview. The default is Suisse Intl when it's installed, otherwise the system font.") {
+            SettingsRow(title: "Font") { fontPicker($store.textFont, defaultName: Metrics.textFamily) }
+            SettingsRow(title: "Size") { sizeStepper($store.textSize, range: 12...28) }
+            SettingsRow(title: "Line spacing", divider: false) {
+                Picker("", selection: $store.density) {
+                    ForEach(Store.Density.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+        }
+
+        SettingsGroup(title: "Source", footer: "The Markdown editor in Split, and code everywhere.") {
+            SettingsRow(title: "Font") { fontPicker($store.sourceFont, defaultName: "System Mono") }
+            SettingsRow(title: "Size", divider: false) { sizeStepper($store.sourceSize, range: 9...24) }
+        }
+    }
+
+    private func fontPicker(_ selection: Binding<String>, defaultName: String) -> some View {
+        Picker("", selection: selection) {
+            Text("Default (\(defaultName))").tag("")
+            Divider()
+            ForEach(families, id: \.self) { Text($0).tag($0) }
+        }
+        .labelsHidden()
+        .frame(maxWidth: 220)
+    }
+
+    private func sizeStepper(_ value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        Stepper(value: value, in: range) {
+            Text("\(Int(value.wrappedValue)) pt")
+                .font(.system(size: 13).monospacedDigit())
+                .foregroundStyle(Theme.fgDim)
+        }
     }
 }
 

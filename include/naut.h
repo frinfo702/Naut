@@ -50,6 +50,13 @@ void naut_render(const char *src, size_t len, naut_string_s *html,
 naut_string_s naut_render_page(const char *src, size_t len,
                                  const naut_page_options_s *opts);
 
+// Highlight tokens of src in the language named by a code fence (e.g.
+// "zig"), as JSON: [{"start":0,"end":5,"class":"kw"}, ...] with byte
+// offsets into src. Classes are those of page.css's .hl-* rules. Unknown
+// languages give []. Must be freed.
+naut_string_s naut_highlight(const char *lang, size_t lang_len,
+                             const char *src, size_t len);
+
 // A design token from the page stylesheet (e.g. "--bg") as a colour, for
 // the light or dark scheme. Returns false if it is missing or not a colour.
 bool naut_theme_color(const char *name, bool dark, naut_color_s *out);

@@ -1,3 +1,4 @@
+import AppKit
 import NautKit
 import SwiftUI
 
@@ -38,14 +39,36 @@ struct ContentView: View {
     @ViewBuilder private var detail: some View {
         @Bindable var store = store
         if let note = store.selectedNote {
-            HSplitView {
-                if store.showEditor {
-                    Editor(text: $store.text)
-                        .frame(minWidth: 280)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
+            Group {
+                switch store.editorMode {
+                case .split:
+                    HSplitView {
+                        if store.showEditor {
+                            Editor(text: $store.text, font: store.sourceNSFont, title: note.name) { store.rename(note, to: $0) }
+                                // A new note starts without the old note's undo history.
+                                .id(note.id)
+                                .frame(minWidth: 280)
+                                .transition(.move(edge: .leading).combined(with: .opacity))
+                                // The identity change is a fresh editor for the same
+                                // pane, not the pane itself arriving.
+                                .animation(nil, value: note.id)
+                        }
+                        Preview(html: store.html, title: note.name, baseURL: store.folder, style: previewStyle, scrollTarget: $scrollTarget)
+                            .frame(minWidth: 320)
+                    }
+                case .live:
+                    LiveEditor(
+                        text: $store.text,
+                        font: store.textNSFont,
+                        mono: store.sourceNSFont,
+                        lineHeight: store.density.lineHeight,
+                        outline: store.outline,
+                        baseURL: store.folder,
+                        title: note.name,
+                        rename: { store.rename(note, to: $0) },
+                        scrollTarget: $scrollTarget
+                    )
                 }
-                Preview(html: store.html, baseURL: store.folder, scrollTarget: $scrollTarget)
-                    .frame(minWidth: 320)
             }
             .background(Theme.bg)
             .navigationTitle(note.name)
@@ -58,18 +81,24 @@ struct ContentView: View {
         }
     }
 
+    private var previewStyle: Preview.Style {
+        Preview.Style(textFont: store.textFont, textSize: store.textSize, sourceFont: store.sourceFont, lineHeight: store.density.lineHeight)
+    }
+
     @ToolbarContentBuilder
     private func toolbar(_ note: Note) -> some ToolbarContent {
         ToolbarItemGroup {
             PublishButton(note: note, openSettings: { openSettings() })
 
             // Last, so it sits at the trailing edge like other panel toggles.
-            Button {
-                withAnimation(.snappy(duration: Metrics.toggleDuration)) { store.showEditor.toggle() }
-            } label: {
-                Label("Editor", systemImage: "sidebar.squares.left")
+            if store.editorMode == .split {
+                Button {
+                    withAnimation(.snappy(duration: Metrics.toggleDuration)) { store.showEditor.toggle() }
+                } label: {
+                    Label("Editor", systemImage: "sidebar.squares.left")
+                }
+                .help(store.showEditor ? "Hide Editor (⌘E)" : "Show Editor (⌘E)")
             }
-            .help(store.showEditor ? "Hide Editor (⌘E)" : "Show Editor (⌘E)")
         }
     }
 }
@@ -150,10 +179,34 @@ struct PublishPopover: View {
 
 struct Editor: View {
     @Binding var text: String
+    let font: NSFont
+    /// The note's name; editing it renames the note.
+    let title: String
+    let rename: (String) -> Void
+    @State private var draft = ""
+    @FocusState private var titleFocused: Bool
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            TextField("Untitled", text: $draft)
+                .textFieldStyle(.plain)
+                .font(.system(size: Metrics.editorTitleSize, weight: .semibold))
+                .foregroundStyle(Theme.fg)
+                .focused($titleFocused)
+                .onSubmit { rename(draft) }
+                // Leaving the field renames too; a note switch resets it.
+                .onChange(of: titleFocused) { if !titleFocused, draft != title { rename(draft) } }
+                .onChange(of: title, initial: true) { draft = title }
+                .padding(.horizontal, Metrics.editorInset)
+                .padding(.top, Metrics.editorInset)
+            source
+        }
+        .background(Theme.surface)
+    }
+
+    private var source: some View {
         TextEditor(text: $text)
-            .font(.system(size: Metrics.editorFontSize, design: .monospaced))
+            .font(Font(font as CTFont))
             .foregroundStyle(Theme.fg)
             .scrollContentBackground(.hidden)
             // contentMargins has no effect on TextEditor (it was set here
@@ -161,5 +214,17 @@ struct Editor: View {
             .padding(.horizontal, Metrics.editorInset - 5) // NSTextView adds 5pt line padding
             .padding(.vertical, Metrics.editorInset)
             .background(Theme.surface)
+            .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange)) { _ in sync() }
+            .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidRedoChange)) { _ in sync() }
+    }
+
+    /// Undo and redo change the text view behind SwiftUI's back; write the
+    /// result back through the binding, or the preview and the file keep
+    /// the text that was undone. Field editors (title, search, settings)
+    /// are not this editor, and Live Preview keeps its own source history.
+    private func sync() {
+        let window = NSApp.keyWindow ?? NSApp.mainWindow
+        guard let view = window?.firstResponder as? NSTextView, !view.isFieldEditor else { return }
+        text = view.string
     }
 }

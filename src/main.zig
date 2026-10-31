@@ -11,6 +11,7 @@ pub const markdown = @import("markdown.zig");
 pub const page = @import("page.zig");
 pub const cloudflare = @import("cloudflare.zig");
 pub const css = @import("css");
+pub const highlight = @import("highlight");
 
 test {
     std.testing.refAllDecls(@This());

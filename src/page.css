@@ -36,7 +36,7 @@
   --measure: 760px;
   --nav-width: 300px;
 
-  --font: -apple-system, BlinkMacSystemFont, "Inter", "Hiragino Sans", system-ui, sans-serif;
+  --font: "Suisse Intl", -apple-system, BlinkMacSystemFont, "Inter", "Hiragino Sans", system-ui, sans-serif;
   --mono: "SF Mono", ui-monospace, Menlo, monospace;
 }
 
@@ -133,6 +133,8 @@ h2 { font-size: 1.6em; margin: 2.2em 0 0.6em; }
 h3 { font-size: 1.25em; margin: 1.8em 0 0.5em; }
 h4, h5, h6 { font-size: 1em; margin: 1.6em 0 0.4em; }
 main > :first-child { margin-top: 0; }
+/* The note's name, above its Markdown, as a Notion page's title. */
+h1.page-title { font-size: 2.4em; font-weight: 600; margin: 0 0 0.8em; }
 
 p, ul, ol, blockquote, pre, .table, .math { margin: 0 0 1.1em; }
 

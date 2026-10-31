@@ -90,6 +90,69 @@ final class Store {
         }
     }
 
+    // MARK: - Editor
+
+    enum EditorMode: String, CaseIterable {
+        /// Markdown source beside the rendered page.
+        case split
+        /// One pane: the source styled as it will read, markers shown
+        /// only on the line being edited, like Obsidian's Live Preview.
+        case live
+
+        var title: String { self == .split ? "Split" : "Live Preview" }
+    }
+
+    var editorMode = EditorMode(rawValue: UserDefaults.standard.string(forKey: "editorMode") ?? "") ?? .split {
+        didSet { UserDefaults.standard.set(editorMode.rawValue, forKey: "editorMode") }
+    }
+
+    /// Font families; empty means the default (Suisse Intl if installed,
+    /// else the system font, for text; the system monospaced font for
+    /// source and code).
+    var textFont = UserDefaults.standard.string(forKey: "textFont") ?? "" {
+        didSet { UserDefaults.standard.set(textFont, forKey: "textFont") }
+    }
+
+    var textSize = UserDefaults.standard.object(forKey: "textSize") as? Double ?? Double(Metrics.textFontSize) {
+        didSet { UserDefaults.standard.set(textSize, forKey: "textSize") }
+    }
+
+    var sourceFont = UserDefaults.standard.string(forKey: "sourceFont") ?? "" {
+        didSet { UserDefaults.standard.set(sourceFont, forKey: "sourceFont") }
+    }
+
+    var sourceSize = UserDefaults.standard.object(forKey: "sourceSize") as? Double ?? Double(Metrics.editorFontSize) {
+        didSet { UserDefaults.standard.set(sourceSize, forKey: "sourceSize") }
+    }
+
+    var textNSFont: NSFont {
+        Self.font(textFont.isEmpty ? Metrics.textFamily : textFont, size: textSize, fallback: .systemFont(ofSize: textSize))
+    }
+
+    /// How far apart lines of text are.
+    enum Density: String, CaseIterable {
+        /// Like Rex's docs: tighter lines, more on screen.
+        case compact
+        /// page.css's own spacing.
+        case comfortable
+
+        var title: String { rawValue.capitalized }
+        /// CSS line-height.
+        var lineHeight: Double { self == .compact ? 1.55 : 1.75 }
+    }
+
+    var density = Density(rawValue: UserDefaults.standard.string(forKey: "density") ?? "") ?? .compact {
+        didSet { UserDefaults.standard.set(density.rawValue, forKey: "density") }
+    }
+    var sourceNSFont: NSFont {
+        Self.font(sourceFont, size: sourceSize, fallback: .monospacedSystemFont(ofSize: sourceSize, weight: .regular))
+    }
+
+    private static func font(_ family: String, size: Double, fallback: NSFont) -> NSFont {
+        guard !family.isEmpty else { return fallback }
+        return NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size) ?? fallback
+    }
+
     /// Set while `load` assigns `text`, so loading isn't mistaken for an edit.
     private var loading = false
     private var saveTask: Task<Void, Never>?
@@ -142,6 +205,48 @@ final class Store {
         try? text.write(to: url, atomically: true, encoding: .utf8)
         reload()
         selection = url
+    }
+
+    /// Rename a note: its title is its file name. A published note moves
+    /// to the new address and the old one is taken down.
+    func rename(_ note: Note, to title: String) {
+        // A file name can't hold "/", and ":" shows as "/" in Finder.
+        var name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        if name.isEmpty { name = "Untitled" }
+        guard name != note.name, FileManager.default.fileExists(atPath: note.url.path) else { return }
+        // The file has the latest text before it moves.
+        if note.id == selection { saveNow(note.id) }
+
+        var url = folder.appending(path: "\(name).md")
+        var n = 2
+        // The same name in another case is this file on a case-insensitive
+        // disk, not a clash.
+        while FileManager.default.fileExists(atPath: url.path), url.path.lowercased() != note.url.path.lowercased() {
+            url = folder.appending(path: "\(name) \(n).md")
+            n += 1
+        }
+        do {
+            // Through a temporary name, so a change of case alone is a move.
+            let temp = folder.appending(path: ".\(UUID().uuidString).md")
+            try FileManager.default.moveItem(at: note.url, to: temp)
+            try FileManager.default.moveItem(at: temp, to: url)
+        } catch {
+            self.error = "Couldn't rename “\(note.name)”: \(error.localizedDescription)"
+            return
+        }
+
+        let renamed = Note(url: url)
+        let wasPublished = published.contains(note.name)
+        reload()
+        if selection == note.id { selection = renamed.id }
+        guard wasPublished else { return }
+        // The page shows the title, so it is published again either way;
+        // a new address also takes the old page down.
+        published.remove(note.name)
+        if renamed.slug != note.slug { unpublishSlug(of: note) }
+        setPublished(renamed, true)
     }
 
     func trash(_ note: Note) {
@@ -270,6 +375,12 @@ final class Store {
         perform(note) { try await $0.put(site, key: note.slug, value: html) } done: {
             self.published.insert(note.name)
         }
+    }
+
+    /// Take down a renamed note's old page; its name is no longer listed.
+    private func unpublishSlug(of note: Note) {
+        guard let site else { return }
+        perform(note) { try await $0.delete(site, key: note.slug) } done: {}
     }
 
     private func unpublish(_ note: Note) {

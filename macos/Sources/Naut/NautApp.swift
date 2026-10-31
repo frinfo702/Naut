@@ -20,6 +20,12 @@ struct NautApp: App {
         }
         .windowToolbarStyle(.unifiedCompact)
         .commands {
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") { undoManager()?.undo() }
+                    .keyboardShortcut("z")
+                Button("Redo") { undoManager()?.redo() }
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+            }
             CommandGroup(replacing: .newItem) {
                 Button("New Note") { store.newNote() }
                     .keyboardShortcut("n")
@@ -29,6 +35,7 @@ struct NautApp: App {
                     withAnimation(.snappy(duration: Metrics.toggleDuration)) { store.showEditor.toggle() }
                 }
                 .keyboardShortcut("e")
+                .disabled(store.editorMode == .live)
             }
         }
 
@@ -36,6 +43,16 @@ struct NautApp: App {
             SettingsView()
                 .environment(store)
         }
+    }
+
+    /// The focused editor's undo manager. SwiftUI's TextEditor keeps one,
+    /// but it doesn't answer the Edit menu's `undo:` action, so the menu
+    /// items stay disabled unless we call the manager ourselves. Live
+    /// Preview keeps the source's history apart from TextKit's.
+    private func undoManager() -> UndoManager? {
+        let window = NSApp.keyWindow ?? NSApp.mainWindow
+        if let live = window?.firstResponder as? LiveTextView { return live.history }
+        return (window?.firstResponder as? NSTextView)?.undoManager
     }
 }
 
@@ -75,6 +92,15 @@ enum Metrics {
     // MARK: - Editor
     static let editorFontSize: CGFloat = 13
     static let editorInset: CGFloat = 24
+    /// The note's title above the Split source.
+    static let editorTitleSize: CGFloat = 20
+    /// Body text in the preview and live editor, as in page.css.
+    static let textFontSize: CGFloat = 17
+    /// The default text font when installed, first in page.css's --font.
+    /// It's commercial, so it isn't shipped; without it, the system font.
+    static let textFamily = "Suisse Intl"
+    /// Line length of the live editor, page.css's --measure.
+    static let measure: CGFloat = 760
 
     // MARK: - Animation
     static let toggleDuration = 0.2 // fast enough to feel instant, slow enough to track
@@ -85,6 +111,12 @@ extension Color {
     /// A token from page.css. Both schemes are resolved once, up front;
     /// the dynamic provider runs on every redraw and must stay cheap.
     init(token: ThemeToken) {
+        self.init(nsColor: NSColor(token: token))
+    }
+}
+
+extension NSColor {
+    convenience init(token: ThemeToken) {
         func resolve(dark: Bool) -> NSColor {
             guard let c = token.color(dark: dark) else {
                 assertionFailure("missing colour token \(token.rawValue)")
@@ -94,8 +126,8 @@ extension Color {
         }
         let dark = resolve(dark: true)
         let light = resolve(dark: false)
-        self.init(nsColor: NSColor(name: nil) { appearance in
+        self.init(name: nil) { appearance in
             appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-        })
+        }
     }
 }
