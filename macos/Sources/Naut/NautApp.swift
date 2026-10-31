@@ -20,6 +20,12 @@ struct NautApp: App {
         }
         .windowToolbarStyle(.unifiedCompact)
         .commands {
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") { undoManager()?.undo() }
+                    .keyboardShortcut("z")
+                Button("Redo") { undoManager()?.redo() }
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+            }
             CommandGroup(replacing: .newItem) {
                 Button("New Note") { store.newNote() }
                     .keyboardShortcut("n")
@@ -37,6 +43,16 @@ struct NautApp: App {
             SettingsView()
                 .environment(store)
         }
+    }
+
+    /// The focused editor's undo manager. SwiftUI's TextEditor keeps one,
+    /// but it doesn't answer the Edit menu's `undo:` action, so the menu
+    /// items stay disabled unless we call the manager ourselves. Live
+    /// Preview keeps the source's history apart from TextKit's.
+    private func undoManager() -> UndoManager? {
+        let window = NSApp.keyWindow ?? NSApp.mainWindow
+        if let live = window?.firstResponder as? LiveTextView { return live.history }
+        return (window?.firstResponder as? NSTextView)?.undoManager
     }
 }
 

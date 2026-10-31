@@ -730,13 +730,13 @@ final class LiveTextView: NSTextView {
     var key: ((NSEvent) -> Bool)?
     /// The Markdown behind a display range, for copying.
     var copySource: ((NSRange) -> String)?
-    /// The source's undo, standing in for the text view's.
+    /// The source's undo history. Kept apart from the text view's own
+    /// undo manager: the display is rewritten after each edit, so TextKit's
+    /// undo actions would point into text that is no longer there.
     var history: UndoManager?
 
     /// The note's title, laid out above the text by `LiveDocumentView`.
     var titleField: NSTextField?
-
-    override var undoManager: UndoManager? { history ?? super.undoManager }
 
     func layoutTitle() {
         (superview as? LiveDocumentView)?.layoutContent()

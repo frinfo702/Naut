@@ -1,3 +1,4 @@
+import AppKit
 import NautKit
 import SwiftUI
 
@@ -44,8 +45,13 @@ struct ContentView: View {
                     HSplitView {
                         if store.showEditor {
                             Editor(text: $store.text, font: store.sourceNSFont, title: note.name) { store.rename(note, to: $0) }
+                                // A new note starts without the old note's undo history.
+                                .id(note.id)
                                 .frame(minWidth: 280)
                                 .transition(.move(edge: .leading).combined(with: .opacity))
+                                // The identity change is a fresh editor for the same
+                                // pane, not the pane itself arriving.
+                                .animation(nil, value: note.id)
                         }
                         Preview(html: store.html, title: note.name, baseURL: store.folder, style: previewStyle, scrollTarget: $scrollTarget)
                             .frame(minWidth: 320)
@@ -208,5 +214,17 @@ struct Editor: View {
             .padding(.horizontal, Metrics.editorInset - 5) // NSTextView adds 5pt line padding
             .padding(.vertical, Metrics.editorInset)
             .background(Theme.surface)
+            .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange)) { _ in sync() }
+            .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidRedoChange)) { _ in sync() }
+    }
+
+    /// Undo and redo change the text view behind SwiftUI's back; write the
+    /// result back through the binding, or the preview and the file keep
+    /// the text that was undone. Field editors (title, search, settings)
+    /// are not this editor, and Live Preview keeps its own source history.
+    private func sync() {
+        let window = NSApp.keyWindow ?? NSApp.mainWindow
+        guard let view = window?.firstResponder as? NSTextView, !view.isFieldEditor else { return }
+        text = view.string
     }
 }
