@@ -200,6 +200,21 @@ func liveMappingRoundTrips(note: String) {
     #expect(next.delete(NSRange(location: 1, length: 1), selection: caret(2)) == .select(caret(1)))
 }
 
+/// Backspace on an empty list item directly below a code block removes
+/// its bullet. The closing fence and its newline are hidden, so the only
+/// displayed newline is the code's last line; deleting it used to move
+/// the caret to the end of the code instead of removing the bullet.
+@Test func liveDeletingAnEmptyListItemBelowACodeBlockRemovesTheBullet() throws {
+    let note = "```plain text\nrex server start --tailscale\n```\n- "
+    let p = LiveProjection(note)
+    #expect(p.display == "rex server start --tailscale\n")
+    let edit = LiveEditing(p).delete(NSRange(location: p.display.length - 1, length: 1), selection: caret(p.display.length))
+    let done = try #require(apply(edit, to: note))
+    let expected = "```plain text\nrex server start --tailscale\n```\n"
+    #expect(done.text == expected)
+    #expect(done.selection == caret((expected as NSString).length))
+}
+
 @Test func liveReturnMakesBlocksAndContinuesLists() {
     func returned(_ s: String, at p: Int) -> String? { apply(LiveEditing(text: s).newline(caret(p)), to: s)?.text }
     #expect(returned("```zig", at: 6) == "```zig\n\n```")

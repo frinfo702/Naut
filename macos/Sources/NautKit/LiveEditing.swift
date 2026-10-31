@@ -117,6 +117,13 @@ public struct LiveEditing {
             let fence = e.markers[1]
             if NSMaxRange(fence) < source.length {
                 let below = line(containing: NSMaxRange(fence) + 1)
+                // Backspace at the start of the line below meets that
+                // line's hidden prefix first: the fence hides the newline
+                // before it, so the displayed newline is the code's last.
+                if backward, let item = elements.first(where: { isLine($0.kind) && $0.range.location == below.location }) {
+                    let prefix = linePrefix(item)
+                    return .replace(prefix, with: "", selection: caret(prefix.location))
+                }
                 if isBlank(below) {
                     // The blank line's own newline, or, if it ends the note,
                     // the fence's.
