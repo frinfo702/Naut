@@ -209,13 +209,17 @@ struct LiveEditor: NSViewRepresentable {
             }
             lastTyping = typing ? now : nil
             let before = source
-            history.registerUndo(withTarget: self) { $0.restore(before, selection: selection) }
+            history.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated { target.restore(before, selection: selection) }
+            }
         }
 
         private func restore(_ old: String, selection: NSRange) {
             let current = source
             let currentSelection = view?.selectedRange() ?? NSRange(location: 0, length: 0)
-            history.registerUndo(withTarget: self) { $0.restore(current, selection: currentSelection) }
+            history.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated { target.restore(current, selection: currentSelection) }
+            }
             lastTyping = nil
             source = old
             text = old
