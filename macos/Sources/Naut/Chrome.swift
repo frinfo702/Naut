@@ -192,9 +192,9 @@ private struct NoteTab: View {
     var body: some View {
         // Cut by characters rather than by a frame, so a short name's tab
         // hugs it instead of growing to the frame's limit.
-        Text(note.name.count > Metrics.tabMaxCharacters
-            ? note.name.prefix(Metrics.tabMaxCharacters - 1) + "…"
-            : note.name)
+        Text(note.displayName.count > Metrics.tabMaxCharacters
+            ? note.displayName.prefix(Metrics.tabMaxCharacters - 1) + "…"
+            : note.displayName)
             .lineLimit(1)
             .fixedSize()
             .font(.system(size: 13, weight: selected ? .medium : .regular))

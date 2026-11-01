@@ -258,7 +258,7 @@ struct CommandPalette: View {
             case let .note(note):
                 HStack(spacing: 12) {
                     Image(systemName: "doc.text").foregroundStyle(Theme.fgDim).frame(width: 18)
-                    Text(note.name).foregroundStyle(selected ? Theme.fg : Theme.fgBody).lineLimit(1)
+                    Text(note.displayName).foregroundStyle(selected ? Theme.fg : Theme.fgBody).lineLimit(1)
                     Spacer()
                 }
                 .frame(height: 40)
@@ -574,7 +574,7 @@ private struct HitRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(note.name)
+                Text(note.displayName)
                     .font(.system(size: 14, weight: selected ? .medium : .regular))
                     .foregroundStyle(selected ? Theme.fg : Theme.fgBody)
                     .lineLimit(1)
@@ -604,10 +604,10 @@ private struct Peek: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text([note.name, match.section].compactMap(\.self).joined(separator: "  ›  "))
+            Text([note.displayName, match.section].compactMap(\.self).joined(separator: "  ›  "))
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.fgDim)
-            Text(match.section ?? note.name)
+            Text(match.section ?? note.displayName)
                 .font(.system(size: 22, weight: .medium))
                 .foregroundStyle(Theme.fg)
             if !match.snippet.isEmpty {

@@ -148,9 +148,9 @@ struct ContentView: View {
         return HStack(spacing: 10) {
             Image(systemName: "doc.text")
                 .foregroundStyle(Theme.fgBody)
-            Text(note.name)
+            Text(note.displayName)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Theme.fg)
+                .foregroundStyle(note.isUntitled ? Theme.fgDim : Theme.fg)
                 .lineLimit(1)
             let favorite = store.isFavorite(note.id)
             Button { store.toggleFavorite(note.id) } label: {
@@ -177,7 +177,7 @@ struct ContentView: View {
             lineHeight: store.density.lineHeight,
             outline: store.outline,
             baseURL: store.folder,
-            title: note.name,
+            title: note.title,
             themeRevision: store.themeRevision,
             keymap: store.keymap,
             cursorShape: store.cursorShape,

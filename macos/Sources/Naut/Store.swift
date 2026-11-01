@@ -10,6 +10,18 @@ struct Note: Identifiable, Hashable {
     var id: URL { url }
     var name: String { url.deletingPathExtension().lastPathComponent }
 
+    /// A name the app gave, "Untitled" or "Untitled 2": the note has no
+    /// title yet, and shows as a new page until it gets one.
+    var isUntitled: Bool {
+        name.range(of: #"^Untitled( \d+)*$"#, options: .regularExpression) != nil
+    }
+
+    /// Its title as written: empty until the user gives it one.
+    var title: String { isUntitled ? "" : name }
+
+    /// How lists and tabs show it.
+    var displayName: String { isUntitled ? "New page" : name }
+
     /// The page address when published: "My Note" → "my-note".
     var slug: String {
         name.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: "-")

@@ -182,7 +182,8 @@ struct LiveEditor: NSViewRepresentable {
         if text != c.source, !view.hasMarkedText() {
             c.load(text)
             // A new, empty note starts at its title, as in Notion.
-            if text.isEmpty { DispatchQueue.main.async { c.focusTitle(selectAll: true) } }
+            // Checked when it runs: by then another note may have opened.
+            if text.isEmpty { DispatchQueue.main.async { if c.source.isEmpty { c.focusTitle() } } }
         } else if dirty {
             c.refresh()
         }
@@ -540,7 +541,7 @@ struct LiveEditor: NSViewRepresentable {
                 return true
             case #selector(NSResponder.moveUp(_:)) where selection.length == 0 && onFirstLine():
                 // Up from the first line goes to the title.
-                focusTitle(selectAll: false)
+                focusTitle()
                 return true
             default:
                 return false
@@ -686,7 +687,7 @@ struct LiveEditor: NSViewRepresentable {
             self.title = title
             guard let field = view?.titleField else { return }
             field.font = Self.titleFont(font)
-            field.placeholderAttributedString = NSAttributedString(string: "Untitled", attributes: [
+            field.placeholderAttributedString = NSAttributedString(string: "New page", attributes: [
                 .font: Self.titleFont(font), .foregroundColor: NSColor(token: .fgDim),
             ])
             // Not while it is being typed in.
@@ -700,11 +701,11 @@ struct LiveEditor: NSViewRepresentable {
             return NSFont(descriptor: d, size: font.pointSize * 2.4) ?? font
         }
 
-        func focusTitle(selectAll: Bool) {
+        func focusTitle() {
             guard let field = view?.titleField, field.window?.makeFirstResponder(field) == true else { return }
             (field.currentEditor() as? NSTextView)?.insertionPointColor = .themeCursor
             let end = (field.stringValue as NSString).length
-            field.currentEditor()?.selectedRange = selectAll ? NSRange(location: 0, length: end) : NSRange(location: end, length: 0)
+            field.currentEditor()?.selectedRange = NSRange(location: end, length: 0)
         }
 
         /// Whether the caret is on the first line of the text.

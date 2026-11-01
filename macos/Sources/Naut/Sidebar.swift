@@ -84,7 +84,7 @@ struct Sidebar: View {
             select(note)
         } label: {
             HStack(spacing: 8) {
-                Text(note.name)
+                Text(note.displayName)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 if store.published.contains(note.name) {
