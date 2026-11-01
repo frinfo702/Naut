@@ -21,6 +21,8 @@ struct Preview: NSViewRepresentable {
         var textSize: Double
         var sourceFont: String
         var lineHeight: Double
+        /// Theme tokens as CSS custom properties. Empty keeps page.css.
+        var colors: [String: String] = [:]
 
         var script: String {
             func stack(_ family: String, _ fallback: String) -> String {
@@ -32,14 +34,18 @@ struct Preview: NSViewRepresentable {
                 "\(textSize)px",
                 "\(lineHeight)",
             ])).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
+            let colors = (try? JSONEncoder().encode(self.colors))
+                .map { String(decoding: $0, as: UTF8.self) } ?? "{}"
             return """
                 (() => {
                   const [font, mono, size, lineHeight] = \(json);
+                  const colors = \(colors);
                   const s = document.documentElement.style;
                   s.setProperty("--font", font);
                   s.setProperty("--mono", mono);
                   document.body.style.fontSize = size;
                   document.body.style.lineHeight = lineHeight;
+                  for (const [name, value] of Object.entries(colors)) s.setProperty(name, value);
                 })()
                 """
         }

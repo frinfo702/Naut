@@ -26,7 +26,7 @@ public enum Markdown {
 /// The colour tokens in page.css that native UI draws with. Listing them
 /// here, rather than passing strings around, is what lets a test check
 /// every token the app uses against the stylesheet.
-public enum ThemeToken: String, CaseIterable, Sendable {
+public enum ThemeToken: String, CaseIterable, Hashable, Sendable {
     case bg = "--bg"
     case surface = "--surface"
     case surfaceRaised = "--surface-raised"

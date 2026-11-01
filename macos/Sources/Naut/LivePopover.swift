@@ -35,7 +35,7 @@ final class SourcePopover: NSObject, NSPopoverDelegate, NSTextViewDelegate, NSTe
             editor.isAutomaticTextReplacementEnabled = false
             editor.textContainerInset = NSSize(width: 6, height: 8)
             editor.backgroundColor = NSColor(token: .bg)
-            editor.insertionPointColor = NSColor(token: .fg)
+            editor.insertionPointColor = .themeCursor
             editor.delegate = self
             self.editor = editor
             let lines = CGFloat(max(3, min(12, text.components(separatedBy: "\n").count + 1)))

@@ -5,23 +5,86 @@ import SwiftUI
 struct ContentView: View {
     @Environment(Store.self) private var store
     @Environment(\.openSettings) private var openSettings
+    /// The effective scheme, which decides which of the two themes to
+    /// show in the preview when the app follows macOS.
+    @Environment(\.colorScheme) private var colorScheme
     /// Set by the sidebar outline; the preview scrolls there and clears it.
     @State private var scrollTarget: String?
+    /// The mode the focused Vim or Helix editor is in, shown in its corner.
+    @State private var modalMode: ModalMode = .normal
+
+    /// The command palette's scope while it is open.
+    @State private var palette: CommandPalette.Scope?
 
     var body: some View {
-        NavigationSplitView {
-            Sidebar(scrollTarget: $scrollTarget)
-                .navigationSplitViewColumnWidth(Metrics.sidebarWidth)
-        } detail: {
-            detail
-                // The title bar takes the note's background, so the window
-                // reads as one surface instead of a grey band on top.
-                .toolbarBackground(Theme.bg, for: .windowToolbar)
+        // Reading the theme keeps the window in step with a pick in Settings,
+        // including in Live Preview, where no preview style is built.
+        let _ = store.palette(for: colorScheme == .dark)
+
+        ZStack {
+            HStack(spacing: Metrics.panelGap) {
+                if store.showSidebar, store.sidebarSide == .left { sidebar }
+                detail
+                    .panel(store.windowBackground)
+                if store.showSidebar, store.sidebarSide == .right { sidebar }
+            }
+            .padding([.horizontal, .bottom], Metrics.panelGap)
+
+            if palette != nil {
+                CommandPalette(scope: $palette, scrollTarget: $scrollTarget) { openSettings() }
+                    .transition(.opacity)
+            }
         }
-        .background(Theme.bg)
+        .background { WindowBackdrop(background: store.windowBackground).ignoresSafeArea() }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                HStack(spacing: 16) {
+                    Button { store.toggleSidebar() } label: {
+                        Image(systemName: store.sidebarSide == .left ? "sidebar.left" : "sidebar.right")
+                            .foregroundStyle(store.showSidebar ? Theme.fgBody : Theme.fgDim)
+                    }
+                    .buttonStyle(.plain)
+                    .help(store.showSidebar ? "Hide Sidebar (⌃⌘S)" : "Show Sidebar (⌃⌘S)")
+                    titleBar
+                    if !store.tabs.isEmpty { TabStrip() }
+                }
+            }
+        }
+        .toolbarBackground(.hidden, for: .windowToolbar)
+        .navigationTitle("")
+        .background {
+            // ⌘K opens the palette, ⇧⌘F opens it on search.
+            Group {
+                Button("") { palette = palette == nil ? .root : nil }.keyboardShortcut("k")
+                Button("") { palette = .search }.keyboardShortcut("f", modifiers: [.command, .shift])
+                // ⌘W closes the tab; with one left it closes the window, as
+                // the menu's Close does when this button isn't here.
+                if store.tabs.count > 1, let selection = store.selection {
+                    Button("") { store.closeTab(selection) }.keyboardShortcut("w")
+                }
+                Button("") { store.selectTab(offset: 1) }.keyboardShortcut(.tab, modifiers: .control)
+                Button("") { store.selectTab(offset: -1) }.keyboardShortcut(.tab, modifiers: [.control, .shift])
+                Button("") { store.selectTab(offset: 1) }.keyboardShortcut("]", modifiers: [.command, .shift])
+                Button("") { store.selectTab(offset: -1) }.keyboardShortcut("[", modifiers: [.command, .shift])
+                ForEach(Array(store.tabs.prefix(9).enumerated()), id: \.offset) { index, id in
+                    Button("") { store.selection = id }
+                        .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+                }
+            }
+            .hidden()
+        }
         .task {
+            if let name = Snapshot.note { store.selection = store.notes.first { $0.name == name }?.id }
+            if let scope = Snapshot.palette { palette = scope }
+            #if DEBUG
+            if Snapshot.isCaretTest { await Snapshot.runCaretTest() }
+            if Snapshot.isModalTest { await Snapshot.runModalTest() }
+            if Snapshot.isTitleSwitchTest { await Snapshot.runTitleSwitchTest(store: store) }
+            if Snapshot.isMathEditTest { await Snapshot.runMathEditTest(store: store) }
+            if Snapshot.isMathScrollTest { await Snapshot.runMathScrollTest(store: store) }
+            if Snapshot.isDollarTest { await Snapshot.runDollarTest(store: store) }
+            #endif
             if let path = Snapshot.path {
-                if let name = Snapshot.note { store.selection = store.notes.first { $0.name == name }?.id }
                 if Snapshot.settingsPane != nil { openSettings() }
                 await Snapshot.capture(to: path)
             }
@@ -36,75 +99,149 @@ struct ContentView: View {
         }
     }
 
+    private var sidebar: some View {
+        Sidebar(scrollTarget: $scrollTarget, themeRevision: store.themeRevision) { palette = $0 }
+            .frame(width: Metrics.sidebarWidth)
+            .panel(store.windowBackground)
+            .transition(.move(edge: store.sidebarSide == .left ? .leading : .trailing).combined(with: .opacity))
+    }
+
+    /// The folder and its size, beside the traffic lights.
+    private var titleBar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(store.folder.lastPathComponent)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.fg)
+            Text("\(store.notes.count) notes")
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.fgDim)
+        }
+        .padding(.leading, 4)
+    }
+
     @ViewBuilder private var detail: some View {
         @Bindable var store = store
         if let note = store.selectedNote {
-            Group {
-                switch store.editorMode {
-                case .split:
-                    HSplitView {
-                        if store.showEditor {
-                            Editor(text: $store.text, font: store.sourceNSFont, title: note.name) { store.rename(note, to: $0) }
-                                // A new note starts without the old note's undo history.
-                                .id(note.id)
-                                .frame(minWidth: 280)
-                                .transition(.move(edge: .leading).combined(with: .opacity))
-                                // The identity change is a fresh editor for the same
-                                // pane, not the pane itself arriving.
-                                .animation(nil, value: note.id)
-                        }
-                        Preview(html: store.html, title: note.name, baseURL: store.folder, style: previewStyle, scrollTarget: $scrollTarget)
-                            .frame(minWidth: 320)
-                    }
-                case .live:
-                    LiveEditor(
-                        text: $store.text,
-                        font: store.textNSFont,
-                        mono: store.sourceNSFont,
-                        lineHeight: store.density.lineHeight,
-                        outline: store.outline,
-                        baseURL: store.folder,
-                        title: note.name,
-                        rename: { store.rename(note, to: $0) },
-                        scrollTarget: $scrollTarget
+            VStack(spacing: 0) {
+                header(note)
+                editor(note)
+                if store.keymap.isModal || store.showCharacterCount {
+                    StatusBar(
+                        keymap: store.keymap,
+                        mode: modalMode,
+                        characters: store.showCharacterCount ? store.text.count : nil
                     )
                 }
             }
-            .background(Theme.bg)
-            .navigationTitle(note.name)
-            .toolbar { toolbar(note) }
+            .onChange(of: note.id) { _, _ in modalMode = .normal }
+            .onChange(of: store.keymap) { _, _ in modalMode = .normal }
+            .onChange(of: store.editorMode) { _, _ in modalMode = .normal }
         } else {
             Text("No note selected")
                 .foregroundStyle(Theme.fgDim)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.bg)
         }
     }
 
-    private var previewStyle: Preview.Style {
-        Preview.Style(textFont: store.textFont, textSize: store.textSize, sourceFont: store.sourceFont, lineHeight: store.density.lineHeight)
-    }
-
-    @ToolbarContentBuilder
-    private func toolbar(_ note: Note) -> some ToolbarContent {
-        ToolbarItemGroup {
-            PublishButton(note: note, openSettings: { openSettings() })
-
-            // Last, so it sits at the trailing edge like other panel toggles.
+    /// The note's name, then Live or Split and the publish control.
+    private func header(_ note: Note) -> some View {
+        @Bindable var store = store
+        return HStack(spacing: 10) {
+            Image(systemName: "doc.text")
+                .foregroundStyle(Theme.fgBody)
+            Text(note.name)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Theme.fg)
+                .lineLimit(1)
+            let favorite = store.isFavorite(note.id)
+            Button { store.toggleFavorite(note.id) } label: {
+                Image(systemName: favorite ? "star.fill" : "star")
+                    .foregroundStyle(favorite ? Theme.cursor : Theme.fgDim)
+            }
+            .buttonStyle(.plain)
+            .help(favorite ? "Remove from Favorites" : "Add to Favorites")
+            Spacer()
             if store.editorMode == .split {
                 Button {
                     withAnimation(.snappy(duration: Metrics.toggleDuration)) { store.showEditor.toggle() }
                 } label: {
-                    Label("Editor", systemImage: "sidebar.squares.left")
+                    Image(systemName: "sidebar.squares.left")
+                        .foregroundStyle(store.showEditor ? Theme.fgBody : Theme.fgDim)
                 }
+                .buttonStyle(.plain)
                 .help(store.showEditor ? "Hide Editor (⌘E)" : "Show Editor (⌘E)")
             }
+            CapsuleSwitch(selection: $store.editorMode, options: [("Live", .live), ("Split", .split)])
+                .fixedSize()
+            PublishButton(note: note, openSettings: { openSettings() })
         }
+        .font(.system(size: 13))
+        .padding(.leading, 18)
+        .padding(.trailing, 12)
+        .frame(height: Metrics.panelHeaderHeight)
+    }
+
+    @ViewBuilder private func editor(_ note: Note) -> some View {
+        @Bindable var store = store
+        switch store.editorMode {
+        case .split:
+            HSplitView {
+                if store.showEditor {
+                    Editor(
+                        text: $store.text,
+                        font: store.sourceNSFont,
+                        title: note.name,
+                        themeRevision: store.themeRevision,
+                        keymap: store.keymap,
+                        cursorShape: store.cursorShape,
+                        cursorBlink: store.cursorBlink,
+                        mode: $modalMode
+                    ) { store.rename(note, to: $0) }
+                        // A new note starts without the old note's undo history.
+                        .id(note.id)
+                        .frame(minWidth: 280)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                        // The identity change is a fresh editor for the same
+                        // pane, not the pane itself arriving.
+                        .animation(nil, value: note.id)
+                }
+                Preview(html: store.html, title: note.name, baseURL: store.folder, style: previewStyle, scrollTarget: $scrollTarget)
+                    .frame(minWidth: 320)
+            }
+        case .live:
+            LiveEditor(
+                text: $store.text,
+                font: store.textNSFont,
+                mono: store.sourceNSFont,
+                lineHeight: store.density.lineHeight,
+                outline: store.outline,
+                baseURL: store.folder,
+                title: note.name,
+                themeRevision: store.themeRevision,
+                keymap: store.keymap,
+                cursorShape: store.cursorShape,
+                cursorBlink: store.cursorBlink,
+                mode: $modalMode,
+                note: note.id,
+                rename: { store.rename(note, to: $0) },
+                scrollTarget: $scrollTarget
+            )
+        }
+    }
+
+    private var previewStyle: Preview.Style {
+        Preview.Style(
+            textFont: store.textFont,
+            textSize: store.textSize,
+            sourceFont: store.sourceFont,
+            lineHeight: store.density.lineHeight,
+            colors: store.palette(for: colorScheme == .dark).cssVariables
+        )
     }
 }
 
-/// The one control for the web: a globe that is filled when the note is
-/// public. Clicking it when publishing isn't set up opens Settings instead
+/// The one control for the web: a pill that takes the cursor colour when
+/// the note is public. Clicking it when publishing isn't set up opens Settings instead
 /// of showing a disabled button with no explanation.
 struct PublishButton: View {
     @Environment(Store.self) private var store
@@ -117,16 +254,21 @@ struct PublishButton: View {
         Button {
             if store.site == nil { openSettings() } else { showPopover.toggle() }
         } label: {
-            if store.isBusy(note) {
-                ProgressView().controlSize(.small)
-            } else {
-                Label(isPublished ? "Published" : "Publish", systemImage: isPublished ? "globe.americas.fill" : "globe.americas")
-                    .labelStyle(.titleAndIcon)
-            }
+            PublishPill(published: isPublished, busy: store.isBusy(note))
         }
+        .buttonStyle(.plain)
         .help(store.site == nil ? "Set up publishing in Settings" : "Publish to the web")
         .popover(isPresented: $showPopover, arrowEdge: .bottom) {
             PublishPopover(note: note)
+                .modifier(FittedPopover())
+        }
+        .task {
+            // Snapshot harness: open the popover so its layout can be
+            // measured without a person clicking the toolbar.
+            if Snapshot.publishPopover {
+                try? await Task.sleep(for: .milliseconds(300))
+                showPopover = true
+            }
         }
     }
 }
@@ -173,7 +315,21 @@ struct PublishPopover: View {
             }
         }
         .padding(16)
-        .frame(width: 380)
+        // Fit the popover to its content: a narrow row when the note is
+        // private, wider once the address and its buttons are there.
+        .frame(minWidth: 280, maxWidth: 360, alignment: .leading)
+    }
+}
+
+/// SwiftUI 6 can size a presentation to its content; on macOS 14 the
+/// popover uses the content's ideal size, which the frame above bounds.
+private struct FittedPopover: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.presentationSizing(.fitted)
+        } else {
+            content
+        }
     }
 }
 
@@ -182,6 +338,12 @@ struct Editor: View {
     let font: NSFont
     /// The note's name; editing it renames the note.
     let title: String
+    /// Changes with the theme, so the body repaints the chrome.
+    let themeRevision: Int
+    let keymap: EditorKeymap
+    let cursorShape: CursorShape
+    let cursorBlink: CursorBlink
+    @Binding var mode: ModalMode
     let rename: (String) -> Void
     @State private var draft = ""
     @FocusState private var titleFocused: Bool
@@ -205,26 +367,15 @@ struct Editor: View {
     }
 
     private var source: some View {
-        TextEditor(text: $text)
-            .font(Font(font as CTFont))
-            .foregroundStyle(Theme.fg)
-            .scrollContentBackground(.hidden)
-            // contentMargins has no effect on TextEditor (it was set here
-            // and the text sat on the edge), so inset the whole view.
-            .padding(.horizontal, Metrics.editorInset - 5) // NSTextView adds 5pt line padding
-            .padding(.vertical, Metrics.editorInset)
-            .background(Theme.surface)
-            .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange)) { _ in sync() }
-            .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidRedoChange)) { _ in sync() }
-    }
-
-    /// Undo and redo change the text view behind SwiftUI's back; write the
-    /// result back through the binding, or the preview and the file keep
-    /// the text that was undone. Field editors (title, search, settings)
-    /// are not this editor, and Live Preview keeps its own source history.
-    private func sync() {
-        let window = NSApp.keyWindow ?? NSApp.mainWindow
-        guard let view = window?.firstResponder as? NSTextView, !view.isFieldEditor else { return }
-        text = view.string
+        SourceEditor(
+            text: $text,
+            font: font,
+            themeRevision: themeRevision,
+            keymap: keymap,
+            cursorShape: cursorShape,
+            cursorBlink: cursorBlink,
+            mode: $mode
+        )
+        .background(Theme.surface)
     }
 }

@@ -32,7 +32,72 @@ final class Store {
             guard selection != oldValue else { return }
             saveNow(oldValue)
             load()
+            guard let selection else { return }
+            if !tabs.contains(selection) { tabs.append(selection) }
+            recent.removeAll { $0 == selection }
+            recent.insert(selection, at: 0)
+            if recent.count > Self.recentLimit { recent.removeLast(recent.count - Self.recentLimit) }
         }
+    }
+
+    // MARK: - Favorites and recent
+
+    /// Starred notes, in the order they were starred.
+    private(set) var favorites: [Note.ID] = [] {
+        didSet { persist(favorites, as: "favorites") }
+    }
+
+    /// Notes by when they were last opened, newest first.
+    private(set) var recent: [Note.ID] = [] {
+        didSet { persist(recent, as: "recent") }
+    }
+
+    private static let recentLimit = 20
+
+    func isFavorite(_ id: Note.ID) -> Bool { favorites.contains(id) }
+
+    func toggleFavorite(_ id: Note.ID) {
+        if let i = favorites.firstIndex(of: id) { favorites.remove(at: i) } else { favorites.append(id) }
+    }
+
+    /// Lists of notes are kept by file name, so they survive a move of the
+    /// notes folder's parent. The test harnesses open notes too; they must
+    /// not change the user's lists.
+    private func persist(_ ids: [Note.ID], as key: String) {
+        guard !Snapshot.isHarness else { return }
+        UserDefaults.standard.set(ids.map(\.lastPathComponent), forKey: key)
+    }
+
+    private func restore(_ key: String) -> [Note.ID] {
+        (UserDefaults.standard.stringArray(forKey: key) ?? []).map { folder.appending(path: $0) }
+    }
+
+    // MARK: - Tabs
+
+    /// Open notes, in tab order. Opening a note adds its tab; the selected
+    /// note is always one of them. Kept by file name across launches.
+    private(set) var tabs: [Note.ID] = [] {
+        didSet { persist(tabs, as: "tabs") }
+    }
+
+    /// Close a tab. Closing the selected one moves to its neighbour, the
+    /// one after it if there is one, as browsers do.
+    func closeTab(_ id: Note.ID) {
+        guard let index = tabs.firstIndex(of: id) else { return }
+        tabs.remove(at: index)
+        guard selection == id else { return }
+        selection = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)]
+    }
+
+    func closeOtherTabs(than id: Note.ID) {
+        tabs = [id]
+        selection = id
+    }
+
+    /// The tab `offset` places from the selected one, wrapping around.
+    func selectTab(offset: Int) {
+        guard let selection, let index = tabs.firstIndex(of: selection), !tabs.isEmpty else { return }
+        self.selection = tabs[(index + offset + tabs.count) % tabs.count]
     }
 
     /// The selected note's text. Saved shortly after each edit.
@@ -48,15 +113,6 @@ final class Store {
     /// share one parse per edit.
     private(set) var html = ""
     private(set) var outline: [Heading] = []
-
-    var query = "" {
-        didSet { refilter() }
-    }
-
-    /// Notes matching `query`. Stored rather than computed: the sidebar
-    /// re-renders on every edit (the outline changes) and a computed
-    /// search would read every file each time.
-    private(set) var filteredNotes: [Note] = []
 
     var showEditor = true
 
@@ -90,6 +146,68 @@ final class Store {
         }
     }
 
+    /// One theme per mode: Auto then follows macOS into the right one.
+    var lightTheme = UserDefaults.standard.string(forKey: "lightTheme") ?? ThemePalette.nautLight.id {
+        didSet {
+            guard lightTheme != oldValue else { return }
+            UserDefaults.standard.set(lightTheme, forKey: "lightTheme")
+            applyThemes()
+        }
+    }
+
+    var darkTheme = UserDefaults.standard.string(forKey: "darkTheme") ?? ThemePalette.nautDark.id {
+        didSet {
+            guard darkTheme != oldValue else { return }
+            UserDefaults.standard.set(darkTheme, forKey: "darkTheme")
+            applyThemes()
+        }
+    }
+
+    /// Solid paints the theme's background; Glass lets the desktop show
+    /// through it, like Rex's translucent windows.
+    enum WindowBackground: String, CaseIterable {
+        case solid, glass
+
+        var title: String { rawValue.capitalized }
+    }
+
+    var windowBackground = Snapshot.forcedBackground ?? WindowBackground(rawValue: UserDefaults.standard.string(forKey: "windowBackground") ?? "") ?? .solid {
+        didSet {
+            guard Snapshot.forcedBackground == nil else { return }
+            UserDefaults.standard.set(windowBackground.rawValue, forKey: "windowBackground")
+        }
+    }
+
+    enum SidebarSide: String, CaseIterable {
+        case left, right
+
+        var title: String { rawValue.capitalized }
+    }
+
+    var showSidebar = UserDefaults.standard.object(forKey: "showSidebar") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showSidebar, forKey: "showSidebar") }
+    }
+
+    var sidebarSide = SidebarSide(rawValue: UserDefaults.standard.string(forKey: "sidebarSide") ?? "") ?? .left {
+        didSet { UserDefaults.standard.set(sidebarSide.rawValue, forKey: "sidebarSide") }
+    }
+
+    func palette(for dark: Bool) -> ThemePalette {
+        ThemePalette.named(dark ? darkTheme : lightTheme, dark: dark)
+    }
+
+    /// Bumped on every theme change, for views that repaint the chrome.
+    private(set) var themeRevision = 0
+
+    private func applyThemes(redraw: Bool = true) {
+        themeRevision += 1
+        ThemeSelection.select(
+            light: palette(for: false),
+            dark: palette(for: true),
+            redraw: redraw
+        )
+    }
+
     // MARK: - Editor
 
     enum EditorMode: String, CaseIterable {
@@ -102,8 +220,40 @@ final class Store {
         var title: String { self == .split ? "Split" : "Live Preview" }
     }
 
-    var editorMode = EditorMode(rawValue: UserDefaults.standard.string(forKey: "editorMode") ?? "") ?? .split {
-        didSet { UserDefaults.standard.set(editorMode.rawValue, forKey: "editorMode") }
+    var editorMode = Snapshot.forcedEditorMode ?? EditorMode(rawValue: UserDefaults.standard.string(forKey: "editorMode") ?? "") ?? .split {
+        didSet {
+            guard ready, Snapshot.forcedEditorMode == nil else { return }
+            UserDefaults.standard.set(editorMode.rawValue, forKey: "editorMode")
+        }
+    }
+
+    /// Vim, Helix, or the standard editing keys. Applies to both editors.
+    var keymap = Snapshot.forcedKeymap ?? EditorKeymap(rawValue: UserDefaults.standard.string(forKey: "keymap") ?? "") ?? .normal {
+        didSet {
+            guard ready, Snapshot.forcedKeymap == nil else { return }
+            UserDefaults.standard.set(keymap.rawValue, forKey: "keymap")
+        }
+    }
+
+    /// Bar, block or underline; `match` uses a block for Vim and Helix.
+    var cursorShape = CursorShape(rawValue: UserDefaults.standard.string(forKey: "cursorShape") ?? "") ?? .match {
+        didSet {
+            guard ready else { return }
+            UserDefaults.standard.set(cursorShape.rawValue, forKey: "cursorShape")
+        }
+    }
+
+    /// How the insertion point blinks, in both editors.
+    /// The note's length in the editor's status bar. Off by default.
+    var showCharacterCount = UserDefaults.standard.bool(forKey: "showCharacterCount") {
+        didSet { UserDefaults.standard.set(showCharacterCount, forKey: "showCharacterCount") }
+    }
+
+    var cursorBlink = CursorBlink(rawValue: UserDefaults.standard.string(forKey: "cursorBlink") ?? "") ?? .normal {
+        didSet {
+            guard ready else { return }
+            UserDefaults.standard.set(cursorBlink.rawValue, forKey: "cursorBlink")
+        }
     }
 
     /// Font families; empty means the default (Suisse Intl if installed,
@@ -159,29 +309,40 @@ final class Store {
 
     var selectedNote: Note? { notes.first { $0.id == selection } }
 
-    private func refilter() {
-        guard !query.isEmpty else {
-            filteredNotes = notes
-            return
+    /// Notes whose title or text contain `query`, for the command palette.
+    /// The open note is searched as typed, not as last saved.
+    func search(_ query: String) -> [(note: Note, match: NoteSearch.Match)] {
+        guard !query.isEmpty else { return [] }
+        // ponytail: reads every file per keystroke. Fine for hundreds of
+        // notes; index in libnaut if it ever isn't.
+        return notes.compactMap { note in
+            let body = note.id == selection ? text : (try? String(contentsOf: note.url, encoding: .utf8)) ?? ""
+            guard let match = NoteSearch.match(query, title: note.name, text: body) else { return nil }
+            return (note, match)
         }
-        // ponytail: reads every file per change of the query. Fine for
-        // hundreds of notes; index in libnaut if it ever isn't.
-        filteredNotes = notes.filter { note in
-            note.name.localizedCaseInsensitiveContains(query)
-                || ((try? String(contentsOf: note.url, encoding: .utf8))?.localizedCaseInsensitiveContains(query) ?? false)
-        }
+        .sorted { $0.match.count > $1.match.count }
     }
 
     private func rerender() {
         (html, outline) = Markdown.render(text)
     }
 
+    /// Set after the first load. Property observers run while SwiftUI's
+    /// @Observable initializes, and a forced test keymap must not reach
+    /// UserDefaults through them.
+    private var ready = false
+
     init() {
+        applyThemes(redraw: false)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         applyAppearance()
+        tabs = restore("tabs")
+        favorites = restore("favorites")
+        recent = restore("recent")
         reload()
         if notes.isEmpty { newNote(named: "Welcome", text: Self.welcome) }
-        selection = notes.first?.id
+        selection = tabs.first ?? notes.first?.id
+        ready = true
     }
 
     func reload() {
@@ -192,7 +353,11 @@ final class Store {
             .filter { $0.pathExtension == "md" }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
             .map(Note.init)
-        refilter()
+        // A note deleted or renamed outside the app leaves every list.
+        let gone = { (id: Note.ID) in !self.notes.contains { $0.id == id } }
+        tabs.removeAll(where: gone)
+        favorites.removeAll(where: gone)
+        recent.removeAll(where: gone)
     }
 
     func newNote(named name: String = "Untitled", text: String = "") {
@@ -240,6 +405,10 @@ final class Store {
         let renamed = Note(url: url)
         let wasPublished = published.contains(note.name)
         reload()
+        // The renamed note keeps its place in every list.
+        if let i = tabs.firstIndex(of: note.id) { tabs[i] = renamed.id }
+        if let i = favorites.firstIndex(of: note.id) { favorites[i] = renamed.id }
+        if let i = recent.firstIndex(of: note.id) { recent[i] = renamed.id }
         if selection == note.id { selection = renamed.id }
         guard wasPublished else { return }
         // The page shows the title, so it is published again either way;
@@ -252,7 +421,7 @@ final class Store {
     func trash(_ note: Note) {
         if published.contains(note.name) { unpublish(note) }
         try? FileManager.default.trashItem(at: note.url, resultingItemURL: nil)
-        if selection == note.id { selection = nil }
+        closeTab(note.id)
         reload()
         selection = selection ?? notes.first?.id
     }
@@ -292,8 +461,8 @@ final class Store {
         didSet { UserDefaults.standard.set(accountID, forKey: "accountID") }
     }
 
-    var apiToken = Keychain.read() ?? "" {
-        didSet { Keychain.write(apiToken) }
+    var apiToken = TokenStore.read() ?? "" {
+        didSet { TokenStore.write(apiToken) }
     }
 
     /// Set once provisioning succeeds.
@@ -453,27 +622,71 @@ final class Store {
         """
 }
 
-/// The API token lives in the login keychain, never in defaults.
-enum Keychain {
-    private static var query: [String: Any] { [
-        kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: "com.frinfo702.naut",
-        kSecAttrAccount as String: "cloudflare-api-token",
-    ] }
+/// The Cloudflare API token. Application Support rather than the login
+/// keychain: ad-hoc signed development builds get a new code identity on
+/// every rebuild, so macOS asked for keychain permission on every launch
+/// and "Always Allow" never stuck. A 0600 file is readable only by this
+/// user, the same protection UserDefaults has, without the prompts.
+enum TokenStore {
+    static var url: URL {
+        URL.applicationSupportDirectory.appending(path: "Naut/api-token")
+    }
 
     static func read() -> String? {
-        var q = query
-        q[kSecReturnData as String] = true
-        var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
-        return String(decoding: data, as: UTF8.self)
+        if let raw = try? String(contentsOf: url, encoding: .utf8) {
+            let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !token.isEmpty { return token }
+        }
+        // Carry a token saved by an older build out of the keychain once.
+        guard !UserDefaults.standard.bool(forKey: "tokenMigrated") else { return nil }
+        var migrated: String?
+        let status = legacyKeychain { migrated = $0 }
+        if let migrated {
+            UserDefaults.standard.set(true, forKey: "tokenMigrated")
+            write(migrated)
+            return migrated
+        }
+        // A snapshot or another headless run can't show the permission
+        // prompt. Leave the migration pending for a real launch.
+        if status != errSecInteractionNotAllowed {
+            UserDefaults.standard.set(true, forKey: "tokenMigrated")
+        }
+        return nil
     }
 
     static func write(_ value: String) {
-        SecItemDelete(query as CFDictionary)
-        guard !value.isEmpty else { return }
-        var q = query
-        q[kSecValueData as String] = Data(value.utf8)
-        SecItemAdd(q as CFDictionary, nil)
+        let token = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data(token.utf8).write(to: url, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        } catch {
+            // The field still works for this session; publishing will say
+            // why it failed.
+        }
+    }
+
+    /// One-time migration from the keychain item older builds wrote.
+    private static func legacyKeychain(imported: (String) -> Void) -> OSStatus {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.frinfo702.naut",
+            kSecAttrAccount as String: "cloudflare-api-token",
+            kSecReturnData as String: true,
+        ]
+        var out: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &out)
+        if status == errSecSuccess, let data = out as? Data {
+            let token = String(decoding: data, as: UTF8.self)
+            if !token.isEmpty { imported(token) }
+        }
+        return status
     }
 }

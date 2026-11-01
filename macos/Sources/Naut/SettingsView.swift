@@ -1,4 +1,5 @@
 import AppKit
+import NautKit
 import SwiftUI
 
 /// Settings, laid out like Rex's: a sidebar of panes with coloured icon
@@ -33,6 +34,7 @@ struct SettingsView: View {
             .navigationTitle(pane.title)
             .toolbarBackground(Theme.bg, for: .windowToolbar)
         }
+        .environment(\.themeRevision, store.themeRevision)
         .frame(width: SettingsMetrics.windowWidth, height: SettingsMetrics.windowHeight)
     }
 
@@ -84,8 +86,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     /// Extra words that find this pane from the search field.
     private var keywords: [String] {
         switch self {
-        case .appearance: ["theme", "dark", "light", "color", "colour", "scheme"]
-        case .editor: ["font", "size", "typography", "live", "preview", "split", "markdown", "source", "line", "spacing", "density", "compact", "comfortable"]
+        case .appearance: ["theme", "dark", "light", "color", "colour", "scheme", "sidebar", "left", "right", "glass", "solid"]
+        case .editor: ["font", "size", "typography", "character", "count", "status", "live", "preview", "split", "markdown", "source", "line", "spacing", "density", "compact", "comfortable", "keymap", "vim", "helix", "modal", "normal", "cursor", "caret", "block", "bar", "blink"]
         case .notes: ["folder", "files", "markdown", "finder", "location"]
         case .publishing: ["cloudflare", "web", "publish", "token", "account", "workers", "terraform"]
         case .shortcuts: ["keyboard", "keys", "bindings", "hotkeys"]
@@ -102,7 +104,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 enum SettingsMetrics {
     // MARK: - Window
     static let windowWidth: CGFloat = 760
-    static let windowHeight: CGFloat = 540
+    static let windowHeight: CGFloat = 620
     static let sidebarWidth: CGFloat = 220
     static let detailPadding: CGFloat = 24
 
@@ -117,19 +119,16 @@ enum SettingsMetrics {
     static let groupRadius: CGFloat = 12
     static let rowHeight: CGFloat = 44
     static let rowPadding: CGFloat = 14
-
-    // MARK: - Appearance cards
-    static let cardWidth: CGFloat = 112
-    static let cardHeight: CGFloat = 76
-    static let cardRadius: CGFloat = 12
 }
 
 // MARK: - Sidebar pieces
 
 private struct SettingsSearchField: View {
     @Binding var text: String
+    @Environment(\.themeRevision) private var themeRevision
 
     var body: some View {
+        let _ = themeRevision
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(Theme.fgDim)
@@ -148,8 +147,10 @@ private struct SidebarItem: View {
     let pane: SettingsPane
     let selected: Bool
     let action: () -> Void
+    @Environment(\.themeRevision) private var themeRevision
 
     var body: some View {
+        let _ = themeRevision
         Button(action: action) {
             HStack(spacing: 10) {
                 SettingsIcon(kind: pane.icon)
@@ -232,6 +233,26 @@ enum Logos {
     static let cloudflare: NSImage = NSImage(data: Data("""
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#F38020" d="M16.5088 16.8447c.1475-.5068.0908-.9707-.1553-1.3154-.2246-.3164-.6045-.5-1.0615-.5205l-8.6592-.1123a.1559.1559 0 0 1-.1333-.0713c-.0283-.042-.0351-.0986-.021-.1553.0278-.084.1123-.1484.2036-.1562l8.7359-.1123c1.0351-.0489 2.1601-.8868 2.5537-1.9136l.499-1.3013c.0215-.0561.0293-.1128.0147-.168-.5625-2.5463-2.835-4.4453-5.5499-4.4453-2.5039 0-4.6284 1.6177-5.3876 3.8614-.4927-.3658-1.1187-.5625-1.794-.499-1.2026.119-2.1665 1.083-2.2861 2.2856-.0283.31-.0069.6128.0635.894C1.5683 13.171 0 14.7754 0 16.752c0 .1748.0142.3515.0352.5273.0141.083.0844.1475.1689.1475h15.9814c.0909 0 .1758-.0645.2032-.1553l.12-.4268zm2.7568-5.5634c-.0771 0-.1611 0-.2383.0112-.0566 0-.1054.0415-.127.0976l-.3378 1.1744c-.1475.5068-.0918.9707.1543 1.3164.2256.3164.6055.498 1.0625.5195l1.8437.1133c.0557 0 .1055.0263.1329.0703.0283.043.0351.1074.0214.1562-.0283.084-.1132.1485-.204.1553l-1.921.1123c-1.041.0488-2.1582.8867-2.5527 1.914l-.1406.3585c-.0283.0713.0215.1416.0986.1416h6.5977c.0771 0 .1474-.0489.169-.126.1122-.4082.1757-.837.1757-1.2803 0-2.6025-2.125-4.727-4.7344-4.727"/></svg>
         """.utf8))!
+
+    /// The Helix and Vim marks, monochrome, from Simple Icons. Template
+    /// images, so they take the theme's ink.
+    @MainActor static let helix = template("M12.968 4.97 4.364 0v3.55c0 .449.239.863.627 1.087l4.276 2.47zm5.339 3.083-3.7 2.138 4.86 2.807c.11-.19.17-.407.17-.633V9.552c0-.452-.241-.87-.633-1.096zm1.33 12.397c0-.449-.24-.863-.627-1.087l-4.253-2.456-3.7 2.137L19.637 24zm-13.92-4.49 3.7-2.137c-2.703-1.562-4.884-2.82-4.884-2.82a1.26 1.26 0 0 0-.17.632v2.813c0 .452.242.87.634 1.096zm-.287-1.252a.93.93 0 0 1 .343-.342l12.455-7.194-.01.007.786-.455c.392-.226.633-.643.633-1.096V2.815c0-.452-.241-.87-.633-1.096l-.765-.442a.944.944 0 0 1-.005 1.617l-.006.004-13.231 7.641a1.26 1.26 0 0 0-.633 1.096v2.813c0 .453.24.87.633 1.096l.72.416h.002a.944.944 0 0 1-.29-1.252m12.873-6.652a.945.945 0 0 1-.07 1.575l-.005.004-13.231 7.641a1.26 1.26 0 0 0-.633 1.096v2.813c0 .452.24.87.633 1.096l.765.442a.945.945 0 0 1 .01-1.62l12.456-7.194-.01.006.786-.454c.392-.226.633-.644.633-1.096V9.552c0-.453-.241-.87-.633-1.096l-.697-.403z")
+    @MainActor static let vim = template("M24 11.986h-.027l-4.318-4.318 4.303-4.414V1.461l-.649-.648h-8.198l-.66.605v1.045L12.015.027V0L12 .014 11.986 0v.027l-1.29 1.291-.538-.539H2.035l-.638.692v1.885l.616.616h.72v5.31L.027 11.987H0L.014 12 0 12.014h.027l2.706 2.706v6.467l.907.523h2.322l1.857-1.904 4.166 4.166V24l.015-.014.014.014v-.028l2.51-2.509h.485c.111 0 .211-.07.25-.179l.146-.426c.028-.084.012-.172-.037-.239l1.462-1.462-.612 1.962c-.043.141.036.289.177.332.025.008.052.012.078.012h1.824c.106-.001.201-.064.243-.163l.165-.394c.025-.065.024-.138-.004-.203-.027-.065-.08-.116-.146-.142-.029-.012-.062-.019-.097-.02h-.075l.84-2.644h1.232l-1.016 3.221c-.043.141.036.289.176.332.025.008.052.012.079.012h2.002c.11 0 .207-.066.248-.17l.164-.428c.051-.138-.021-.29-.158-.341-.029-.011-.06-.017-.091-.017h-.145l1.131-3.673c.027-.082.012-.173-.039-.24l-.375-.504-.003-.005c-.051-.064-.127-.102-.209-.102h-1.436c-.071 0-.141.03-.19.081l-.4.439h-.624l-.042-.046 4.445-4.445H24L23.986 12l.014-.014zM9.838 21.139l1.579-4.509h-.501l.297-.304h1.659l-1.563 4.555h.623l-.079.258H9.838zm3.695-7.516l.15.151-.269.922-.225.226h-.969l-.181-.181.311-.871.288-.247h.895zM5.59 20.829H3.877l-.262-.15V3.091H2.379l-.1-.1V1.815l.143-.154h7.371l.213.214v1.108l-.142.173H8.785v8.688l8.807-8.688h-2.086l-.175-.188V1.805l.121-.111h7.49l.132.133v1.07L12.979 13.25h-.373c-.015-.001-.028 0-.042.001l-.02.003c-.045.01-.086.03-.119.06l-.343.295-.004.003c-.033.031-.059.069-.073.111l-.296.83-6.119 6.276zm14.768-3.952l.474-.519h1.334l.309.415-1.265 4.107h.493l-.08.209H19.84l1.124-3.564h-2.015l-1.077 3.391h.424l-.073.174h-1.605l1.107-3.548h-2.096l-1.062 3.339h.436l-.072.209H13.27l1.514-4.46H14.198l.091-.271h1.65l.519.537h.906l.491-.554h1.061l.489.535h.953z")
+
+    @MainActor static func keymap(_ keymap: EditorKeymap) -> NSImage? {
+        switch keymap {
+        case .helix: helix
+        case .vim: vim
+        case .normal: nil
+        }
+    }
+
+    private static func template(_ path: String) -> NSImage {
+        let svg = #"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="\#(path)"/></svg>"#
+        let image = NSImage(data: Data(svg.utf8))!
+        image.isTemplate = true
+        return image
+    }
 }
 
 extension Color {
@@ -251,15 +272,25 @@ extension Color {
 /// treatment as code blocks in a note.
 struct SettingsGroup<Content: View>: View {
     var title: String?
+    var badge: String?
     var footer: String?
     @ViewBuilder var content: Content
+    @Environment(\.themeRevision) private var themeRevision
 
     var body: some View {
+        let _ = themeRevision
         VStack(alignment: .leading, spacing: 8) {
             if let title {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.fg)
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.fg)
+                    if let badge {
+                        Text(badge)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.fgDim)
+                    }
+                }
             }
             VStack(spacing: 0) { content }
                 .background(Theme.surface, in: RoundedRectangle(cornerRadius: SettingsMetrics.groupRadius, style: .continuous))
@@ -283,8 +314,10 @@ struct SettingsRow<Accessory: View>: View {
     var subtitle: String?
     var divider = true
     @ViewBuilder var accessory: Accessory
+    @Environment(\.themeRevision) private var themeRevision
 
     var body: some View {
+        let _ = themeRevision
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -319,116 +352,53 @@ struct SettingsRow<Accessory: View>: View {
 
 private struct AppearancePane: View {
     @Environment(Store.self) private var store
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        SettingsGroup(title: "Color scheme", footer: "Auto follows macOS. Published pages always follow the reader's system.") {
-            HStack(spacing: 18) {
-                ForEach(Store.Appearance.allCases, id: \.self) { a in
-                    SchemeCard(appearance: a, selected: store.appearance == a) {
-                        withAnimation(.snappy(duration: 0.15)) { store.appearance = a }
-                    }
+        @Bindable var store = store
+
+        SettingsGroup(
+            title: "Appearance",
+            footer: "Auto follows macOS and uses the matching theme. Glass lets the desktop show through the theme's background. Published pages always follow the reader's system."
+        ) {
+            SettingsRow(title: "Scheme") {
+                Picker("", selection: $store.appearance) {
+                    ForEach(Store.Appearance.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
-                Spacer(minLength: 0)
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
             }
-            .padding(16)
+            SettingsRow(title: "Sidebar") {
+                Picker("", selection: $store.sidebarSide) {
+                    ForEach(Store.SidebarSide.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            SettingsRow(title: "Window background", divider: false) {
+                Picker("", selection: $store.windowBackground) {
+                    ForEach(Store.WindowBackground.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
         }
-    }
-}
 
-/// A miniature Naut window in the given scheme, on a tile, like the
-/// Color scheme cards in Rex and System Settings.
-private struct SchemeCard: View {
-    let appearance: Store.Appearance
-    let selected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                ZStack {
-                    switch appearance {
-                    case .auto:
-                        MiniWindow(dark: false)
-                        MiniWindow(dark: true)
-                            .mask(DiagonalHalf())
-                    case .light: MiniWindow(dark: false)
-                    case .dark: MiniWindow(dark: true)
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-                // Sat on a wallpaper, as in System Settings, so the dark
-                // window has something to stand out from.
-                .padding(.top, 12)
-                .padding(.leading, 14)
-                .frame(width: SettingsMetrics.cardWidth, height: SettingsMetrics.cardHeight, alignment: .topLeading)
-                .background(LinearGradient(colors: [Color(hex: 0x2F6FD6), Color(hex: 0x0E2F73)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .clipShape(RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius + 3, style: .continuous)
-                        .strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 2)
-                        .padding(-3)
-                )
-
-                Text(appearance.title)
-                    .font(.system(size: 12, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? Theme.fg : Theme.fgDim)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// Sidebar, a title line and a few lines of text, with the real palette
-/// values of each scheme so the card is an honest preview.
-private struct MiniWindow: View {
-    let dark: Bool
-
-    var body: some View {
-        let bg = Color(hex: dark ? 0x10120F : 0xFBFBF9)
-        let side = Color(hex: dark ? 0x191C17 : 0xF0F0EC)
-        let ink = Color(hex: dark ? 0xF1F1EE : 0x161715)
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 3) {
-                    ForEach([0xFF5F57, 0xFEBC2E, 0x28C840], id: \.self) { Circle().fill(Color(hex: UInt32($0))).frame(width: 5, height: 5) }
-                }
-                .padding(.bottom, 4)
-                ForEach(0..<4, id: \.self) { i in
-                    Capsule().fill(ink.opacity(i == 1 ? 0.7 : 0.25)).frame(width: i == 1 ? 18 : 22, height: 3)
-                }
-                Spacer()
-            }
-            .padding(8)
-            .frame(width: 38)
-            .frame(maxHeight: .infinity)
-            .background(side)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Capsule().fill(ink.opacity(0.85)).frame(width: 34, height: 5)
-                ForEach([52, 46, 50, 30], id: \.self) { w in
-                    Capsule().fill(ink.opacity(0.3)).frame(width: CGFloat(w), height: 3)
-                }
-                RoundedRectangle(cornerRadius: 3).fill(side).frame(width: 52, height: 12)
-                Spacer()
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(bg)
-        }
-    }
-}
-
-/// The bottom-right triangle, for the split Auto card.
-private struct DiagonalHalf: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: rect.maxX, y: rect.minY))
-        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        p.closeSubpath()
-        return p
+        ThemeSection(
+            title: "Light Mode",
+            themes: ThemePalette.lightThemes,
+            selection: $store.lightTheme,
+            active: colorScheme == .light
+        )
+        ThemeSection(
+            title: "Dark Mode",
+            themes: ThemePalette.darkThemes,
+            selection: $store.darkTheme,
+            active: colorScheme == .dark
+        )
     }
 }
 
@@ -443,11 +413,61 @@ private struct EditorPane: View {
             title: "Mode",
             footer: "Split shows the Markdown beside the page. Live Preview is one pane edited like the page, as in Notion: Markdown shortcuts format as you type and never show; click an equation, table or image to edit it."
         ) {
-            SettingsRow(title: "Editing", divider: false) {
+            SettingsRow(title: "Editing") {
                 Picker("", selection: $store.editorMode) {
                     ForEach(Store.EditorMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            SettingsRow(title: "Character count", subtitle: "In the status bar under the note", divider: false) {
+                Toggle("", isOn: $store.showCharacterCount)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+            }
+        }
+
+        SettingsGroup(
+            title: "Keymap",
+            footer: "Vim and Helix add modal editing to both editors. Esc returns to normal mode. A note saves itself and has no process to quit, so there is no command line: `:w` and `:q` have nothing to do."
+        ) {
+            SettingsRow(title: "Editing keys", divider: false) {
+                Picker("", selection: $store.keymap) {
+                    ForEach(EditorKeymap.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+        }
+
+        SettingsGroup(
+            title: "Cursor",
+            footer: "Match Keymap shows a block in Vim and Helix normal mode, and a bar while typing. The block inverts the character under it."
+        ) {
+            VStack(spacing: 0) {
+                CursorPreview(
+                    shape: previewShape,
+                    blink: store.cursorBlink
+                )
+                .padding(14)
+                Rectangle()
+                    .fill(Theme.fg.opacity(0.07))
+                    .frame(height: 1)
+                    .padding(.leading, SettingsMetrics.rowPadding)
+            }
+            SettingsRow(title: "Shape") {
+                Picker("", selection: $store.cursorShape) {
+                    ForEach(CursorShape.allCases) { Text($0.title).tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            SettingsRow(title: "Blink speed", divider: false) {
+                Picker("", selection: $store.cursorBlink) {
+                    ForEach(CursorBlink.allCases) { Text($0.title).tag($0) }
+                }
                 .labelsHidden()
                 .fixedSize()
             }
@@ -470,6 +490,12 @@ private struct EditorPane: View {
             SettingsRow(title: "Font") { fontPicker($store.sourceFont, defaultName: "System Mono") }
             SettingsRow(title: "Size", divider: false) { sizeStepper($store.sourceSize, range: 9...24) }
         }
+    }
+
+    /// What the keymap makes the cursor when Shape is Match Keymap.
+    private var previewShape: CursorShape {
+        guard store.cursorShape == .match else { return store.cursorShape }
+        return store.keymap.isModal ? .block : .bar
     }
 
     private func fontPicker(_ selection: Binding<String>, defaultName: String) -> some View {
@@ -518,7 +544,7 @@ private struct PublishingPane: View {
 
         SettingsGroup(
             title: "Cloudflare account",
-            footer: "Create an API token with **Workers Scripts: Edit**, **Workers KV Storage: Edit** and **Account Settings: Read**. The token is kept in your keychain."
+            footer: "Create an API token with **Workers Scripts: Edit**, **Workers KV Storage: Edit** and **Account Settings: Read**. The token stays on this Mac in a file only you can read."
         ) {
             SettingsRow(title: "Account ID") {
                 TextField("", text: $store.accountID, prompt: Text("32 hex characters"))
@@ -585,8 +611,10 @@ private struct PublishingPane: View {
 private struct CloudflareCard: View {
     @Environment(Store.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.themeRevision) private var themeRevision
 
     var body: some View {
+        let _ = themeRevision
         HStack(spacing: 12) {
             SettingsIcon(kind: .cloudflare, size: SettingsMetrics.statusIconSize)
             VStack(alignment: .leading, spacing: 2) {
@@ -716,5 +744,69 @@ private struct Keycap: View {
             .padding(.horizontal, 4)
             .background(Theme.bg, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Theme.edge, lineWidth: 1))
+    }
+}
+
+
+/// A live cursor in a field like a terminal's: the chosen shape, blinking
+/// at the chosen speed, in the theme's cursor colour. It answers "what
+/// will this feel like?" without making the user type in a note first.
+private struct CursorPreview: View {
+    let shape: CursorShape
+    let blink: CursorBlink
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.themeRevision) private var themeRevision
+
+    var body: some View {
+        let _ = themeRevision
+        let period = blink.period ?? 0
+        let paused = period == 0 || reduceMotion
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: paused)) { context in
+            HStack(spacing: 1) {
+                Text("Write something")
+                    .font(.system(size: 15, design: .monospaced))
+                    .foregroundStyle(Theme.fg)
+                cursor
+                    .opacity(opacity(at: context.date))
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 48)
+            .background(Theme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Theme.edge, lineWidth: 1)
+            )
+        }
+    }
+
+    /// A bar fades like the editor's caret; a block blinks on and off like
+    /// a terminal's.
+    private func opacity(at date: Date) -> Double {
+        guard let period = blink.period, !reduceMotion else { return 1 }
+        let phase = date.timeIntervalSinceReferenceDate
+            .truncatingRemainder(dividingBy: period * 2) / (period * 2)
+        if shape == .bar || shape == .match {
+            return 0.5 + 0.5 * cos(2 * .pi * phase)
+        }
+        return phase < 0.5 ? 1 : 0
+    }
+
+    private var cursor: some View {
+        let color = Color(nsColor: .themeCursor)
+        return Group {
+            switch shape {
+            case .bar, .match:
+                RoundedRectangle(cornerRadius: 1, style: .continuous).fill(color)
+                    .frame(width: 2, height: 20)
+            case .block:
+                RoundedRectangle(cornerRadius: 2, style: .continuous).fill(color)
+                    .frame(width: 9, height: 20)
+            case .underline:
+                RoundedRectangle(cornerRadius: 1, style: .continuous).fill(color)
+                    .frame(width: 9, height: 2)
+                    .frame(height: 20, alignment: .bottom)
+            }
+        }
     }
 }

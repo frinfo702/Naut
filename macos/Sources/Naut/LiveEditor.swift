@@ -30,10 +30,21 @@ struct LiveEditor: NSViewRepresentable {
     let baseURL: URL
     /// The note's name, edited above the text as a Notion page's title.
     let title: String
+    /// Changes with the theme, so the text restyles without rebuilding.
+    let themeRevision: Int
+    /// Vim, Helix or the standard keys.
+    let keymap: EditorKeymap
+    let cursorShape: CursorShape
+    let cursorBlink: CursorBlink
+    /// The modal mode, shown in the corner and used for the cursor shape.
+    @Binding var mode: ModalMode
+    /// The note shown. The title field outlives a note switch, so it has
+    /// to know whose title it holds.
+    let note: URL
     let rename: (String) -> Void
     @Binding var scrollTarget: String?
 
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text, mode: $mode) }
 
     func makeNSView(context: Context) -> NSScrollView {
         let storage = NSTextStorage()
@@ -55,7 +66,14 @@ struct LiveEditor: NSViewRepresentable {
         view.importsGraphics = false
         // Undo is of the source, not of the display: see Coordinator.
         view.allowsUndo = false
-        view.insertionPointColor = NSColor(token: .fg)
+        view.insertionPointColor = .themeCursor
+        // The selection background is drawn by LiveLayout: it stops at
+        // the last character of each line instead of painting a selected
+        // newline to the edge of the column.
+        view.selectedTextAttributes = [
+            .backgroundColor: NSColor.clear,
+            .foregroundColor: NSColor.selectedTextColor,
+        ]
         // Markdown wants the characters typed, not typographer's quotes.
         view.isAutomaticQuoteSubstitutionEnabled = false
         view.isAutomaticDashSubstitutionEnabled = false
@@ -67,11 +85,23 @@ struct LiveEditor: NSViewRepresentable {
         c.view = view
         c.layout = layout
         view.history = c.history
+        view.keymap = keymap
+        view.cursorShape = cursorShape
+        view.cursorBlink = cursorBlink
+        view.modalMode = mode
+        c.keymap = keymap
+        c.modal.keymap = keymap
+        c.cursorShape = cursorShape
+        c.cursorBlink = cursorBlink
         view.appearanceChanged = { [weak c] in c?.refresh() }
         view.widthChanged = { [weak c] in c?.refresh() }
         view.click = { [weak c] in c?.click(at: $0) ?? false }
         view.key = { [weak c] in c?.key($0) ?? false }
-        view.copySource = { [weak c] in c?.markdown(of: $0) ?? "" }
+        view.modalKey = { [weak c] in c?.handleModal($0) ?? false }
+        view.copySource = { [weak c] in c?.copyMarkdown(of: $0) ?? "" }
+        view.copyCode = { [weak c] in c?.copyCode($0) }
+        view.editFirstMath = { [weak c] in c?.editFirstMath() }
+        view.laidOut = { [weak c] in c?.positionMath() }
 
         let title = NSTextField(string: "")
         title.isBordered = false
@@ -86,6 +116,12 @@ struct LiveEditor: NSViewRepresentable {
         title.textColor = NSColor(token: .fg)
         title.delegate = context.coordinator
         view.titleField = title
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.titleEditingBegan(_:)),
+            name: NSControl.textDidBeginEditingNotification,
+            object: title
+        )
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -105,7 +141,41 @@ struct LiveEditor: NSViewRepresentable {
         c.font = font
         c.mono = mono
         c.baseURL = baseURL
+        if c.note != note {
+            // Another note while its title was being typed: the typed title
+            // belongs to the note it was typed for. Left to end on its own,
+            // the edit would rename the new note with the old one's title.
+            if let field = view.titleField, field.currentEditor() != nil {
+                let typed = field.stringValue
+                let rename = c.rename
+                if typed != c.title { DispatchQueue.main.async { rename(typed) } }
+                field.abortEditing()
+            }
+            c.note = note
+        }
         c.rename = rename
+        if c.keymap != keymap {
+            c.keymap = keymap
+            c.modal.keymap = keymap
+            view.keymap = keymap
+        }
+        // The binding can be reset from outside, e.g. when switching notes
+        // or editor panes. The engine owns the mode; put it back to normal.
+        if mode != c.modal.mode { c.modal.reset() }
+        if c.cursorShape != cursorShape {
+            c.cursorShape = cursorShape
+            view.cursorShape = cursorShape
+        }
+        if c.cursorBlink != cursorBlink {
+            c.cursorBlink = cursorBlink
+            view.cursorBlink = cursorBlink
+        }
+        if c.themeRevision != themeRevision {
+            c.themeRevision = themeRevision
+            view.updateCursorColor()
+            (view.titleField?.currentEditor() as? NSTextView)?.insertionPointColor = .themeCursor
+            c.refresh()
+        }
         c.showTitle(title)
         // Only another note, or a change from outside, gets here: our own
         // edits already set `text` to the source.
@@ -126,12 +196,19 @@ struct LiveEditor: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate, NSTextFieldDelegate {
         @Binding var text: String
+        @Binding var mode: ModalMode
         weak var view: LiveTextView?
         weak var layout: LiveLayout?
         var font = NSFont.systemFont(ofSize: Metrics.textFontSize)
         var mono = NSFont.monospacedSystemFont(ofSize: Metrics.editorFontSize, weight: .regular)
         var baseURL = URL.documentsDirectory
         var rename: (String) -> Void = { _ in }
+        var note: URL?
+        var themeRevision = 0
+        var keymap = EditorKeymap.normal
+        var cursorShape = CursorShape.match
+        var cursorBlink = CursorBlink.normal
+        let modal = ModalEngine(keymap: .normal)
 
         /// The note's Markdown. The truth; the display is made from it.
         private(set) var source = ""
@@ -145,6 +222,8 @@ struct LiveEditor: NSViewRepresentable {
         /// When typing last registered an undo step: typing within a short
         /// while is one step, as in any editor.
         private var lastTyping: Date?
+        /// When the copy button's check goes back to the copy icon.
+        private var copiedReset: Timer?
 
         /// Set while we change the display ourselves.
         private var applying = false
@@ -160,9 +239,13 @@ struct LiveEditor: NSViewRepresentable {
         /// "after its closing `**`"; this can, so text typed next goes where
         /// the caret really is.
         private var caretSource: Int?
+        /// Whether the last selection was already the end of the display:
+        /// the typing-attribute fix below is needed on entering the extra
+        /// line, not once per keystroke typed there.
+        private var wasAtEnd = false
 
         /// The title as the store has it.
-        private var title = ""
+        private(set) var title = ""
         private var observer: NSObjectProtocol?
 
         private var popover: SourcePopover?
@@ -171,10 +254,19 @@ struct LiveEditor: NSViewRepresentable {
         /// The element it edits, and what to select when it closes.
         private var popoverKind: LiveMarkdown.Element.Kind?
         private var popoverReturn: NSRange?
+        /// A display equation edited in place, and its element. It shares
+        /// the popover's bookkeeping: one source is edited at a time.
+        private var mathEditor: MathBlockEditor?
+        private var editingMath: Int?
+        /// Bring the equation's editor into view at its next placement: on
+        /// opening it, and as it is typed in.
+        private var revealMath = false
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>, mode: Binding<ModalMode>) {
             _text = text
+            _mode = mode
             super.init()
+            modal.attach(self)
             observer = NotificationCenter.default.addObserver(forName: LiveImages.didRender, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refresh() }
             }
@@ -185,10 +277,13 @@ struct LiveEditor: NSViewRepresentable {
         /// Show another note.
         func load(_ text: String) {
             closePopover()
+            copiedReset?.invalidate()
+            layout?.copiedCode = nil
             source = text
             pending = nil
             lastTyping = nil
             history.removeAllActions()
+            modal.reset()
             render(select: NSRange(location: 0, length: 0))
         }
 
@@ -258,15 +353,32 @@ struct LiveEditor: NSViewRepresentable {
             } else if let select {
                 place(NSRange(location: min(select.location, new.length), length: min(select.length, new.length - min(select.location, new.length))))
             }
+            layout?.selection = view.selectedRange()
+            view.updateCursor()
         }
 
         /// Style the display and tell the layout what to draw.
         private func style() {
             guard let view, let storage = view.textStorage, let layout else { return }
+            // The editor's size decides its block's, so it is brought up to
+            // date first.
+            syncMath()
             LiveStyle(font: font, mono: mono).style(projection, in: storage) { attachment(for: $0) }
             layout.state = LiveLayout.State(projection)
+            layout.mathBlocks = projection.elements.indices.compactMap { i in
+                guard case .mathBlock = projection.elements[i].kind, let at = projection.attachment(of: i) else { return nil }
+                return (at, i)
+            }
+            if let h = layout.hoveredMath, !layout.mathBlocks.contains(where: { $0.element == h }) { layout.hoveredMath = nil }
+            layout.selection = view.selectedRange()
+            // The old note's blocks are gone, and so are their controls.
+            if let h = layout.hoveredCode, !layout.state.code.contains(where: { $0.element == h }) { layout.hoveredCode = nil }
+            if let c = layout.copiedCode, !layout.state.code.contains(where: { $0.element == c }) { layout.copiedCode = nil }
+            view.updateHover()
+            view.window?.invalidateCursorRects(for: view)
             if let a = typingAttributes(at: view.selectedRange()) { view.typingAttributes = a }
             relayoutEnd()
+            positionMath()
         }
 
         /// Redo the look, e.g. when images arrive or the appearance, width
@@ -277,6 +389,8 @@ struct LiveEditor: NSViewRepresentable {
             let all = NSRange(location: 0, length: storage.length)
             layout.invalidateLayout(forCharacterRange: all, actualCharacterRange: nil)
             view.needsDisplay = true
+            view.updateCursor()
+            positionMath()
         }
 
         /// Select `r`. Not scrolling: only an edit the user made scrolls to
@@ -304,10 +418,21 @@ struct LiveEditor: NSViewRepresentable {
             let cell: LiveAttachmentCell
             switch e.kind {
             case let .mathBlock(tex):
+                // A framed box the width of the text; while edited, just the
+                // editor's room.
+                let box = (width - 1).rounded(.down)
+                if i == editingMath, let mathEditor {
+                    let a = NSTextAttachment()
+                    a.attachmentCell = MathBlockCell(picture: nil, size: NSSize(width: box, height: mathEditor.height(for: box)), element: i)
+                    return a
+                }
                 let image = tex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? Self.placeholder("New equation", font: font)
                     : rendered("$$\n\(tex)\n$$") ?? Self.placeholder(tex, font: small)
-                cell = LiveAttachmentCell(picture: image, size: fitted(image.size))
+                let height = min(image.size.height, image.size.height * (box - 2 * MathBlockCell.padding) / max(image.size.width, 1))
+                let a = NSTextAttachment()
+                a.attachmentCell = MathBlockCell(picture: image, size: NSSize(width: box, height: height + 2 * MathBlockCell.padding), element: i)
+                return a
             case .table:
                 // Laid out to the text's width, as on the page, so its edges
                 // line up with code blocks.
@@ -478,11 +603,22 @@ struct LiveEditor: NSViewRepresentable {
             // Moved somewhere else: where it is in the source is the
             // display's to say again.
             if let at = caretSource, view.selectedRange() != NSRange(location: projection.display(at: at), length: 0) { caretSource = nil }
+            layout?.selection = view.selectedRange()
+            // The empty line after the final newline has no character to
+            // take its typing attributes from. Without this, down from a
+            // code block left the caret indented as code, and spaced like
+            // it, because the attributes stayed from the line above.
+            let length = (view.string as NSString).length
+            let atEnd = view.selectedRange().location == length
+            if atEnd, !wasAtEnd, let a = typingAttributes(at: view.selectedRange()) {
+                view.typingAttributes = a
+            }
+            wasAtEnd = atEnd
             relayoutEnd()
             // Selected blocks draw their own highlight; a selection also
             // hides the caret indicator.
             view.needsDisplay = true
-            view.updateInsertionIndicator()
+            view.updateCursor()
         }
 
         func key(_ event: NSEvent) -> Bool {
@@ -514,9 +650,34 @@ struct LiveEditor: NSViewRepresentable {
             if let i = projection.elements.firstIndex(where: { $0.kind == .link && $0.range.location == at.location }) { open(i) }
         }
 
-        /// The Markdown of display range `r`, for copying.
+        /// The Markdown of display range `r`, for a register.
         func markdown(of r: NSRange) -> String {
             projection.source.substring(with: projection.sourceRange(r))
+        }
+
+        /// The Markdown of display range `r`, for the clipboard: hidden
+        /// syntax that belongs to the selection comes back, and trailing
+        /// spaces on each line go.
+        func copyMarkdown(of r: NSRange) -> String {
+            projection.copiedMarkdown(for: r)
+        }
+
+        /// Copy a code block's text, and show a check for a moment.
+        func copyCode(_ element: Int) {
+            guard element < projection.elements.count, let layout else { return }
+            let code = projection.source.substring(with: projection.elements[element].content)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(code, forType: .string)
+            layout.copiedCode = element
+            view?.needsDisplay = true
+            copiedReset?.invalidate()
+            copiedReset = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.layout?.copiedCode = nil
+                    self.view?.needsDisplay = true
+                }
+            }
         }
 
         // MARK: Title
@@ -541,6 +702,7 @@ struct LiveEditor: NSViewRepresentable {
 
         func focusTitle(selectAll: Bool) {
             guard let field = view?.titleField, field.window?.makeFirstResponder(field) == true else { return }
+            (field.currentEditor() as? NSTextView)?.insertionPointColor = .themeCursor
             let end = (field.stringValue as NSString).length
             field.currentEditor()?.selectedRange = selectAll ? NSRange(location: 0, length: end) : NSRange(location: end, length: 0)
         }
@@ -559,6 +721,18 @@ struct LiveEditor: NSViewRepresentable {
         func controlTextDidChange(_ note: Notification) {
             // A long title wraps; the text moves down with it.
             view?.layoutTitle()
+        }
+
+        @objc func titleEditingBegan(_ note: Notification) {
+            ((note.object as? NSTextField)?.currentEditor() as? NSTextView)?.insertionPointColor = .themeCursor
+            view?.updateCursor()
+        }
+
+        func controlTextDidBeginEditing(_ note: Notification) {
+            // The title's field editor gets the same caret as the note.
+            let editor = (note.object as? NSTextField)?.currentEditor() as? NSTextView
+            editor?.insertionPointColor = .themeCursor
+            view?.updateCursor()
         }
 
         func controlTextDidEndEditing(_ note: Notification) {
@@ -588,6 +762,15 @@ struct LiveEditor: NSViewRepresentable {
         func click(at point: NSPoint) -> Bool {
             guard let view, let layout, let container = view.textContainer else { return false }
             let p = NSPoint(x: point.x - view.textContainerOrigin.x, y: point.y - view.textContainerOrigin.y)
+            if let (element, button) = layout.mathButton(at: p) {
+                if button == .copy { copyCode(element) } else { open(element) }
+                return true
+            }
+            // A click in the text, outside the equation being edited, leaves
+            // it; after the click, so the caret lands where it was aimed.
+            if mathEditor != nil {
+                DispatchQueue.main.async { [weak self] in self?.exitMath(.stay) }
+            }
             // A task's box checks and unchecks it.
             if let item = layout.task(at: p) {
                 let e = projection.elements[item.element]
@@ -596,6 +779,10 @@ struct LiveEditor: NSViewRepresentable {
                 let selection = view.selectedRange()
                 replace(mark, with: checked ? " " : "x", select: projection.sourceRange(selection))
                 place(selection)
+                return true
+            }
+            if let code = layout.copyButton(at: p) {
+                copyCode(code.element)
                 return true
             }
             if let code = layout.languageLabel(at: p) {
@@ -626,6 +813,10 @@ struct LiveEditor: NSViewRepresentable {
         func open(_ i: Int, caret: Int? = nil) {
             guard let view, let layout, let container = view.textContainer, i < projection.elements.count else { return }
             let e = projection.elements[i]
+            if case .mathBlock = e.kind {
+                openMath(i, caret: caret)
+                return
+            }
             let s = projection.source
             let range: NSRange, multiline: Bool, title: String
             switch e.kind {
@@ -677,6 +868,7 @@ struct LiveEditor: NSViewRepresentable {
         }
 
         private func popoverChanged(_ text: String) {
+            revealMath = mathEditor != nil
             let selection = view?.selectedRange() ?? NSRange(location: 0, length: 0)
             replace(popoverRange, with: text, select: NSRange(location: popoverRange.location, length: 0))
             popoverRange.length = (text as NSString).length
@@ -711,6 +903,114 @@ struct LiveEditor: NSViewRepresentable {
             let p = popover
             popover = nil
             p?.close()
+            mathEditor?.removeFromSuperview()
+            mathEditor = nil
+            editingMath = nil
+        }
+
+        // MARK: Equations in place
+
+        /// Edit display equation `i` inside its block.
+        private func openMath(_ i: Int, caret: Int?) {
+            guard let view else { return }
+            let e = projection.elements[i]
+            closePopover()
+            popoverRange = e.content
+            popoverKind = e.kind
+            popoverReturn = view.selectedRange()
+            let editor = MathBlockEditor(text: projection.source.substring(with: e.content), mono: mono)
+            editor.onChange = { [weak self] in self?.popoverChanged($0) }
+            editor.onExit = { [weak self] in self?.exitMath($0) }
+            editor.onCopy = { [weak self] in self?.copyCode(i) }
+            mathEditor = editor
+            editingMath = i
+            revealMath = true
+            view.addSubview(editor)
+            refresh()
+            view.window?.makeFirstResponder(editor.source)
+            let length = (editor.source.string as NSString).length
+            editor.source.setSelectedRange(NSRange(location: min(caret.map { $0 - e.content.location } ?? length, length), length: 0))
+        }
+
+        /// Give the editor the equation as it now stands: its render, or
+        /// what is wrong with it.
+        private func syncMath() {
+            guard let mathEditor, let view else { return }
+            let tex = projection.source.substring(with: popoverRange)
+            let error = TeXErrors.messages(tex).first
+            let image = tex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || error != nil ? nil
+                : LiveImages.shared.image(.init(markdown: "$$\n\(tex)\n$$", width: nil, size: font.pointSize, dark: view.effectiveAppearance.isDark))
+            mathEditor.show(preview: image, error: error)
+        }
+
+        /// Lay the editor over the room its block keeps for it.
+        func positionMath() {
+            guard let mathEditor, let editingMath, let view, let layout,
+                  let at = projection.attachment(of: editingMath) else { return }
+            // Laid out up to the block first: an estimate of where it is put
+            // the editor, and the page with it, somewhere else for a moment.
+            layout.ensureLayout(forCharacterRange: NSRange(location: 0, length: at + 1))
+            guard let rect = layout.mathRect(at: at) else { return }
+            let frame = rect.offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)
+            // Kept in view as it moves: its block settles as the layout
+            // finishes, and grows as it is typed in. Scrolling away by hand
+            // moves the page, not the block, so that is left alone.
+            if mathEditor.frame != frame {
+                mathEditor.frame = frame
+                revealMath = true
+            }
+            if revealMath, let scroll = view.enclosingScrollView, let document = scroll.documentView {
+                revealMath = false
+                // Straight to the clip view: the text view only scrolls for
+                // its own caret (`scrollToVisible`).
+                let box = mathEditor.convert(mathEditor.bounds, to: document)
+                let clip = scroll.contentView
+                var y = clip.bounds.origin.y
+                if box.maxY > clip.bounds.maxY { y = box.maxY - clip.bounds.height }
+                if box.minY < y { y = box.minY }
+                if y != clip.bounds.origin.y {
+                    clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: y))
+                    scroll.reflectScrolledClipView(clip)
+                }
+                // The page may not have grown to hold the block yet; try
+                // again when it has.
+                revealMath = box.maxY > clip.bounds.maxY + 0.5
+            }
+        }
+
+        /// Leave the equation: below it, above it, or where a click put the
+        /// caret.
+        func exitMath(_ exit: MathBlockEditor.Exit) {
+            guard let editor = mathEditor, let view else { return }
+            editor.removeFromSuperview()
+            mathEditor = nil
+            editingMath = nil
+            guard let atom = projection.atoms.first(where: { NSLocationInRange(popoverRange.location, $0.range) || $0.range.location == popoverRange.location }) else {
+                refresh()
+                return
+            }
+            switch exit {
+            case .stay:
+                refresh()
+            case .above:
+                view.window?.makeFirstResponder(view)
+                render(selectSource: NSRange(location: atom.range.location, length: 0))
+            case .below:
+                view.window?.makeFirstResponder(view)
+                if NSMaxRange(atom.range) == projection.source.length {
+                    replace(NSRange(location: projection.source.length, length: 0), with: "\n", select: NSRange(location: projection.source.length + 1, length: 0))
+                } else {
+                    render(selectSource: NSRange(location: NSMaxRange(atom.range) + 1, length: 0))
+                }
+            }
+        }
+
+        /// The first display equation opened in place, for the snapshot
+        /// harness.
+        func editFirstMath() {
+            if let first = projection.elements.indices.first(where: { if case .mathBlock = projection.elements[$0].kind { true } else { false } }) {
+                open(first)
+            }
         }
 
         func scroll(toHeading index: Int) {
@@ -724,24 +1024,189 @@ struct LiveEditor: NSViewRepresentable {
     }
 }
 
-// MARK: - Text view
+// MARK: - Modal editing
 
-/// The caret is one point wide; it must not intercept the click that puts
-/// it there.
-private final class LiveInsertionIndicator: NSTextInsertionIndicator {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+extension LiveEditor.Coordinator: ModalTarget {
+    func handleModal(_ event: NSEvent) -> Bool {
+        guard keymap.isModal else { return false }
+        return modal.handle(event)
+    }
+
+    var modalText: NSString { projection.display }
+
+    var modalSelection: NSRange {
+        get { view?.selectedRange() ?? NSRange(location: 0, length: 0) }
+        set { place(newValue) }
+    }
+
+    var modalIsComposing: Bool { view?.hasMarkedText() ?? false }
+
+    func modalDelete(_ range: NSRange, linewise: Bool) {
+        guard let view else { return }
+        if linewise {
+            let source = linewiseSourceRange(range)
+            performModal(.replace(source, with: "", selection: NSRange(location: source.location, length: 0)))
+        } else {
+            performModal(editing.delete(range, selection: view.selectedRange()))
+        }
+    }
+
+    func modalInsert(_ text: String, at position: Int) {
+        performModal(editing.type(text, over: NSRange(location: position, length: 0)))
+    }
+
+    func modalInsertLine(_ text: String, after: Bool) {
+        guard let view else { return }
+        let display = projection.display
+        let line = ModalText.lineRange(display, at: view.selectedRange().location)
+        let boundary = after ? NSMaxRange(line) : line.location
+        let source = projection.source
+        var position = linewisePastePosition(at: boundary, after: after)
+        var pasted = text
+        if after, position == source.length, source.length > 0,
+           source.character(at: source.length - 1) != 0x0A {
+            // p after a last line with no newline makes one.
+            pasted = "\n" + pasted
+            position = source.length
+        }
+        let caret = position + (pasted as NSString).length - (text as NSString).length
+        replace(NSRange(location: position, length: 0), with: pasted, select: NSRange(location: caret, length: 0))
+    }
+
+    /// Where a whole line is pasted: a source line boundary, not the
+    /// display's insertion point, which steps over `## ` and fences.
+    private func linewisePastePosition(at display: Int, after: Bool) -> Int {
+        let source = projection.source
+        guard display < projection.display.length else { return source.length }
+        // A drawn block (equation, table, picture) is one display unit:
+        // paste around the whole block, not into its source.
+        if let element = projection.attachments[display] {
+            let e = projection.elements[element]
+            switch e.kind {
+            case .mathBlock, .table, .image:
+                return e.range.location
+            default:
+                break
+            }
+        }
+        // Before a block that starts on the next line, go above its fence
+        // or prefix. After a code block's opening, the line inside it.
+        if after, let e = projection.elements.first(where: { element in
+            guard case .codeBlock = element.kind else { return false }
+            return projection.displayLines(element.content).location == display
+        }), let fence = e.markers.first {
+            return fence.location
+        }
+        let sourcePosition = projection.units[display].location
+        return (source as NSString).lineRange(for: NSRange(location: min(sourcePosition, source.length), length: 0)).location
+    }
+
+    func modalReplace(_ range: NSRange, with text: String) {
+        performModal(editing.type(text, over: range))
+    }
+
+    func modalOpenLine(below: Bool) {
+        guard let view else { return }
+        let display = projection.display
+        let line = ModalText.lineContentRange(display, at: view.selectedRange().location)
+        let at = below ? NSMaxRange(line) : line.location
+        let edit = editing.newline(NSRange(location: at, length: 0))
+        performModal(edit)
+        guard !below, case let .replace(range, _, _) = edit else { return }
+        // O starts on the line above, which begins where the newline was
+        // put, not on the old line the edit's selection points into.
+        place(NSRange(location: projection.display(at: range.location), length: 0))
+    }
+
+    func modalYank(_ range: NSRange, linewise: Bool) -> String {
+        projection.copiedMarkdown(for: range)
+    }
+
+    /// What a delete or change puts in the register: raw source, so a
+    /// deleted heading does not bring its `## ` along twice when pasted.
+    func modalSource(_ range: NSRange, linewise: Bool) -> String {
+        guard linewise else { return markdown(of: range) }
+        return projection.source.substring(with: linewiseSourceRange(range))
+    }
+
+    /// A linewise range in the Markdown: complete source lines, including
+    /// the `## `, `- ` or fence the display leaves out, and any drawn
+    /// block the range touches. Deleting a shown line should take the
+    /// whole line with it, as in Vim.
+    private func linewiseSourceRange(_ display: NSRange) -> NSRange {
+        let source = projection.source
+        guard source.length > 0 else { return NSRange(location: 0, length: 0) }
+        var range = projection.sourceRange(display)
+        for atom in projection.atoms where atom.isBlock {
+            if atom.range.location == range.location || NSIntersectionRange(atom.range, range).length > 0 {
+                range = NSUnionRange(range, atom.range)
+            }
+        }
+        let text = source as NSString
+        let first = text.lineRange(for: NSRange(location: min(range.location, source.length), length: 0))
+        let lastIndex = min(max(range.location, NSMaxRange(range) - 1), source.length - 1)
+        let last = text.lineRange(for: NSRange(location: lastIndex, length: 0))
+        return NSUnionRange(first, last)
+    }
+
+    func modalUndo() {
+        history.undo()
+    }
+
+    func modalRedo() {
+        history.redo()
+    }
+
+    func modalScrollToVisible() {
+        view?.scrollRangeToVisible(selectionForScroll())
+    }
+
+    func modalModeChanged(_ mode: ModalMode) {
+        self.mode = mode
+        view?.modalMode = mode
+        view?.updateCursor()
+    }
+
+    private func selectionForScroll() -> NSRange {
+        view?.selectedRange() ?? NSRange(location: 0, length: 0)
+    }
+
+    /// An edit made by a modal command. Unlike typing in the page, it
+    /// never opens a block's source popover: `dd` should not land the
+    /// caret in an equation and pop it open.
+    private func performModal(_ edit: LiveEditing.Edit) {
+        switch edit {
+        case .none:
+            render(select: view?.selectedRange())
+        case let .select(range):
+            place(range)
+            view?.scrollRangeToVisible(range)
+        case let .replace(range, string, selection):
+            replace(range, with: string, select: selection)
+            if let view { view.scrollRangeToVisible(view.selectedRange()) }
+        }
+    }
 }
 
-final class LiveTextView: NSTextView {
+// MARK: - Text view
+
+final class LiveTextView: CursorTextView {
     var appearanceChanged: (() -> Void)?
     /// Tables and pictures are laid out to the text's width.
     var widthChanged: (() -> Void)?
+    /// Called when the text's size changes, so views laid over it follow.
+    var laidOut: (() -> Void)?
+    /// Opens the first display equation in place; the snapshot harness
+    /// uses it to show the equation editor.
+    var editFirstMath: (() -> Void)?
     /// A click on something drawn; true if it was handled.
     var click: ((NSPoint) -> Bool)?
     /// Formatting shortcuts; true if handled.
     var key: ((NSEvent) -> Bool)?
     /// The Markdown behind a display range, for copying.
     var copySource: ((NSRange) -> String)?
+    /// Copy a code block's text; the button is drawn by the layout.
+    var copyCode: ((Int) -> Void)?
     /// The source's undo history. Kept apart from the text view's own
     /// undo manager: the display is rewritten after each edit, so TextKit's
     /// undo actions would point into text that is no longer there.
@@ -750,76 +1215,139 @@ final class LiveTextView: NSTextView {
     /// The note's title, laid out above the text by `LiveDocumentView`.
     var titleField: NSTextField?
 
-    /// NSTextView's own caret snaps on and off. This is the system's
-    /// insertion indicator, which animates the caret instead, so the text
-    /// view's caret is not drawn by `drawInsertionPoint` below.
-    private lazy var insertionIndicator: LiveInsertionIndicator = {
-        let indicator = LiveInsertionIndicator(frame: .zero)
-        indicator.displayMode = .automatic
-        indicator.color = NSColor(token: .fg)
-        indicator.isHidden = true
-        addSubview(indicator, positioned: .above, relativeTo: nil)
-        return indicator
-    }()
-
-    /// The caret rect from the last time AppKit asked for it.
-    private var insertionRect = NSRect.zero
-
-    /// Whether the system indicator should be showing. AppKit still asks
-    /// for the insertion point when the view is not focused or has a
-    /// selection; the indicator follows those questions rather than the
-    /// native caret.
-    private var insertionVisible: Bool {
-        window?.isKeyWindow == true && shouldDrawInsertionPoint && selectedRange().length == 0 && !hasMarkedText()
-    }
-
-    func updateInsertionIndicator() {
-        let visible = insertionVisible && insertionRect.width > 0 && insertionRect.height > 0
-        if insertionIndicator.isHidden == visible {
-            insertionIndicator.isHidden = !visible
-        }
-        guard visible else { return }
-        if insertionIndicator.frame != insertionRect {
-            insertionIndicator.frame = insertionRect
-        }
-    }
-
-    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
-        // The indicator owns the caret's look and blink.
-        insertionRect = rect
-        updateInsertionIndicator()
-    }
+    /// The area that sends mouse moves for the code blocks' controls.
+    private var hoverArea: NSTrackingArea?
 
     override func setSelectedRange(_ range: NSRange) {
+        let old = selectedRange()
         super.setSelectedRange(range)
-        updateInsertionIndicator()
+        syncSelection(range, redraw: range.length > 0 || old.length > 0)
     }
 
-    override func becomeFirstResponder() -> Bool {
-        let accepted = super.becomeFirstResponder()
-        updateInsertionIndicator()
-        return accepted
+    override func setSelectedRanges(
+        _ ranges: [NSValue],
+        affinity: NSSelectionAffinity,
+        stillSelecting: Bool
+    ) {
+        let old = selectedRange()
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        if let range = ranges.first?.rangeValue {
+            syncSelection(range, redraw: stillSelecting || range.length > 0 || old.length > 0)
+        }
     }
 
-    override func resignFirstResponder() -> Bool {
-        let accepted = super.resignFirstResponder()
-        updateInsertionIndicator()
-        return accepted
+    /// The selection painter reads this copy of the selection. During a
+    /// drag the delegate is deferred, so update it here as the mouse moves.
+    private func syncSelection(_ range: NSRange, redraw: Bool) {
+        (layoutManager as? LiveLayout)?.selection = range
+        if redraw { needsDisplay = true }
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
-        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: nil)
         if let window {
-            NotificationCenter.default.addObserver(self, selector: #selector(windowChanged), name: NSWindow.didBecomeKeyNotification, object: window)
-            NotificationCenter.default.addObserver(self, selector: #selector(windowChanged), name: NSWindow.didResignKeyNotification, object: window)
+            // The pointer is tracked for the code blocks' copy buttons.
+            window.acceptsMouseMovedEvents = true
         }
-        updateInsertionIndicator()
+        // Scrolling moves the blocks under a pointer that doesn't move.
+        if let clip = enclosingScrollView?.contentView {
+            NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification, object: clip)
+        }
+        updateCursor()
+        updateHover()
     }
 
-    @objc private func windowChanged() {
-        updateInsertionIndicator()
+    override func windowStateDidChange() {
+        super.windowStateDidChange()
+        updateHover()
+    }
+
+    @objc private func scrolled() {
+        updateHover()
+    }
+
+    /// NSTextView scrolls its selection into view whenever it resizes, as
+    /// restyling does on every edit. That keeps the caret in sight while
+    /// the text is edited; without a caret, while the title or an equation
+    /// has the keyboard, it dragged the page to wherever the selection
+    /// last was and back on every key, and scrolled a note that had just
+    /// opened past its title. Only the text being edited scrolls itself.
+    override func scrollToVisible(_ rect: NSRect) -> Bool {
+        guard window?.firstResponder === self else { return false }
+        return super.scrollToVisible(rect)
+    }
+
+    // MARK: Hover
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self
+        )
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateHover()
+        super.mouseMoved(with: event)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        updateHover()
+        super.mouseEntered(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        updateHover()
+        super.mouseExited(with: event)
+    }
+
+    /// Show the copy button on the code block under the pointer, as the
+    /// preview does. Called when the pointer moves, when the window or the
+    /// layout changes, and after each edit.
+    func updateHover() {
+        guard let layout = layoutManager as? LiveLayout else { return }
+        let point: NSPoint? = window.flatMap { window in
+            guard window.isKeyWindow else { return nil }
+            let p = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            guard bounds.contains(p) else { return nil }
+            return NSPoint(x: p.x - textContainerOrigin.x, y: p.y - textContainerOrigin.y)
+        }
+        let block = point.flatMap { p in layout.state.code.first { layout.codeBlockRect($0.lines)?.contains(p) ?? false } }
+        let button = point.map { p in block.flatMap { layout.copyButtonRect($0)?.contains(p) ?? false } ?? false } ?? false
+        let element = block?.element
+        let math = point.flatMap { p in layout.mathBlocks.first { layout.mathRect(at: $0.at)?.contains(p) ?? false } }
+        let mathButton = point.flatMap { layout.mathButton(at: $0) }?.button
+        guard layout.hoveredCode != element || layout.hoveringButton != button
+            || layout.hoveredMath != math?.element || layout.hoveredMathButton != mathButton else { return }
+        layout.hoveredCode = element
+        layout.hoveringButton = button
+        layout.hoveredMath = math?.element
+        layout.hoveredMathButton = mathButton
+        // The controls are a few points wide, but the layout draws the
+        // whole block; one full redraw per block entered or left is cheap.
+        needsDisplay = true
+    }
+
+    /// The copy button and the language label are links, not text.
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard let layout = layoutManager as? LiveLayout else { return }
+        for block in layout.state.code {
+            guard let rect = layout.copyButtonRect(block) else { continue }
+            addCursorRect(rect.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y), cursor: .pointingHand)
+        }
+        for block in layout.mathBlocks {
+            guard let rect = layout.mathRect(at: block.at) else { continue }
+            for (_, button) in MathBlockCell.buttons(in: rect) {
+                addCursorRect(button.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y), cursor: .pointingHand)
+            }
+        }
     }
 
     deinit {
@@ -828,10 +1356,31 @@ final class LiveTextView: NSTextView {
 
     func layoutTitle() {
         (superview as? LiveDocumentView)?.layoutContent()
+        // The text's size changes as its layout finishes; an equation
+        // being edited keeps to its block.
+        laidOut?()
     }
 
     /// Keep lines to page.css's measure, centred, like the preview.
     override func setFrameSize(_ size: NSSize) {
+        var size = size
+        // Non-contiguous layout sizes the text to an estimate while it isn't
+        // all laid out, as after every restyle, often far shorter than the
+        // note. A page shrunk to that was pulled up under the reader and
+        // fell back once the layout caught up: it shook on every key typed
+        // into an equation at the end of a note. Shrinking past what is on
+        // screen goes by the real layout instead; below the screen, an
+        // estimate does no harm.
+        if size.height < frame.height, let clip = enclosingScrollView?.contentView,
+           frame.minY + size.height < clip.bounds.maxY,
+           let layout = layoutManager, let container = textContainer {
+            // ponytail: lays out the whole note when its end is on screen.
+            // Fine for notes of thousands of lines; past that, lay out only
+            // to the end of the screen.
+            layout.ensureLayout(for: container)
+            let needed = ceil(layout.usedRect(for: container).maxY + 2 * textContainerInset.height)
+            size.height = max(size.height, needed, minSize.height)
+        }
         let old = textContainer?.size.width
         super.setFrameSize(size)
         let side = max(Metrics.editorInset, (size.width - Metrics.measure) / 2)
@@ -842,6 +1391,7 @@ final class LiveTextView: NSTextView {
         }
         if let old, textContainer?.size.width != old { widthChanged?() }
         // Taller or narrower text: the document follows.
+        updateCursor()
         layoutTitle()
     }
 
@@ -861,7 +1411,8 @@ final class LiveTextView: NSTextView {
         return super.performKeyEquivalent(with: event)
     }
 
-    /// Copying copies the Markdown, not the text with its syntax left out.
+    /// Copying copies the Markdown, not the display with its syntax left
+    /// out, and without the trailing spaces a line selection paints.
     override func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
         guard let copySource, selectedRange().length > 0 else { return super.writeSelection(to: pboard, types: types) }
         pboard.declareTypes([.string], owner: nil)

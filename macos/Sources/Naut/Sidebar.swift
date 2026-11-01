@@ -6,13 +6,15 @@ import SwiftUI
 struct Sidebar: View {
     @Environment(Store.self) private var store
     @Binding var scrollTarget: String?
-    @FocusState private var searchFocused: Bool
+    /// Changes with the theme, so the body repaints the chrome.
+    let themeRevision: Int
+    /// Opens the command palette; the search pill opens it on search.
+    let openPalette: (CommandPalette.Scope) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        @Bindable var store = store
-        VStack(alignment: .leading, spacing: 16) {
-            SearchField(text: $store.query, focused: $searchFocused)
+        VStack(alignment: .leading, spacing: 12) {
+            SearchPill { openPalette(.search) }
 
             ScrollView {
                 // Not lazy: the outline unfolding pushes every row below it,
@@ -20,65 +22,102 @@ struct Sidebar: View {
                 // ponytail: builds every row each update. Fine for hundreds
                 // of notes; go back to LazyVStack and animate only the
                 // visible range if thousands ever feel slow.
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(store.filteredNotes) { note in
-                        row(note)
-                    }
+                VStack(alignment: .leading, spacing: 18) {
+                    section("Favorites", notes(store.favorites), outline: false)
+                    section("Recent", Array(notes(store.recent).prefix(Metrics.recentShown)), outline: false)
+                    section("Library", store.notes, outline: true)
                 }
                 .padding(.bottom, Metrics.sidebarPadding)
             }
             .scrollIndicators(.never)
+
+            Button { store.newNote() } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus")
+                    Text("New note")
+                    Spacer()
+                    Text("⌘N").foregroundStyle(Theme.fgDim)
+                }
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.fgDim)
+                .padding(.horizontal, 8)
+                .frame(height: 30)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("New Note (⌘N)")
         }
-        .padding(.horizontal, Metrics.sidebarPadding)
-        .padding(.top, 4)
-        .background(Theme.bg)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(.upArrow) { move(-1) }
         .onKeyPress(.downArrow) { move(1) }
-        .background {
-            // ⌘K focuses search, like a docs site.
-            Button("") { searchFocused = true }
-                .keyboardShortcut("k")
-                .hidden()
-        }
-        .toolbar {
-            ToolbarItem {
-                Button { store.newNote() } label: { Label("New Note", systemImage: "square.and.pencil") }
-                    .help("New Note (⌘N)")
+    }
+
+    /// Notes for ids, skipping any that are gone.
+    private func notes(_ ids: [Note.ID]) -> [Note] {
+        ids.compactMap { id in store.notes.first { $0.id == id } }
+    }
+
+    /// A titled group of rows, as in Rex's docs navigation. Empty groups
+    /// don't show; only the Library unfolds a note's outline, so it
+    /// appears once.
+    @ViewBuilder private func section(_ title: String, _ notes: [Note], outline: Bool) -> some View {
+        if !notes.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.fgDim)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 4)
+                ForEach(notes) { note in
+                    row(note, outline: outline)
+                }
             }
         }
     }
 
-    @ViewBuilder private func row(_ note: Note) -> some View {
+    @ViewBuilder private func row(_ note: Note, outline: Bool) -> some View {
         let selected = note.id == store.selection
         Button {
             select(note)
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Text(note.name)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 if store.published.contains(note.name) {
-                    Image(systemName: "globe.americas.fill")
-                        .font(.caption)
-                        .foregroundStyle(Theme.fgDim)
+                    Circle()
+                        .fill(Theme.cursor)
+                        .frame(width: 6, height: 6)
                         .help("Published")
                 }
             }
-            .font(.system(size: 14))
-            .foregroundStyle(selected ? Theme.fg : Theme.fgDim)
+            .font(.system(size: 14, weight: selected ? .medium : .regular))
+            .foregroundStyle(selected ? Theme.fg : Theme.fgBody)
+            .padding(.horizontal, 10)
             .frame(height: Metrics.rowHeight)
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: 9)
+                        .fill(Theme.surfaceRaised)
+                        .strokeBorder(Theme.line, lineWidth: 1)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .contextMenu {
+            Button(store.isFavorite(note.id) ? "Remove from Favorites" : "Add to Favorites") {
+                store.toggleFavorite(note.id)
+            }
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([note.url]) }
             Divider()
             Button("Move to Trash", role: .destructive) { store.trash(note) }
         }
 
-        if selected {
+        if selected, outline {
             let sections = store.outline.filter { $0.level == 2 }
             // One view per note, so switching notes folds the old tree away
             // and unfolds the new one as two units.
@@ -100,7 +139,7 @@ struct Sidebar: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .padding(.leading, 6)
+                    .padding(.leading, 14)
                 }
             }
             .id(note.id)
@@ -117,8 +156,9 @@ struct Sidebar: View {
         }
     }
 
+    /// ↑↓ walk the Library, where every note is.
     private func move(_ delta: Int) -> KeyPress.Result {
-        let notes = store.filteredNotes
+        let notes = store.notes
         guard !notes.isEmpty else { return .ignored }
         let current = notes.firstIndex { $0.id == store.selection } ?? -delta
         select(notes[max(0, min(notes.count - 1, current + delta))])
@@ -152,28 +192,26 @@ struct TreeGuide: Shape {
     }
 }
 
-/// The capsule search field with a ⌘K hint.
-struct SearchField: View {
-    @Binding var text: String
-    var focused: FocusState<Bool>.Binding
+/// The capsule that opens the command palette on search, with its ⌘K hint.
+struct SearchPill: View {
+    let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(Theme.fgDim)
-            TextField("Search", text: $text)
-                .textFieldStyle(.plain)
-                .focused(focused)
-                .onExitCommand { text = ""; focused.wrappedValue = false }
-            if text.isEmpty {
-                Text("⌘K")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.fgDim)
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                Text("Search")
+                Spacer()
+                Text("⌘K").font(.system(size: 12))
             }
+            .font(.system(size: 14))
+            .foregroundStyle(Theme.fgDim)
+            .padding(.horizontal, 12)
+            .frame(height: Metrics.searchHeight)
+            .background(Capsule().fill(Theme.surface))
+            .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
+            .contentShape(Capsule())
         }
-        .font(.system(size: 14))
-        .padding(.horizontal, 12)
-        .frame(height: Metrics.searchHeight)
-        .background(Capsule().strokeBorder(Theme.edge, lineWidth: 1))
+        .buttonStyle(.plain)
     }
 }

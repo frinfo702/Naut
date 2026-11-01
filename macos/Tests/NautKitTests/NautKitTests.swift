@@ -265,3 +265,188 @@ func liveMappingRoundTrips(note: String) {
     let b = LiveEditing(text: "say **hi** there")
     #expect(b.toggle(.strong, marker: "**", selection: NSRange(location: 4, length: 2)) == .replace(NSRange(location: 4, length: 6), with: "hi", selection: NSRange(location: 4, length: 2)))
 }
+
+// MARK: - Themes
+
+@Test func everyThemePaintsEveryToken() {
+    for theme in ThemePalette.allThemes {
+        for token in ThemeToken.allCases {
+            #expect(theme.colors[token] != nil, "\(theme.name) is missing \(token.rawValue)")
+        }
+        #expect(theme.swatches.count == 8, "\(theme.name) needs eight swatches")
+        #expect(ThemePalette.named(theme.id, dark: theme.dark) == theme)
+    }
+    #expect(Set(ThemePalette.allThemes.map(\.id)).count == ThemePalette.allThemes.count)
+}
+
+@Test func builtInNautMatchesTheStylesheet() {
+    for (theme, dark) in [(ThemePalette.nautLight, false), (ThemePalette.nautDark, true)] {
+        for token in ThemeToken.allCases {
+            guard let css = token.color(dark: dark), let value = theme.color(token) else {
+                Issue.record("\(theme.name) is missing \(token.rawValue)")
+                continue
+            }
+            // Components cross the C API as Float, so compare loosely.
+            #expect(abs(css.red - value.red) < 0.002, "\(theme.name) \(token.rawValue) red")
+            #expect(abs(css.green - value.green) < 0.002, "\(theme.name) \(token.rawValue) green")
+            #expect(abs(css.blue - value.blue) < 0.002, "\(theme.name) \(token.rawValue) blue")
+            #expect(abs(css.alpha - value.alpha) < 0.002, "\(theme.name) \(token.rawValue) alpha")
+        }
+    }
+}
+
+@Test(arguments: ThemePalette.allThemes.map(\.id))
+func themesKeepTextLegible(id: String) {
+    let theme = ThemePalette.allThemes.first { $0.id == id }!
+    let bg = theme.colors[.bg]!
+    func contrast(_ color: ThemeColor) -> Double {
+        (max(color.luminance, bg.luminance) + 0.05) / (min(color.luminance, bg.luminance) + 0.05)
+    }
+    #expect(contrast(theme.colors[.fg]!) >= 4.5, "\(theme.name) body text")
+    #expect(contrast(theme.colors[.fgBody]!) >= 4.5, "\(theme.name) ink")
+    #expect(contrast(theme.colors[.fgDim]!) >= 3.0, "\(theme.name) dim text")
+    #expect(contrast(theme.cursor) >= 3.0, "\(theme.name) cursor")
+    for token in [ThemeToken.synKeyword, .synString, .synAttr, .synNumber] {
+        #expect(contrast(theme.colors[token]!) >= 3.0, "\(theme.name) \(token.rawValue)")
+    }
+}
+
+// MARK: - Modal editing
+
+@Test func modalTextFindsLines() {
+    let text = "one two\nthree four\n" as NSString
+    #expect(ModalText.lineRange(text, at: 0) == NSRange(location: 0, length: 8))
+    #expect(ModalText.lineContentRange(text, at: 0) == NSRange(location: 0, length: 7))
+    #expect(ModalText.lineRange(text, at: 8) == NSRange(location: 8, length: 11))
+    // The empty line after a final newline is a line of its own.
+    #expect(ModalText.lineRange(text, at: text.length) == NSRange(location: text.length, length: 0))
+    #expect(ModalText.firstNonBlank("  x" as NSString, at: 0) == 2)
+    #expect(ModalText.lastCharacter(text, at: 0) == 6)
+    #expect(ModalText.lastCharacter(text, at: 8) == 17)
+    #expect(ModalText.linewiseRange(text, from: 0, lines: 2) == NSRange(location: 0, length: 19))
+    #expect(ModalText.linewiseRange(text, from: 0, lines: 9) == NSRange(location: 0, length: 19))
+}
+
+@Test func modalTextMovesByWord() {
+    let text = "one two\nthree four\n" as NSString
+    #expect(ModalText.nextWordStart(text, from: 0) == 4)
+    #expect(ModalText.nextWordStart(text, from: 4) == 8)
+    #expect(ModalText.previousWordStart(text, from: 8) == 4)
+    #expect(ModalText.previousWordStart(text, from: 4) == 0)
+    #expect(ModalText.wordEnd(text, from: 0) == 2)
+    #expect(ModalText.wordEnd(text, from: 4) == 6)
+    #expect(ModalText.wordRunEnd(text, from: 4) == 7)
+    #expect(ModalText.wordRunEnd(text, from: 7) == 13)
+    #expect(ModalText.wordRunStart(text, from: 7) == 8)
+    #expect(ModalText.wordRunStart(text, from: 4) == 4)
+    // Punctuation is its own word, as in Vim.
+    let punct = "foo.bar baz" as NSString
+    #expect(ModalText.nextWordStart(punct, from: 0) == 3)
+    #expect(ModalText.nextWordStart(punct, from: 3) == 4)
+    // Japanese runs move as one word.
+    let japanese = "日本語 の 太字" as NSString
+    #expect(ModalText.nextWordStart(japanese, from: 0) == 4)
+    #expect(ModalText.wordEnd(japanese, from: 0) == 2)
+}
+
+@Test func modalModeAndKeymapsReadWell() {
+    #expect(EditorKeymap.normal.isModal == false)
+    #expect(EditorKeymap.vim.isModal && EditorKeymap.helix.isModal)
+    #expect(ModalMode.visualLine.title == "VISUAL LINE")
+    #expect(ModalMode.selectLine.isLinewise)
+    #expect(ModalMode.insert.isVisual == false)
+}
+
+/// A code block followed by a blank line: the blank line is outside the
+/// block, so it must not take the code indentation. Its caret used to be
+/// indented as if it were still code.
+@Test func liveCodeBlockDoesNotOwnTheBlankLineAfterIt() {
+    let note = "```python\na = np.linspace([1, 3, 5])\n```\n\nafter"
+    let p = LiveProjection(note)
+    let code = p.elements.first { if case .codeBlock = $0.kind { true } else { false } }!
+    let lines = p.displayLines(code.content)
+    #expect(p.display.substring(with: lines) == "a = np.linspace([1, 3, 5])\n")
+}
+
+@Test func liveCodeBlockDoesNotOwnATrailingBlankLine() {
+    let note = "```python\na = np.linspace([1, 3, 5])\n```\n\n"
+    let p = LiveProjection(note)
+    #expect(p.display == "a = np.linspace([1, 3, 5])\n\n")
+    let code = p.elements.first { if case .codeBlock = $0.kind { true } else { false } }!
+    let lines = p.displayLines(code.content)
+    #expect(p.display.substring(with: lines) == "a = np.linspace([1, 3, 5])\n")
+}
+
+// MARK: - Clipboard
+
+@Test func copiedMarkdownRestoresHiddenSyntax() {
+    let heading = LiveProjection("## Heading\n")
+    #expect(heading.display == "Heading\n")
+    #expect(heading.copiedMarkdown(for: NSRange(location: 0, length: 7)) == "## Heading")
+
+    let bold = LiveProjection("say **bold** there")
+    #expect(bold.display == "say bold there")
+    #expect(bold.copiedMarkdown(for: NSRange(location: 4, length: 4)) == "**bold**")
+
+    let code = LiveProjection("before\n```zig\nconst x = 1;\n```\nafter")
+    // Display "before\nconst x = 1;\nafter"; the code line starts at 7.
+    #expect(code.copiedMarkdown(for: NSRange(location: 7, length: 12)) == "```zig\nconst x = 1;\n```\n")
+}
+
+@Test func copiedMarkdownTrimsTrailingWhitespacePerLine() {
+    let p = LiveProjection("## Heading   \nline two\t\nplain  \n")
+    let all = NSRange(location: 0, length: p.display.length)
+    #expect(p.copiedMarkdown(for: all) == "## Heading\nline two\nplain\n")
+}
+
+@Test func copiedMarkdownOfPartOfASpanIsJustThePart() {
+    let p = LiveProjection("say **bold** there")
+    // Display "say bold there"; select "bo".
+    #expect(p.copiedMarkdown(for: NSRange(location: 4, length: 2)) == "bo")
+}
+
+@Test func copiedMarkdownRestoresLinksAndListMarkers() {
+    let link = LiveProjection("see [docs](https://x) now")
+    #expect(link.display == "see docs now")
+    #expect(link.copiedMarkdown(for: NSRange(location: 4, length: 4)) == "[docs](https://x)")
+
+    let list = LiveProjection("- item one\n- item two")
+    #expect(list.display == "item one\nitem two")
+    #expect(list.copiedMarkdown(for: NSRange(location: 0, length: 8)) == "- item one")
+}
+
+@Test func noteSearchCountsAndCutsASnippet() throws {
+    let text = "# Notes\n\n## 結果\n\nIntro line.\n注釈者のカメラの lookat は正解にある。Camera again.\n"
+    let match = try #require(NoteSearch.match("camera", title: "Camera log", text: text))
+    #expect(match.count == 2) // title + "Camera again"; カメラ is another word
+    #expect(match.section == "結果")
+    #expect(match.snippet.contains("Camera again"))
+    #expect(NoteSearch.match("カメラ", title: "", text: text)?.snippet.hasPrefix("注釈者") == true)
+    #expect(NoteSearch.match("zzz", title: "a", text: text) == nil)
+}
+
+@Test func noteSearchSkipsCommentsInCodeBlocks() {
+    let text = "## 手法\n\n```python\n# project onto the floor\nf = 1\n```\n\ncamera here\n"
+    #expect(NoteSearch.match("camera", title: "", text: text)?.section == "手法")
+    let tilde = "## A\n~~~\n# not a heading\n```\n# still code\n~~~\ncamera\n"
+    #expect(NoteSearch.match("camera", title: "", text: tilde)?.section == "A")
+}
+
+@Test func texErrorsNameTheMistake() {
+    #expect(TeXErrors.messages("a_n = \\nn") == ["Undefined control sequence: \\nn"])
+    #expect(TeXErrors.messages("x^2 + \\frac{1}{2}").isEmpty)
+    #expect(TeXErrors.messages("a }").first?.hasPrefix("Unexpected") == true)
+}
+
+@Test func liveTypingDollarsMakesAClosedEquation() {
+    // The second `$` on a line of its own closes the block right away, so
+    // the text below isn't taken into it; the caret goes inside.
+    let open = "a\n\n$\n\n## 1\n\n$$\nx\n$$"
+    #expect(apply(LiveEditing(text: open).type("$", over: caret(4)), to: open)?.text == "a\n\n$$\n\n$$\n\n## 1\n\n$$\nx\n$$")
+    // Closing a block left open above, by hand: just the `$`.
+    let closing = "$$\nx\n$"
+    #expect(apply(LiveEditing(text: closing).type("$", over: caret(6)), to: closing)?.text == "$$\nx\n$$")
+    // Not mid-line, where `$$` is text.
+    let inline = "cost $"
+    #expect(apply(LiveEditing(text: inline).type("$", over: caret(6)), to: inline)?.text == "cost $$")
+}

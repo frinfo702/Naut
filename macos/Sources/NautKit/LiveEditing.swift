@@ -10,7 +10,8 @@ import Foundation
 /// obvious mapping would break syntax the user can't see, as Notion
 /// behaves: deleting into a heading makes a paragraph, deleting a span's
 /// last letter takes its markers, deleting toward a block selects it
-/// first, Return continues a list, ``` or $$ then Return makes a block.
+/// first, Return continues a list, ``` or $$ then Return makes a block,
+/// and `$$` alone on a line makes a closed equation as it is typed.
 public struct LiveEditing {
     public let projection: LiveProjection
     private var source: NSString { projection.source }
@@ -45,6 +46,11 @@ public struct LiveEditing {
             return .replace(range, with: s, selection: caret(range.location + length(s)))
         }
         let at = projection.insertion(at: r.location, preferring: preferring, newline: s.contains("\n"))
+        // `$$` on a line of its own makes the equation at once, closed: an
+        // open `$$` would take everything down to the next one into it.
+        if s == "$", at.before.isEmpty, at.after.isEmpty, opensEquation(at.position) {
+            return .replace(caret(at.position), with: "$\n\n$$", selection: caret(at.position + 2))
+        }
         return .replace(caret(at.position), with: at.before + s + at.after,
                         selection: caret(at.position + length(at.before + s)))
     }
@@ -277,6 +283,19 @@ public struct LiveEditing {
     }
 
     private func caret(_ p: Int) -> NSRange { NSRange(location: p, length: 0) }
+
+    /// Whether a `$` typed at source `p` makes its line `$$` and that opens
+    /// an equation, rather than closing one left open above, as when its
+    /// closing `$$` is typed by hand.
+    private func opensEquation(_ p: Int) -> Bool {
+        let l = line(containing: p)
+        guard p == NSMaxRange(l), (source.substring(with: l) + "$").trimmingCharacters(in: .whitespaces) == "$$" else { return false }
+        var open = false
+        source.substring(to: l.location).enumerateLines { line, _ in
+            if line.trimmingCharacters(in: .whitespaces) == "$$" { open.toggle() }
+        }
+        return !open
+    }
 
     private func length(_ s: String) -> Int { (s as NSString).length }
 }

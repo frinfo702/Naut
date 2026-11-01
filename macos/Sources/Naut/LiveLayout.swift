@@ -205,16 +205,21 @@ final class LiveAttachmentCell: NSTextAttachmentCell {
 // MARK: - Layout
 
 /// Lays out the display text with page.css's line spacing and draws what
-/// attributes can't: code block backgrounds and labels, inline code
-/// backgrounds, quote bars, and list bullets, numbers and boxes.
+/// attributes can't: code block backgrounds, labels and copy buttons,
+/// inline code backgrounds, quote bars, and list bullets, numbers and boxes.
 final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
     /// What to draw, in display positions.
     struct State {
         struct Code {
             /// The display paragraphs of its lines.
             var lines: NSRange
+            /// The first word of the fence's info string; empty if none.
             var language: String
             var element: Int
+
+            /// What a language label says: the language, or a placeholder
+            /// while there is none, as when editing the fence.
+            var label: String { language.isEmpty ? "plain text" : language }
         }
 
         enum Marker {
@@ -237,6 +242,20 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
     }
 
     var state = State()
+    /// The code block the pointer is over, and whether it is over its copy
+    /// button. The button shows only then, as on the page.
+    var hoveredCode: Int?
+    var hoveringButton = false
+    /// The code block or equation whose copy button just copied, showing
+    /// a check.
+    var copiedCode: Int?
+    /// Display equations: where each one's attachment is, and its element.
+    var mathBlocks: [(at: Int, element: Int)] = []
+    /// The equation under the pointer, and the button it is over.
+    var hoveredMath: Int?
+    var hoveredMathButton: MathBlockCell.Button?
+    /// The text view's selection, in display positions, kept by the editor.
+    var selection = NSRange(location: 0, length: 0)
 
     /// Body text's CSS line-height, from Settings.
     var lineHeight: Double = Store.Density.compact.lineHeight
@@ -308,11 +327,13 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
             NSColor(token: .edgeTop).setStroke()
             path.lineWidth = 1
             path.stroke()
-            // The language, which the fence would otherwise keep; clicking
-            // it edits it.
-            if let label = labelRect(block)?.offsetBy(dx: origin.x, dy: origin.y) {
-                Self.label(block.language).draw(at: label.origin)
-            }
+            // The copy button on hover, as on the page, and while the block
+            // is edited. The language, which the fence would otherwise keep,
+            // shows while the block is edited; clicking it edits the
+            // language.
+            let editing = editingCode?.element == block.element
+            guard editing || block.element == hoveredCode || block.element == copiedCode else { continue }
+            drawControls(for: block, editing: editing, at: origin)
         }
 
         // Inline code's pill: as tall as its own font around its baseline,
@@ -337,7 +358,18 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
             NSRect(x: origin.x + container.lineFragmentPadding, y: origin.y + top + 4, width: 2, height: bottom - top - 8).fill()
         }
 
-        super.drawBackground(forGlyphRange: glyphs, at: origin)
+        let composing = firstTextView?.hasMarkedText() == true
+        let current = firstTextView?.selectedRange() ?? selection
+        if !composing {
+            SelectionPainter.draw(in: self, glyphRange: glyphs, at: origin)
+        }
+        // Once the selection is drawn here, don't let TextKit paint its
+        // own (which runs a selected newline to the edge of the column).
+        // With no selection, or while an input method composes, there is
+        // nothing to suppress.
+        if current.length == 0 || composing {
+            super.drawBackground(forGlyphRange: glyphs, at: origin)
+        }
     }
 
     override func drawGlyphs(forGlyphRange glyphs: NSRange, at origin: NSPoint) {
@@ -413,9 +445,61 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         }
     }
 
-    /// The code block whose language label is at `point`.
+    /// A display equation's box, in container coordinates.
+    func mathRect(at character: Int) -> NSRect? {
+        guard let container = textContainers.first, let storage = textStorage, character < storage.length else { return nil }
+        return boundingRect(forGlyphRange: glyphRange(forCharacterRange: NSRange(location: character, length: 1), actualCharacterRange: nil), in: container)
+    }
+
+    /// The equation and its button at `point`, if the pointer is on one.
+    func mathButton(at point: NSPoint) -> (element: Int, button: MathBlockCell.Button)? {
+        for block in mathBlocks {
+            guard let rect = mathRect(at: block.at), rect.contains(point) else { continue }
+            for (button, r) in MathBlockCell.buttons(in: rect) where r.contains(point) {
+                return (block.element, button)
+            }
+        }
+        return nil
+    }
+
+    /// An equation's copy and edit buttons, under the pointer or just
+    /// after copying, as code blocks show theirs.
+    func drawMathControls(for element: Int, in frame: NSRect) {
+        guard hoveredMath == element || copiedCode == element else { return }
+        for (button, rect) in MathBlockCell.buttons(in: frame) {
+            let over = hoveredMath == element && hoveredMathButton == button
+            if over {
+                NSColor(token: .surfaceRaised).setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+            }
+            let copied = button == .copy && copiedCode == element
+            let symbol = button == .edit ? "chevron.left.forwardslash.chevron.right" : copied ? "checkmark" : "square.on.square"
+            Self.icon(symbol, color: NSColor(token: over || copied ? .fg : .fgDim), in: rect.insetBy(dx: 6, dy: 6))
+        }
+    }
+
+    /// The code block whose language label is at `point`. The label is
+    /// drawn only while the block is edited.
     func languageLabel(at point: NSPoint) -> State.Code? {
-        state.code.first { labelRect($0)?.insetBy(dx: -6, dy: -4).contains(point) ?? false }
+        guard let code = editingCode else { return nil }
+        return labelRect(code)?.insetBy(dx: -6, dy: -4).contains(point) == true ? code : nil
+    }
+
+    /// The code block whose copy button is at `point`.
+    func copyButton(at point: NSPoint) -> State.Code? {
+        state.code.first { copyButtonRect($0)?.contains(point) ?? false }
+    }
+
+    /// The code block whose caret is inside: its language label shows.
+    /// An empty block has no characters of its own; its caret is at its
+    /// start. `selection` is the text view's, kept here by the editor.
+    var editingCode: State.Code? {
+        guard selection.length == 0 else { return nil }
+        return state.code.first {
+            $0.lines.length == 0
+                ? selection.location == $0.lines.location
+                : selection.location >= $0.lines.location && selection.location < NSMaxRange($0.lines)
+        }
     }
 
     func codeBlockRect(_ lines: NSRange) -> NSRect? {
@@ -425,11 +509,20 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
             .insetBy(dx: 0, dy: Self.codeMargin)
     }
 
-    /// The language label's rect: top right, inside the padding.
-    func labelRect(_ block: State.Code) -> NSRect? {
+    /// The copy button's rect: top right, on the first line's centre, so
+    /// its icon lines up with the code.
+    func copyButtonRect(_ block: State.Code) -> NSRect? {
         guard let box = codeBlockRect(block.lines) else { return nil }
-        let size = Self.label(block.language).size()
-        return NSRect(x: box.maxX - size.width - 14, y: box.minY + 8, width: size.width, height: size.height)
+        let side: CGFloat = 28
+        let line = usedRect(at: block.lines.location)?.midY ?? box.minY + 4 + side / 2
+        return NSRect(x: box.maxX - side - 10, y: line - side / 2, width: side, height: side)
+    }
+
+    /// The language label's rect: left of the copy button, on its line.
+    func labelRect(_ block: State.Code) -> NSRect? {
+        guard let button = copyButtonRect(block) else { return nil }
+        let size = Self.label(block.label).size()
+        return NSRect(x: button.minX - size.width - 10, y: button.midY - size.height / 2, width: size.width, height: size.height)
     }
 
     /// Top of a range's first line to the bottom of its last.
@@ -454,6 +547,33 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
 
     static func boxSide(_ font: NSFont) -> CGFloat { (font.capHeight + 5).rounded() }
 
+    /// The copy button and, beside it, the language label while editing.
+    private func drawControls(for block: State.Code, editing: Bool, at origin: NSPoint) {
+        if editing, let label = labelRect(block)?.offsetBy(dx: origin.x, dy: origin.y) {
+            Self.label(block.label).draw(at: label.origin)
+        }
+        let showing = editing || block.element == hoveredCode || block.element == copiedCode
+        guard showing, let rect = copyButtonRect(block)?.offsetBy(dx: origin.x, dy: origin.y) else { return }
+        if block.element == hoveredCode, hoveringButton {
+            NSColor(token: .surfaceRaised).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+        }
+        let copied = block.element == copiedCode
+        let color: ThemeToken = copied || (hoveringButton && block.element == hoveredCode) ? .fg : .fgDim
+        Self.icon(copied ? "checkmark" : "square.on.square", color: NSColor(token: color), in: rect.insetBy(dx: 6, dy: 6))
+    }
+
+    /// A symbol tinted with `color`, centred in `rect`. Drawn rather than
+    /// put in a button: the page's button is drawn by the layout too.
+    static func icon(_ name: String, color: NSColor, in rect: NSRect) {
+        let resolved = color.usingColorSpace(.sRGB) ?? color
+        let configuration = NSImage.SymbolConfiguration(paletteColors: [resolved])
+            .applying(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return }
+        let size = image.size
+        image.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height))
+    }
+
     private static func label(_ language: String) -> NSAttributedString {
         NSAttributedString(string: language, attributes: [
             .font: NSFont.systemFont(ofSize: 11, weight: .medium),
@@ -468,7 +588,7 @@ extension LiveLayout.State {
         for (i, e) in p.elements.enumerated() {
             switch e.kind {
             case let .codeBlock(language):
-                code.append(.init(lines: p.displayLines(e.content), language: language.isEmpty ? "plain text" : language, element: i))
+                code.append(.init(lines: p.displayLines(e.content), language: language, element: i))
             case .code:
                 inlineCode.append(p.displayRange(e.range))
             case .quote:

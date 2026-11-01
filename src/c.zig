@@ -116,9 +116,38 @@ export fn naut_highlight(lang: ?[*]const u8, lang_len: usize, src: ?[*]const u8,
     return .dupe(json.written());
 }
 
-/// Run one publishing operation with its own arena and Io, and turn the
-/// result or the diagnostic into an owned string.
+/// Run one publishing operation and turn the result or the diagnostic
+/// into an owned string. Returns false with the diagnostic in `out`.
 fn runPublish(out: *String, comptime f: anytype, args: anytype) bool {
+    const Job = struct {
+        out: *String,
+        args: @TypeOf(args),
+        ok: bool,
+
+        fn run(self: *@This()) void {
+            self.ok = publish(self.out, f, self.args);
+        }
+    };
+
+    // The TLS handshake in std.crypto needs ~600 KB of stack in a Debug
+    // build. Swift's cooperative threads give tasks only 512 KB, so
+    // publishing straight from the caller died with SIGBUS at the stack
+    // guard while verifying the certificate. A thread of our own makes
+    // the caller's stack size irrelevant, and the default 16 MB leaves
+    // room for whatever the handshake does next.
+    var job: Job = .{ .out = out, .args = args, .ok = false };
+    const thread = std.Thread.spawn(.{}, Job.run, .{&job}) catch |err| {
+        var msg: [128]u8 = undefined;
+        const text = std.fmt.bufPrint(&msg, "could not start publishing: {t}", .{err}) catch
+            "could not start publishing";
+        out.* = .dupe(text);
+        return false;
+    };
+    thread.join();
+    return job.ok;
+}
+
+fn publish(out: *String, comptime f: anytype, args: anytype) bool {
     var arena: std.heap.ArenaAllocator = .init(std.heap.c_allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -205,4 +234,35 @@ test "c: publish reports invalid input without touching the network" {
     try std.testing.expect(!naut_cloudflare_put(&cf, "ns", "k", null, 0, &out));
     defer naut_string_free(out);
     try std.testing.expectStringStartsWith(out.ptr.?[0..out.len], "Account ID");
+}
+
+test "c: publishing does not use the caller's stack" {
+    const builtin = @import("builtin");
+    const Probe = struct {
+        caller: std.Thread.Id,
+        worker: ?std.Thread.Id = null,
+        stack: usize = 0,
+
+        fn run(alloc: std.mem.Allocator, io: std.Io, self: *@This(), diag: *std.Io.Writer) !void {
+            _ = alloc;
+            _ = io;
+            _ = diag;
+            self.worker = std.Thread.getCurrentId();
+            if (builtin.os.tag == .macos) {
+                const c = struct {
+                    extern "c" fn pthread_get_stacksize_np(thread: std.c.pthread_t) usize;
+                };
+                self.stack = c.pthread_get_stacksize_np(std.c.pthread_self());
+            }
+        }
+    };
+
+    var probe: Probe = .{ .caller = std.Thread.getCurrentId() };
+    var out: String = undefined;
+    try std.testing.expect(runPublish(&out, Probe.run, .{&probe}));
+    defer naut_string_free(out);
+    // TLS verification needs ~600 KB in Debug, more than the 512 KB that
+    // Swift's cooperative threads give tasks. Never run it on the caller.
+    try std.testing.expect(probe.worker != null and probe.worker.? != probe.caller);
+    if (builtin.os.tag == .macos) try std.testing.expect(probe.stack >= 1024 * 1024);
 }

@@ -18,7 +18,7 @@ struct NautApp: App {
                 .environment(store)
                 .frame(minWidth: 820, minHeight: 520)
         }
-        .windowToolbarStyle(.unifiedCompact)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") { undoManager()?.undo() }
@@ -31,6 +31,8 @@ struct NautApp: App {
                     .keyboardShortcut("n")
             }
             CommandGroup(after: .sidebar) {
+                Button(store.showSidebar ? "Hide Sidebar" : "Show Sidebar") { store.toggleSidebar() }
+                    .keyboardShortcut("s", modifiers: [.control, .command])
                 Button(store.showEditor ? "Hide Editor" : "Show Editor") {
                     withAnimation(.snappy(duration: Metrics.toggleDuration)) { store.showEditor.toggle() }
                 }
@@ -56,30 +58,60 @@ struct NautApp: App {
     }
 }
 
-/// Colours are read from the tokens in src/page.css through libnaut, so the
-/// native chrome and the rendered note are one palette by construction.
-/// Each adapts to light and dark. NautKit's tests check every ThemeToken
-/// against the stylesheet.
+/// Colours come from the light or dark theme the user picked in Settings.
+/// The app's own Naut themes mirror the tokens in src/page.css, so the
+/// native chrome and the rendered note stay one palette.
 enum Theme {
-    static let bg = Color(token: .bg)
-    static let surface = Color(token: .surface)
-    static let guide = Color(token: .guide)
-    static let fg = Color(token: .fg)
-    static let fgDim = Color(token: .fgDim)
+    // Computed, not stored: a stored Color captures the theme it was made
+    // in, so picking another one would repaint nothing.
+    static var bg: Color { Color(token: .bg) }
+    static var surface: Color { Color(token: .surface) }
+    static var surfaceRaised: Color { Color(token: .surfaceRaised) }
+    static var line: Color { Color(token: .line) }
+    static var guide: Color { Color(token: .guide) }
+    static var fg: Color { Color(token: .fg) }
+    static var fgBody: Color { Color(token: .fgBody) }
+    static var fgDim: Color { Color(token: .fgDim) }
+    static var cursor: Color { Color(nsColor: .themeCursor) }
+    /// One of the theme's eight ANSI-ordered swatches: 2 is green, 4 blue.
+    static func swatch(_ index: Int) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return ThemeSelection.palette(dark: dark).swatches[index].nsColor
+        })
+    }
     /// The lit edge: brightest on top, fading down the sides.
-    static let edge = LinearGradient(
-        colors: [Color(token: .edgeTop), Color(token: .edgeBottom)],
-        startPoint: .top,
-        endPoint: .bottom
-    )
+    static var edge: LinearGradient {
+        LinearGradient(
+            colors: [Color(token: .edgeTop), Color(token: .edgeBottom)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
 }
 
 enum Metrics {
+    // MARK: - Window
+    /// Space between the floating panels and around them, as in Rex.
+    static let panelGap: CGFloat = 8
+    static let panelRadius: CGFloat = 14
+    static let titleBarHeight: CGFloat = 44
+    /// Room for the traffic lights before the title bar's own content.
+    static let trafficLightsWidth: CGFloat = 78
+    static let panelHeaderHeight: CGFloat = 44
+    static let statusBarHeight: CGFloat = 30
+    /// Long note names in a tab are cut after this many characters.
+    static let tabMaxCharacters = 24
+    /// How much of the theme's background Glass keeps over the desktop.
+    static let glassOpacity: Double = 0.62
+
     // MARK: - Sidebar
     static let sidebarWidth: CGFloat = 260
     static let sidebarPadding: CGFloat = 14
     static let rowHeight: CGFloat = 30
     static let outlineRowHeight: CGFloat = 26
+    /// How many recently opened notes the sidebar lists.
+    static let recentShown = 5
     /// Width of the tree guide drawn before outline entries.
     static let guideWidth: CGFloat = 22
     static let guideTick: CGFloat = 10
@@ -116,18 +148,17 @@ extension Color {
 }
 
 extension NSColor {
+    /// A token from the current theme, resolved on each draw so picking a
+    /// theme repaints existing views without rebuilding them. The provider
+    /// can be called off the main thread; ThemeSelection locks.
     convenience init(token: ThemeToken) {
-        func resolve(dark: Bool) -> NSColor {
-            guard let c = token.color(dark: dark) else {
+        self.init(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            guard let color = ThemeSelection.palette(dark: dark).color(token) else {
                 assertionFailure("missing colour token \(token.rawValue)")
                 return .magenta
             }
-            return NSColor(srgbRed: c.red, green: c.green, blue: c.blue, alpha: c.alpha)
-        }
-        let dark = resolve(dark: true)
-        let light = resolve(dark: false)
-        self.init(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            return color.nsColor
         }
     }
 }
