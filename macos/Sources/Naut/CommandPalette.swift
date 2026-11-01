@@ -94,11 +94,6 @@ struct CommandPalette: View {
                 keyword: "glass", symbol: "macwindow",
                 action: .run { store.windowBackground = store.windowBackground == .glass ? .solid : .glass }
             ),
-            Command(
-                title: store.editorMode == .live ? "Switch to Split" : "Switch to Live Preview",
-                keyword: "split", symbol: "rectangle.split.2x1",
-                action: .run { store.editorMode = store.editorMode == .live ? .split : .live }
-            ),
         ]
         for keymap in EditorKeymap.allCases where keymap != store.keymap {
             list.append(Command(

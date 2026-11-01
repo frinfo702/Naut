@@ -2,8 +2,7 @@ import AppKit
 import NautKit
 
 /// What a modal keymap edits. Live Preview answers in display positions
-/// and turns them into source edits; the Split source editor answers in
-/// source positions. Both get the same motions.
+/// and turns them into source edits.
 @MainActor
 protocol ModalTarget: AnyObject {
     var modalText: NSString { get }

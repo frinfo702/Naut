@@ -89,18 +89,6 @@ enum Snapshot {
         return NSRange(location: parts[0], length: max(0, parts[1] - parts[0]))
     }
 
-    /// The caret test always runs the live editor; the modal test can run
-    /// either editor, Live Preview by default.
-    static var forcedEditorMode: Store.EditorMode? {
-        if isCaretTest || isTitleSwitchTest || isMathEditTest || isMathScrollTest || isDollarTest { return .live }
-        let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "--editor"), i + 1 < args.count,
-           let mode = Store.EditorMode(rawValue: args[i + 1]) {
-            return mode
-        }
-        return isModalTest ? .live : nil
-    }
-
     /// The keymap the modal test runs with; Vim unless `--keymap` says
     /// otherwise.
     static var forcedKeymap: EditorKeymap? {

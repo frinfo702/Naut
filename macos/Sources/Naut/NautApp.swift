@@ -33,11 +33,6 @@ struct NautApp: App {
             CommandGroup(after: .sidebar) {
                 Button(store.showSidebar ? "Hide Sidebar" : "Show Sidebar") { store.toggleSidebar() }
                     .keyboardShortcut("s", modifiers: [.control, .command])
-                Button(store.showEditor ? "Hide Editor" : "Show Editor") {
-                    withAnimation(.snappy(duration: Metrics.toggleDuration)) { store.showEditor.toggle() }
-                }
-                .keyboardShortcut("e")
-                .disabled(store.editorMode == .live)
             }
         }
 
@@ -124,8 +119,6 @@ enum Metrics {
     // MARK: - Editor
     static let editorFontSize: CGFloat = 13
     static let editorInset: CGFloat = 24
-    /// The note's title above the Split source.
-    static let editorTitleSize: CGFloat = 20
     /// Body text in the preview and live editor, as in page.css.
     static let textFontSize: CGFloat = 17
     /// The default text font when installed, first in page.css's --font.

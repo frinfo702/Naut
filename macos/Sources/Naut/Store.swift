@@ -109,12 +109,9 @@ final class Store {
         }
     }
 
-    /// `text` rendered, kept here so the preview and the sidebar outline
-    /// share one parse per edit.
-    private(set) var html = ""
+    /// `text`'s headings, for the sidebar and Live Preview, parsed once
+    /// per edit.
     private(set) var outline: [Heading] = []
-
-    var showEditor = true
 
     // MARK: - Appearance
 
@@ -209,23 +206,6 @@ final class Store {
     }
 
     // MARK: - Editor
-
-    enum EditorMode: String, CaseIterable {
-        /// Markdown source beside the rendered page.
-        case split
-        /// One pane: the source styled as it will read, markers shown
-        /// only on the line being edited, like Obsidian's Live Preview.
-        case live
-
-        var title: String { self == .split ? "Split" : "Live Preview" }
-    }
-
-    var editorMode = Snapshot.forcedEditorMode ?? EditorMode(rawValue: UserDefaults.standard.string(forKey: "editorMode") ?? "") ?? .split {
-        didSet {
-            guard ready, Snapshot.forcedEditorMode == nil else { return }
-            UserDefaults.standard.set(editorMode.rawValue, forKey: "editorMode")
-        }
-    }
 
     /// Vim, Helix, or the standard editing keys. Applies to both editors.
     var keymap = Snapshot.forcedKeymap ?? EditorKeymap(rawValue: UserDefaults.standard.string(forKey: "keymap") ?? "") ?? .normal {
@@ -324,7 +304,7 @@ final class Store {
     }
 
     private func rerender() {
-        (html, outline) = Markdown.render(text)
+        outline = Markdown.render(text).outline
     }
 
     /// Set after the first load. Property observers run while SwiftUI's
@@ -615,7 +595,7 @@ final class Store {
         | --- | --- |
         | New note | `⌘N` |
         | Search | `⌘K` |
-        | Toggle editor | `⌘E` |
+        | Toggle sidebar | `⌃⌘S` |
 
         - [x] Write a note
         - [ ] Publish it with the globe button

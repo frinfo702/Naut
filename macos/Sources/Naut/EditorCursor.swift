@@ -198,9 +198,8 @@ final class EditorCursorView: NSView {
 }
 
 /// A text view whose insertion point is drawn by `EditorCursorView`: a
-/// bar, a square block or an underline, on its own blink. Live Preview and
-/// the Split source editor both use it, so the cursor looks the same in
-/// both and Vim and Helix get their block.
+/// bar, a square block or an underline, on its own blink, so Vim and Helix
+/// get their block.
 class CursorTextView: NSTextView {
     /// The user's choice; `match` resolves against the keymap and mode.
     var cursorShape: CursorShape = .match {
@@ -218,9 +217,6 @@ class CursorTextView: NSTextView {
     /// Modal keys; true if handled. Esc in insert mode and every normal
     /// mode key come through here before the text view sees them.
     var modalKey: ((NSEvent) -> Bool)?
-    /// Transforms a copy of the selection before it reaches the pasteboard.
-    /// Live Preview overrides `writeSelection` itself; Split trims here.
-    var copyText: ((String) -> String)?
 
     private let cursor = EditorCursorView()
     private var insertionRect = NSRect.zero
@@ -248,12 +244,6 @@ class CursorTextView: NSTextView {
     override func keyDown(with event: NSEvent) {
         if window?.firstResponder === self, modalKey?(event) == true { return }
         super.keyDown(with: event)
-    }
-
-    override func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
-        guard let copyText, selectedRange().length > 0 else { return super.writeSelection(to: pboard, types: types) }
-        pboard.declareTypes([.string], owner: nil)
-        return pboard.setString(copyText((string as NSString).substring(with: selectedRange())), forType: .string)
     }
 
     override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {

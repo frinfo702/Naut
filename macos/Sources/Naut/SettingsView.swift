@@ -87,7 +87,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     private var keywords: [String] {
         switch self {
         case .appearance: ["theme", "dark", "light", "color", "colour", "scheme", "sidebar", "left", "right", "glass", "solid"]
-        case .editor: ["font", "size", "typography", "character", "count", "status", "live", "preview", "split", "markdown", "source", "line", "spacing", "density", "compact", "comfortable", "keymap", "vim", "helix", "modal", "normal", "cursor", "caret", "block", "bar", "blink"]
+        case .editor: ["font", "size", "typography", "character", "count", "status", "live", "preview", "markdown", "source", "line", "spacing", "density", "compact", "comfortable", "keymap", "vim", "helix", "modal", "normal", "cursor", "caret", "block", "bar", "blink"]
         case .notes: ["folder", "files", "markdown", "finder", "location"]
         case .publishing: ["cloudflare", "web", "publish", "token", "account", "workers", "terraform"]
         case .shortcuts: ["keyboard", "keys", "bindings", "hotkeys"]
@@ -410,17 +410,9 @@ private struct EditorPane: View {
         @Bindable var store = store
 
         SettingsGroup(
-            title: "Mode",
-            footer: "Split shows the Markdown beside the page. Live Preview is one pane edited like the page, as in Notion: Markdown shortcuts format as you type and never show; click an equation, table or image to edit it."
+            title: "Status bar",
+            footer: "The keymap and its mode show there while Vim or Helix is in use."
         ) {
-            SettingsRow(title: "Editing") {
-                Picker("", selection: $store.editorMode) {
-                    ForEach(Store.EditorMode.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-            }
             SettingsRow(title: "Character count", subtitle: "In the status bar under the note", divider: false) {
                 Toggle("", isOn: $store.showCharacterCount)
                     .toggleStyle(.switch)
@@ -486,7 +478,7 @@ private struct EditorPane: View {
             }
         }
 
-        SettingsGroup(title: "Source", footer: "The Markdown editor in Split, and code everywhere.") {
+        SettingsGroup(title: "Source", footer: "Code blocks and the TeX of equations.") {
             SettingsRow(title: "Font") { fontPicker($store.sourceFont, defaultName: "System Mono") }
             SettingsRow(title: "Size", divider: false) { sizeStepper($store.sourceSize, range: 9...24) }
         }

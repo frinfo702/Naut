@@ -62,43 +62,6 @@ extension Store {
 
 // MARK: - Panel header
 
-/// A few choices as a capsule, like Live or Split in the editor's header.
-struct CapsuleSwitch<Value: Hashable>: View {
-    @Binding var selection: Value
-    let options: [(title: String, value: Value)]
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(options.indices, id: \.self) { i in
-                segment(options[i].title, options[i].value)
-            }
-        }
-        .padding(2)
-        .background(Capsule().fill(Theme.surface))
-        .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
-    }
-
-    private func segment(_ title: String, _ value: Value) -> some View {
-        let on = selection == value
-        return Button { selection = value } label: {
-            Text(title)
-                .font(.system(size: 12, weight: on ? .medium : .regular))
-                .foregroundStyle(on ? Theme.fg : Theme.fgDim)
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity)
-                .frame(height: 22)
-                .background {
-                    if on {
-                        Capsule().fill(Theme.surfaceRaised)
-                            .overlay(Capsule().strokeBorder(Theme.guide, lineWidth: 1))
-                    }
-                }
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 /// The publish control's face: a dot and a word, tinted with the cursor
 /// colour once the note is on the web.
 struct PublishPill: View {

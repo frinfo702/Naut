@@ -12,7 +12,7 @@ A file for [guiding coding agents](https://agents.md/).
   - Prefer to run targeted tests with `-Dtest-filter` because the full
     test suite is slow to run.
 - **Test filter (Zig)**: `zig build test -Dtest-filter=<test name>`
-- **Snapshot (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --snapshot out.png [--note Name] [--light] [--publish-popover] [--editor split] [--focus-editor [--caret N | --select A,B]]`
+- **Snapshot (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --snapshot out.png [--note Name] [--light] [--publish-popover] [--focus-editor [--caret N | --select A,B]]`
   - Renders the window, including the web preview and toolbar, to a PNG
     and quits. `--publish-popover` captures the publish popover instead.
     `--focus-editor` focuses the editor body first, so its cursor and
@@ -39,7 +39,7 @@ A file for [guiding coding agents](https://agents.md/).
   - Types a second `$` after a line's lone `$`, and fails unless that
     makes a closed, empty equation, open for editing, above the text that
     follows. Use a scratch note with a `$` line followed by more text.
-- **Modal regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --modal-test [--keymap helix] [--editor split] [--note Name]`
+- **Modal regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --modal-test [--keymap helix] [--note Name]`
   - Runs motions, selection, linewise delete and undo in the Live Preview
     body, and checks the cursor shape each mode asks for. Use a scratch
     note: it deletes and undoes, so the file is restored only by undo.

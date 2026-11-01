@@ -135,7 +135,6 @@ struct ContentView: View {
             }
             .onChange(of: note.id) { _, _ in modalMode = .normal }
             .onChange(of: store.keymap) { _, _ in modalMode = .normal }
-            .onChange(of: store.editorMode) { _, _ in modalMode = .normal }
         } else {
             Text("No note selected")
                 .foregroundStyle(Theme.fgDim)
@@ -143,7 +142,7 @@ struct ContentView: View {
         }
     }
 
-    /// The note's name, then Live or Split and the publish control.
+    /// The note's name, its star, and the publish control.
     private func header(_ note: Note) -> some View {
         @Bindable var store = store
         return HStack(spacing: 10) {
@@ -161,18 +160,6 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .help(favorite ? "Remove from Favorites" : "Add to Favorites")
             Spacer()
-            if store.editorMode == .split {
-                Button {
-                    withAnimation(.snappy(duration: Metrics.toggleDuration)) { store.showEditor.toggle() }
-                } label: {
-                    Image(systemName: "sidebar.squares.left")
-                        .foregroundStyle(store.showEditor ? Theme.fgBody : Theme.fgDim)
-                }
-                .buttonStyle(.plain)
-                .help(store.showEditor ? "Hide Editor (⌘E)" : "Show Editor (⌘E)")
-            }
-            CapsuleSwitch(selection: $store.editorMode, options: [("Live", .live), ("Split", .split)])
-                .fixedSize()
             PublishButton(note: note, openSettings: { openSettings() })
         }
         .font(.system(size: 13))
@@ -181,61 +168,24 @@ struct ContentView: View {
         .frame(height: Metrics.panelHeaderHeight)
     }
 
-    @ViewBuilder private func editor(_ note: Note) -> some View {
+    private func editor(_ note: Note) -> some View {
         @Bindable var store = store
-        switch store.editorMode {
-        case .split:
-            HSplitView {
-                if store.showEditor {
-                    Editor(
-                        text: $store.text,
-                        font: store.sourceNSFont,
-                        title: note.name,
-                        themeRevision: store.themeRevision,
-                        keymap: store.keymap,
-                        cursorShape: store.cursorShape,
-                        cursorBlink: store.cursorBlink,
-                        mode: $modalMode
-                    ) { store.rename(note, to: $0) }
-                        // A new note starts without the old note's undo history.
-                        .id(note.id)
-                        .frame(minWidth: 280)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                        // The identity change is a fresh editor for the same
-                        // pane, not the pane itself arriving.
-                        .animation(nil, value: note.id)
-                }
-                Preview(html: store.html, title: note.name, baseURL: store.folder, style: previewStyle, scrollTarget: $scrollTarget)
-                    .frame(minWidth: 320)
-            }
-        case .live:
-            LiveEditor(
-                text: $store.text,
-                font: store.textNSFont,
-                mono: store.sourceNSFont,
-                lineHeight: store.density.lineHeight,
-                outline: store.outline,
-                baseURL: store.folder,
-                title: note.name,
-                themeRevision: store.themeRevision,
-                keymap: store.keymap,
-                cursorShape: store.cursorShape,
-                cursorBlink: store.cursorBlink,
-                mode: $modalMode,
-                note: note.id,
-                rename: { store.rename(note, to: $0) },
-                scrollTarget: $scrollTarget
-            )
-        }
-    }
-
-    private var previewStyle: Preview.Style {
-        Preview.Style(
-            textFont: store.textFont,
-            textSize: store.textSize,
-            sourceFont: store.sourceFont,
+        return LiveEditor(
+            text: $store.text,
+            font: store.textNSFont,
+            mono: store.sourceNSFont,
             lineHeight: store.density.lineHeight,
-            colors: store.palette(for: colorScheme == .dark).cssVariables
+            outline: store.outline,
+            baseURL: store.folder,
+            title: note.name,
+            themeRevision: store.themeRevision,
+            keymap: store.keymap,
+            cursorShape: store.cursorShape,
+            cursorBlink: store.cursorBlink,
+            mode: $modalMode,
+            note: note.id,
+            rename: { store.rename(note, to: $0) },
+            scrollTarget: $scrollTarget
         )
     }
 }
@@ -330,52 +280,5 @@ private struct FittedPopover: ViewModifier {
         } else {
             content
         }
-    }
-}
-
-struct Editor: View {
-    @Binding var text: String
-    let font: NSFont
-    /// The note's name; editing it renames the note.
-    let title: String
-    /// Changes with the theme, so the body repaints the chrome.
-    let themeRevision: Int
-    let keymap: EditorKeymap
-    let cursorShape: CursorShape
-    let cursorBlink: CursorBlink
-    @Binding var mode: ModalMode
-    let rename: (String) -> Void
-    @State private var draft = ""
-    @FocusState private var titleFocused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            TextField("Untitled", text: $draft)
-                .textFieldStyle(.plain)
-                .font(.system(size: Metrics.editorTitleSize, weight: .semibold))
-                .foregroundStyle(Theme.fg)
-                .focused($titleFocused)
-                .onSubmit { rename(draft) }
-                // Leaving the field renames too; a note switch resets it.
-                .onChange(of: titleFocused) { if !titleFocused, draft != title { rename(draft) } }
-                .onChange(of: title, initial: true) { draft = title }
-                .padding(.horizontal, Metrics.editorInset)
-                .padding(.top, Metrics.editorInset)
-            source
-        }
-        .background(Theme.surface)
-    }
-
-    private var source: some View {
-        SourceEditor(
-            text: $text,
-            font: font,
-            themeRevision: themeRevision,
-            keymap: keymap,
-            cursorShape: cursorShape,
-            cursorBlink: cursorBlink,
-            mode: $mode
-        )
-        .background(Theme.surface)
     }
 }

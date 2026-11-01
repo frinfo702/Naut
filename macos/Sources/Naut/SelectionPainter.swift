@@ -40,19 +40,3 @@ enum SelectionPainter {
         }
     }
 }
-
-/// The Split source editor's layout. It shares the Live Preview's
-/// selection painting and, like it, suppresses TextKit's own background
-/// while a selection exists.
-final class SourceLayout: NSLayoutManager {
-    override func drawBackground(forGlyphRange glyphs: NSRange, at origin: NSPoint) {
-        guard let textView = firstTextView,
-              textView.selectedRange().length > 0,
-              !textView.hasMarkedText()
-        else {
-            super.drawBackground(forGlyphRange: glyphs, at: origin)
-            return
-        }
-        SelectionPainter.draw(in: self, glyphRange: glyphs, at: origin)
-    }
-}

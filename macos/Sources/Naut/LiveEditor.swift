@@ -1405,7 +1405,7 @@ final class LiveTextView: CursorTextView {
         super.mouseDown(with: event)
     }
 
-    // Before the main menu, whose ⌘E toggles the Split editor.
+    // Before the main menu, so the editor's own keys win.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if window?.firstResponder === self, key?(event) == true { return true }
         return super.performKeyEquivalent(with: event)
