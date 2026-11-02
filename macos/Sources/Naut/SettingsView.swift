@@ -87,7 +87,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     private var keywords: [String] {
         switch self {
         case .appearance: ["theme", "dark", "light", "color", "colour", "scheme", "sidebar", "left", "right", "glass", "solid"]
-        case .editor: ["font", "size", "typography", "character", "count", "status", "live", "preview", "markdown", "source", "line", "spacing", "density", "compact", "comfortable", "keymap", "vim", "helix", "modal", "normal", "cursor", "caret", "block", "bar", "blink"]
+        case .editor: ["font", "size", "typography", "character", "count", "status", "live", "preview", "markdown", "source", "line", "spacing", "density", "compact", "comfortable", "keymap", "vim", "helix", "modal", "normal", "cursor", "caret", "block", "bar", "blink", "sound", "typing", "click", "volume", "mechanical", "switch", "cherry", "topre"]
         case .notes: ["folder", "files", "markdown", "finder", "location"]
         case .publishing: ["cloudflare", "web", "publish", "token", "account", "workers", "terraform"]
         case .shortcuts: ["keyboard", "keys", "bindings", "hotkeys"]
@@ -206,7 +206,7 @@ struct SettingsIcon: View {
                 Image(systemName: "paintpalette.fill")
                     .font(.system(size: size * 0.48, weight: .semibold))
                     .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.25), radius: 1, y: 0.5)
+                    .shadow(color: .black.opacity(0.1), radius: 1, y: 0.5)
             case .cloudflare:
                 // The logo on a dark tile, like Rex's Terminal icon: the
                 // brand colour carries it, the tile stays quiet.
@@ -462,6 +462,24 @@ private struct EditorPane: View {
                 }
                 .labelsHidden()
                 .fixedSize()
+            }
+        }
+
+        SettingsGroup(title: "Typing Sound", footer: "Recordings of real switches, from kbsim, as keys go down and up in the editors.") {
+            SettingsRow(title: "Sound") {
+                Picker("", selection: $store.typingSound) {
+                    ForEach(KeySound.allCases) { Text($0.title).tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .onChange(of: store.typingSound) { TypingSound.shared.preview() }
+            }
+            SettingsRow(title: "Volume", divider: false) {
+                Slider(value: $store.typingVolume, in: 0...1) { editing in
+                    if !editing { TypingSound.shared.preview() }
+                }
+                .frame(width: 160)
+                .disabled(store.typingSound == .off)
             }
         }
 

@@ -101,7 +101,7 @@ enum Snapshot {
         return .vim
     }
 
-    /// `--palette root|theme|search` opens the command palette on that
+    /// `--palette root|theme|search|sound` opens the command palette on that
     /// scope before capturing.
     static var palette: CommandPalette.Scope? {
         let args = CommandLine.arguments
@@ -109,6 +109,7 @@ enum Snapshot {
         switch args[i + 1] {
         case "theme": return .theme
         case "search": return .search
+        case "sound": return .sound
         default: return .root
         }
     }

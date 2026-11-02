@@ -129,7 +129,7 @@ private struct ThemeCard: View {
                 .strokeBorder(Color(theme: theme.cursor), lineWidth: selected ? 2 : 0)
                 .padding(-3)
         )
-        .shadow(color: .black.opacity(hovering ? 0.22 : 0.12), radius: hovering ? 6 : 2, y: 2)
+        .shadow(color: .black.opacity(hovering ? 0.08 : 0.04), radius: hovering ? 4 : 2, y: 1)
     }
 
     private func color(_ token: ThemeToken) -> Color {

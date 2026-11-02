@@ -144,30 +144,14 @@ final class EditorCursorView: NSView {
             animation = nil
             return
         }
-        let a: CAAnimation
-        if shape == .bar {
-            // The bar keeps the system indicator's fade: a hard snap read
-            // as a stutter at one point wide.
-            let fade = CABasicAnimation(keyPath: "opacity")
-            fade.fromValue = 1
-            fade.toValue = 0
-            fade.duration = period
-            fade.autoreverses = true
-            fade.repeatCount = .infinity
-            fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            a = fade
-        } else {
-            // A block or underline blinks on and off, as a terminal's
-            // cursor does: a square cursor that fades looks soft, not
-            // square.
-            let blink = CAKeyframeAnimation(keyPath: "opacity")
-            blink.values = [1, 1, 0, 0]
-            blink.keyTimes = [0, 0.5, 0.5, 1]
-            blink.duration = period * 2
-            blink.repeatCount = .infinity
-            blink.timingFunction = CAMediaTimingFunction(name: .linear)
-            a = blink
-        }
+        // Every shape blinks on and off, as a terminal's cursor does: no
+        // fade in between.
+        let a = CAKeyframeAnimation(keyPath: "opacity")
+        a.values = [1, 0]
+        a.keyTimes = [0, 0.5, 1]
+        a.duration = period * 2
+        a.repeatCount = .infinity
+        a.calculationMode = .discrete
         animation = a
         layer?.removeAnimation(forKey: "blink")
         layer?.add(a, forKey: "blink")
@@ -242,8 +226,14 @@ class CursorTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        TypingSound.shared.keyDown(event)
         if window?.firstResponder === self, modalKey?(event) == true { return }
         super.keyDown(with: event)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        TypingSound.shared.keyUp(event)
+        super.keyUp(with: event)
     }
 
     override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {

@@ -248,6 +248,28 @@ final class Store {
         }
     }
 
+    /// A sound on each keystroke in the editors. Off by default.
+    var typingSound = KeySound(rawValue: UserDefaults.standard.string(forKey: "typingSound") ?? "") ?? .off {
+        didSet {
+            TypingSound.shared.sound = typingSound
+            UserDefaults.standard.set(typingSound.rawValue, forKey: "typingSound")
+            if typingSound != .off { UserDefaults.standard.set(typingSound.rawValue, forKey: "lastTypingSound") }
+        }
+    }
+
+    /// Off, or back to the last switch chosen.
+    func toggleTypingSound() {
+        typingSound = typingSound != .off ? .off
+            : KeySound(rawValue: UserDefaults.standard.string(forKey: "lastTypingSound") ?? "") ?? .mxbrown
+    }
+
+    var typingVolume = UserDefaults.standard.object(forKey: "typingVolume") as? Double ?? 1 {
+        didSet {
+            TypingSound.shared.volume = Float(typingVolume)
+            UserDefaults.standard.set(typingVolume, forKey: "typingVolume")
+        }
+    }
+
     /// Font families; empty means the default (Suisse Intl if installed,
     /// else the system font, for text; the system monospaced font for
     /// source and code).
@@ -334,6 +356,8 @@ final class Store {
         reload()
         if notes.isEmpty { newNote(named: "Welcome", text: Self.welcome) }
         selection = tabs.first ?? notes.first?.id
+        TypingSound.shared.sound = typingSound
+        TypingSound.shared.volume = Float(typingVolume)
         ready = true
     }
 

@@ -112,6 +112,11 @@ pub fn build(b: *std.Build) void {
     b.getInstallStep().dependOn(&install_plist.step);
     b.getInstallStep().dependOn(&install_icon.step);
     b.getInstallStep().dependOn(&install_car.step);
+    b.installDirectory(.{
+        .source_dir = b.path("macos/KeySounds"),
+        .install_dir = .prefix,
+        .install_subdir = "Naut.app/Contents/Resources/KeySounds",
+    });
 
     // ponytail: assumes the default zig-out prefix.
     const run = b.addSystemCommand(&.{ "open", "zig-out/Naut.app" });

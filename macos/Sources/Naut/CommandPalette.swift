@@ -8,7 +8,7 @@ import SwiftUI
 /// search shows each match in context.
 struct CommandPalette: View {
     enum Scope: Equatable {
-        case root, theme, search
+        case root, theme, search, sound
     }
 
     @Environment(Store.self) private var store
@@ -38,7 +38,7 @@ struct CommandPalette: View {
                 field(current, rows: rows)
                 Theme.line.frame(height: 1)
                 switch current {
-                case .root, .theme: list(rows, scope: current)
+                case .root, .theme, .sound: list(rows, scope: current)
                 case .search: searchBody(rows)
                 }
                 if current == .theme { backgroundRow }
@@ -47,7 +47,8 @@ struct CommandPalette: View {
             .frame(width: current == .search ? 860 : 640)
             .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.guide, lineWidth: 1))
-            .shadow(color: .black.opacity(0.45), radius: 40, y: 20)
+            .compositingGroup()
+            .shadow(color: .black.opacity(0.12), radius: 24, y: 8)
             .padding(.top, 96)
         }
         .onAppear {
@@ -63,6 +64,7 @@ struct CommandPalette: View {
             case command(Command)
             case note(Note)
             case theme(ThemePalette)
+            case sound(KeySound)
             case hit(Note, NoteSearch.Match)
         }
 
@@ -73,7 +75,7 @@ struct CommandPalette: View {
 
     private struct Command {
         let title: String
-        /// What to type to find it; shown at the row's end.
+        /// What to type to find it.
         let keyword: String
         let symbol: String
         var shortcut: String?
@@ -83,12 +85,16 @@ struct CommandPalette: View {
             case scope(Scope)
             case run(() -> Void)
         }
+
+        var opensScope: Bool {
+            if case .scope = action { true } else { false }
+        }
     }
 
     private var commands: [Command] {
         var list: [Command] = [
             Command(title: "Search notes", keyword: "search", symbol: "magnifyingglass", shortcut: "⇧⌘F", action: .scope(.search)),
-            Command(title: "Change theme…", keyword: "theme", symbol: "circle.lefthalf.filled", action: .scope(.theme)),
+            Command(title: "Change theme…", keyword: "theme", symbol: "paintpalette", action: .scope(.theme)),
             Command(
                 title: "Window background: \(store.windowBackground == .glass ? "Solid" : "Glass")",
                 keyword: "glass", symbol: "macwindow",
@@ -102,6 +108,16 @@ struct CommandPalette: View {
                 action: .run { store.keymap = keymap }
             ))
         }
+        let soundOn = store.typingSound != .off
+        list.append(Command(
+            title: soundOn ? "Turn off typing sound" : "Turn on typing sound",
+            keyword: "sound", symbol: soundOn ? "speaker.slash" : "speaker.wave.2",
+            action: .run {
+                store.toggleTypingSound()
+                TypingSound.shared.preview()
+            }
+        ))
+        list.append(Command(title: "Change typing sound…", keyword: "sound", symbol: "keyboard", action: .scope(.sound)))
         if let note = store.selectedNote {
             let favorite = store.isFavorite(note.id)
             list.append(Command(
@@ -152,6 +168,10 @@ struct CommandPalette: View {
             return themes
                 .filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
                 .map { Row(id: "t:\($0.id)", section: "", kind: .theme($0)) }
+        case .sound:
+            return KeySound.allCases
+                .filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) }
+                .map { Row(id: "k:\($0.rawValue)", section: "", kind: .sound($0)) }
         case .search:
             return store.search(query).map { Row(id: "s:\($0.note.id)", section: "", kind: .hit($0.note, $0.match)) }
         }
@@ -168,9 +188,11 @@ struct CommandPalette: View {
                     .foregroundStyle(Theme.cursor)
                     .frame(width: 16)
             case .theme:
-                ScopeChip(title: "Theme", symbol: "circle.lefthalf.filled")
+                ScopeChip(title: "Theme", symbol: "paintpalette")
             case .search:
                 ScopeChip(title: "Search", symbol: "magnifyingglass")
+            case .sound:
+                ScopeChip(title: "Typing Sound", symbol: "keyboard")
             }
             PaletteField(
                 text: $query,
@@ -196,6 +218,7 @@ struct CommandPalette: View {
         case .root: "Type a command, a note, or a theme…"
         case .theme: "Filter themes"
         case .search: "Search every note"
+        case .sound: "Filter switches"
         }
     }
 
@@ -245,14 +268,17 @@ struct CommandPalette: View {
                         .frame(width: 18)
                     Text(command.title).foregroundStyle(selected ? Theme.fg : Theme.fgBody)
                     Spacer()
-                    Text(command.keyword)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(Theme.fgDim)
-                        .frame(width: 80, alignment: .leading)
-                    Text(command.shortcut ?? "")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.fgDim)
-                        .frame(width: 40, alignment: .trailing)
+                    // A chevron marks a command that opens a list of its own;
+                    // otherwise its shortcut, if it has one.
+                    if command.opensScope {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(selected ? Theme.fg : Theme.fgDim)
+                    } else if let shortcut = command.shortcut {
+                        Text(shortcut)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.fgDim)
+                    }
                 }
                 .frame(height: 40)
             case let .note(note):
@@ -264,6 +290,18 @@ struct CommandPalette: View {
                 .frame(height: 40)
             case let .theme(theme):
                 ThemeRow(theme: theme, current: theme.id == currentThemeID, selected: selected)
+            case let .sound(sound):
+                HStack(spacing: 12) {
+                    Image(systemName: sound == .off ? "speaker.slash" : "speaker.wave.2")
+                        .foregroundStyle(selected ? Theme.cursor : Theme.fgDim)
+                        .frame(width: 18)
+                    Text(sound.title).foregroundStyle(selected ? Theme.fg : Theme.fgBody)
+                    Spacer()
+                    if sound == store.typingSound {
+                        Image(systemName: "checkmark").foregroundStyle(Theme.cursor)
+                    }
+                }
+                .frame(height: 40)
             case .hit:
                 EmptyView()
             }
@@ -349,15 +387,16 @@ struct CommandPalette: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Theme.surface)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding([.trailing, .bottom], 12)
         }
         .frame(height: query.isEmpty ? 180 : 400)
     }
 
     private func footer(_ scope: Scope) -> some View {
         HStack(spacing: 18) {
-            hint("↑↓", scope == .theme ? "preview" : "move")
-            hint("↵", scope == .root ? "run" : scope == .theme ? "apply" : "open")
+            hint("↑↓", scope == .theme || scope == .sound ? "preview" : "move")
+            hint("↵", scope == .root ? "run" : scope == .search ? "open" : "apply")
             if scope == .root { hint("tab", "enter scope") }
             if scope == .theme { hint("⌘L", "light / dark") }
             Spacer()
@@ -388,6 +427,12 @@ struct CommandPalette: View {
         guard count > 0 else { return }
         index = (index + delta + count) % count
         if scope == .theme { preview(rows: rows(for: .theme)) }
+        if scope == .sound {
+            let rows = rows(for: .sound)
+            if rows.indices.contains(index), case let .sound(sound) = rows[index].kind {
+                TypingSound.shared.preview(sound)
+            }
+        }
     }
 
     /// Tab enters the highlighted command's scope.
@@ -422,6 +467,9 @@ struct CommandPalette: View {
             close(revert: false)
         case .theme:
             close(revert: false)
+        case let .sound(sound):
+            store.typingSound = sound
+            close(revert: false)
         case let .hit(note, match):
             store.selection = note.id
             // The note has loaded, so its outline is the one to look in.
@@ -441,6 +489,9 @@ struct CommandPalette: View {
             darkList = colorScheme == .dark
             let themes = darkList ? ThemePalette.darkThemes : ThemePalette.lightThemes
             index = themes.firstIndex { $0.id == (darkList ? store.darkTheme : store.lightTheme) } ?? 0
+        }
+        if target == .sound {
+            index = KeySound.allCases.firstIndex(of: store.typingSound) ?? 0
         }
     }
 

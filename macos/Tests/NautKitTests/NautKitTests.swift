@@ -450,3 +450,17 @@ func themesKeepTextLegible(id: String) {
     let inline = "cost $"
     #expect(apply(LiveEditing(text: inline).type("$", over: caret(6)), to: inline)?.text == "cost $$")
 }
+
+@Test(arguments: KeySound.allCases)
+func everyKeySoundHasItsRecordings(sound: KeySound) {
+    let root = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../../KeySounds")
+    for code: UInt16 in [0, 12, 18, 6, 49, 36, 51, 123] {
+        for down in [true, false] {
+            guard let file = sound.file(keyCode: code, down: down) else {
+                #expect(sound == .off); continue
+            }
+            let path = root.appending(path: file + ".mp3").standardizedFileURL.path
+            #expect(FileManager.default.fileExists(atPath: path), "\(path)")
+        }
+    }
+}
