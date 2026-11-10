@@ -43,6 +43,13 @@ A file for [guiding coding agents](https://agents.md/).
   - Runs motions, selection, linewise delete and undo in the Live Preview
     body, and checks the cursor shape each mode asks for. Use a scratch
     note: it deletes and undoes, so the file is restored only by undo.
+- **Split regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --split-test [--frames dir]`
+  - Splits right, down and right again inside the stack, moves a divider,
+    floats and maximizes a pane, walks the panes and closes them. Fails unless each pane has an editor,
+    the new or the next pane takes the keyboard, the nested split stays in
+    its stack, the resized pane keeps its size through later splits, and
+    the note's text is unchanged. `--frames dir` saves the window through
+    each animation, to look at the motion.
 - **Formatting (Zig)**: `zig fmt .`
 - **Formatting (Swift)**: `swiftlint lint --strict --fix`
 - **Formatting (other)**: `prettier -w .`

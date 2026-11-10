@@ -269,9 +269,15 @@ class CursorTextView: NSTextView {
         }
     }
 
+    /// Called when this takes the keyboard: its pane is the focused one.
+    var focused: (() -> Void)?
+
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted { resigned = false }
+        if accepted {
+            resigned = false
+            focused?()
+        }
         updateCursor()
         return accepted
     }

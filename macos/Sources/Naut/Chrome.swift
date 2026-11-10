@@ -49,7 +49,41 @@ extension View {
         return self
             .background(Theme.bg.opacity(background == .glass ? 0.8 : 1), in: shape)
             .clipShape(shape)
-            .overlay(shape.strokeBorder(Theme.line, lineWidth: 1))
+            // Lit from above, like the Settings groups: the edge carries the
+            // depth in dark themes, where a shadow can't be seen.
+            .overlay(shape.strokeBorder(Theme.edge, lineWidth: 1))
+            // A translucent panel would show its own shadow through itself.
+            .shadow(color: .black.opacity(background == .glass ? 0 : 0.05), radius: 5, y: 2)
+    }
+
+    /// A fill under the pointer. It appears at once: hovering happens too
+    /// often for a fade to be anything but lag.
+    func hoverFill(_ color: Color, radius: CGFloat) -> some View {
+        modifier(HoverFill(color: color, radius: radius))
+    }
+}
+
+private struct HoverFill: ViewModifier {
+    let color: Color
+    let radius: CGFloat
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                if hovering { RoundedRectangle(cornerRadius: radius, style: .continuous).fill(color) }
+            }
+            .onHover { hovering = $0 }
+    }
+}
+
+/// A plain button that gives a little under the press, so a click is felt
+/// before its result is seen.
+struct PressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: Metrics.pressDuration), value: configuration.isPressed)
     }
 }
 
@@ -62,38 +96,26 @@ extension Store {
 
 // MARK: - Panel header
 
-/// The publish control's face: a dot and a word, tinted with the cursor
-/// colour once the note is on the web.
-struct PublishPill: View {
+/// The publish control's face among the pane controls: a globe, in the
+/// cursor colour once the note is on the web.
+struct PublishIcon: View {
     let published: Bool
     let busy: Bool
 
     var body: some View {
-        HStack(spacing: 7) {
-            if busy {
-                ProgressView().controlSize(.mini)
-            } else {
-                Circle()
-                    .fill(published ? Theme.cursor : Theme.fgDim)
-                    .frame(width: 6, height: 6)
-            }
-            Text(published ? "Published" : "Publish")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(published ? Theme.cursor : Theme.fgBody)
+        if busy {
+            ProgressView().controlSize(.mini).frame(width: Metrics.paneControl, height: Metrics.paneControl)
+        } else {
+            PaneIcon(symbol: "globe", tint: published ? Theme.cursor : Theme.fgDim)
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 12)
-        .frame(height: 26)
-        .background(Capsule().fill(published ? Theme.cursor.opacity(0.12) : Theme.surface))
-        .overlay(Capsule().strokeBorder(published ? Theme.cursor.opacity(0.35) : Theme.line, lineWidth: 1))
-        .contentShape(Capsule())
     }
 }
 
 // MARK: - Status bar
 
-/// The editor panel's bottom edge: the keymap and its mode while a modal
-/// keymap is in use, and the note's length if asked for in Settings.
+/// The focused pane's state, once for the window, in the title bar: the
+/// keymap and its mode while a modal keymap is in use, and the note's
+/// length if asked for in Settings.
 /// Static: it changes on a key press, and motion on keyboard input is
 /// noise, not feedback.
 struct StatusBar: View {
@@ -104,19 +126,16 @@ struct StatusBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            if let characters {
+                Text("\(characters.formatted()) characters").foregroundStyle(Theme.fgDim)
+            }
             if keymap.isModal {
                 KeymapMark(keymap: keymap)
                 ModePill(mode: mode)
             }
-            Spacer()
-            if let characters {
-                Text("\(characters.formatted()) characters").foregroundStyle(Theme.fgDim)
-            }
         }
         .font(.system(size: 12))
-        .padding(.horizontal, 14)
-        .frame(height: Metrics.statusBarHeight)
-        .overlay(alignment: .top) { Theme.line.frame(height: 1) }
+        .padding(.trailing, 6)
     }
 }
 
@@ -205,6 +224,8 @@ private struct NoteTab: View {
                 if selected {
                     Capsule().fill(Theme.surfaceRaised)
                         .overlay(Capsule().strokeBorder(Theme.guide, lineWidth: 1))
+                } else if hovering {
+                    Capsule().fill(Theme.surfaceRaised.opacity(0.6))
                 }
             }
             // The close button covers the end of the name under the pointer,

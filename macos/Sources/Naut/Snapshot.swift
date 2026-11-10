@@ -59,10 +59,18 @@ enum Snapshot {
     /// use a scratch one whose first `$` line is followed by more text.
     static var isDollarTest: Bool { CommandLine.arguments.contains("--dollar-test") }
 
+    /// `Naut --split-test [--frames dir]`: split right, down and right
+    /// again inside the stack, drag a divider, float and maximize a pane,
+    /// walk the panes and close them. It fails unless each pane has an editor, the new or the next
+    /// pane takes the keyboard, the nested split stays inside its stack,
+    /// the dragged sizes survive later splits, and the note is the same at
+    /// the end. `--frames` saves the window through each animation.
+    static var isSplitTest: Bool { CommandLine.arguments.contains("--split-test") }
+
     /// Any of the harnesses above. They open notes too, and must not change
     /// the user's tabs, favorites or recent notes.
     static var isHarness: Bool {
-        path != nil || isCaretTest || isModalTest || isTitleSwitchTest || isMathEditTest || isMathScrollTest || isDollarTest
+        path != nil || isCaretTest || isModalTest || isTitleSwitchTest || isMathEditTest || isMathScrollTest || isDollarTest || isSplitTest
     }
 
     /// `Naut --snapshot out.png --publish-popover [--note Name]` captures
@@ -569,6 +577,168 @@ enum Snapshot {
             fail("dollar test: `$$` did not make a closed, empty equation above the text: \(store.text.debugDescription)")
         }
         guard !body.descendants(of: MathBlockEditor.self).isEmpty else { fail("dollar test: the equation did not open for editing") }
+        exit(0)
+    }
+
+    @MainActor static func runSplitTest(store: Store) async {
+        try? await Task.sleep(for: settle)
+        NSApp.activate(ignoringOtherApps: true)
+        guard let window = NSApp.windows.first(where: { $0.contentView?.descendants(of: LiveTextView.self).isEmpty == false }),
+              let content = window.contentView
+        else { fail("split test: no live editor") }
+        window.makeKeyAndOrderFront(nil)
+        for _ in 0..<20 where !window.isKeyWindow {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        window.setContentSize(size)
+        try? await Task.sleep(for: .milliseconds(300))
+        let text = store.text
+        var frames = 0
+        let dir = CommandLine.arguments.firstIndex(of: "--frames").map { CommandLine.arguments[$0 + 1] }
+
+        /// Run a step, saving frames while it animates, and check the
+        /// editors and which of them has the keyboard afterwards.
+        func step(_ name: String, panes: Int, _ change: () -> Void) async {
+            let before = content.descendants(of: LiveTextView.self)
+            change()
+            for _ in 0..<14 {
+                try? await Task.sleep(for: .milliseconds(40))
+                guard let dir, let view = content.superview,
+                      let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                frames += 1
+                try? rep.representation(using: .png, properties: [:])?
+                    .write(to: URL(fileURLWithPath: dir).appending(path: String(format: "%03d-%@.png", frames, name)))
+            }
+            try? await Task.sleep(for: .milliseconds(400))
+            let editors = content.descendants(of: LiveTextView.self)
+            guard editors.count == panes, store.paneCount == panes else {
+                fail("split test: \(name) left \(editors.count) editors in \(store.paneCount) panes, not \(panes)")
+            }
+            guard let responder = window.firstResponder as? NSView,
+                  let editor = editors.first(where: { responder.isDescendant(of: $0.enclosingScrollView ?? $0) })
+            else { fail("split test: no editor has the keyboard after \(name)") }
+            if editors.count > before.count, before.contains(editor) {
+                fail("split test: the new pane did not take the keyboard after \(name)")
+            }
+            // In the layout no pane reaches into another, however narrow.
+            guard store.floating.isEmpty, store.maximized == nil else { return }
+            let frames = editors.compactMap(\.enclosingScrollView).map { $0.convert($0.bounds, to: nil) }
+            for (i, a) in frames.enumerated() {
+                for b in frames[(i + 1)...] where a.insetBy(dx: 1, dy: 1).intersects(b) {
+                    fail("split test: two panes overlap after \(name) (\(a) and \(b))")
+                }
+            }
+        }
+
+        guard let first = content.descendants(of: LiveTextView.self).first?.enclosingScrollView else {
+            fail("split test: no live editor")
+        }
+        /// The editor with the keyboard.
+        func current() -> NSView {
+            content.descendants(of: LiveTextView.self).compactMap(\.enclosingScrollView).first {
+                (window.firstResponder as? NSView)?.isDescendant(of: $0) == true
+            } ?? first
+        }
+
+        // The tree alone: what a split and a close do to the shares.
+        func shares(_ scaling: PaneScaling, resized: Bool) -> [CGFloat] {
+            let panes = [Pane(), Pane(), Pane(), Pane()]
+            var tree = PaneNode.pane(panes[0])
+            tree.split(panes[0].id, vertical: false, new: panes[1], scaling: scaling)
+            tree.split(panes[1].id, vertical: false, new: panes[2], scaling: scaling)
+            if resized, let divider = tree.place(in: CGRect(x: 0, y: 0, width: 900, height: 600), gap: 0).dividers.first {
+                tree.resize(divider, to: 2)
+            }
+            tree.split(panes[2].id, vertical: false, new: panes[3], scaling: scaling)
+            let widths = tree.place(in: CGRect(x: 0, y: 0, width: 1200, height: 600), gap: 0).panes.map(\.frame.width)
+            return widths.map { ($0 / 100).rounded() }
+        }
+        let expected: [(PaneScaling, Bool, [CGFloat])] = [
+            (.adaptive, false, [3, 3, 3, 3]), (.adaptive, true, [8, 0, 2, 2]),
+            (.even, false, [3, 3, 3, 3]), (.even, true, [3, 3, 3, 3]),
+            (.keep, false, [6, 3, 2, 2]), (.keep, true, [9, 0, 2, 2]),
+        ]
+        for (scaling, resized, widths) in expected where shares(scaling, resized: resized) != widths {
+            fail("split test: \(scaling)\(resized ? " after a resize" : "") gave \(shares(scaling, resized: resized)), not \(widths)")
+        }
+
+        store.paneScaling = .adaptive
+        await step("right", panes: 2) { store.splitAnimated(.right) }
+        // No divider dragged yet: a third pane leaves three even ones,
+        // and closing it two.
+        await step("third", panes: 3) { store.splitAnimated(.right) }
+        let thirds = content.descendants(of: LiveTextView.self).compactMap(\.enclosingScrollView).map(\.frame.width)
+        guard let widest = thirds.max(), let narrowest = thirds.min(), widest - narrowest < 1 else {
+            fail("split test: three panes with no divider dragged are not even (\(thirds))")
+        }
+        await step("two", panes: 2) { store.closePaneAnimated() }
+        guard abs(first.frame.width - current().frame.width) < 1 else {
+            fail("split test: two panes with no divider dragged are not even")
+        }
+        // Drag the divider as far as it goes: the first pane stops at the
+        // least a pane can be, and the second has the rest.
+        guard let divider = store.place(store.layout, in: store.paneArea).dividers.first else {
+            fail("split test: no divider between two panes")
+        }
+        await step("resize", panes: 2) { store.resizePanes(divider, to: 0) }
+        let wide = first.frame.width
+        guard abs(wide - Metrics.paneMinWidth) < 1, current().frame.width > wide * 2 else {
+            fail("split test: the divider did not stop at the least width (\(wide) beside \(current().frame.width))")
+        }
+        // Floating leaves the layout to the other pane, and gives it back.
+        await step("float", panes: 2) { store.toggleFloat() }
+        guard first.frame.width > wide * 1.2, current().frame.width < first.frame.width else {
+            fail("split test: floating did not leave the layout to the other pane (\(first.frame.width))")
+        }
+        await step("unfloat", panes: 2) { store.toggleFloat() }
+        guard abs(first.frame.width - wide) < 1 else { fail("split test: the layout did not come back after floating") }
+        // Maximized, the pane is as wide as the two were.
+        let both = first.frame.width + current().frame.width
+        await step("maximize", panes: 2) { store.toggleMaximize() }
+        guard current().frame.width > both else {
+            fail("split test: maximizing did not fill the panes' area (\(current().frame.width))")
+        }
+        await step("restore", panes: 2) { store.toggleMaximize() }
+        guard abs(first.frame.width - wide) < 1 else { fail("split test: the layout did not come back after maximizing") }
+        await step("down", panes: 3) { store.splitAnimated(.down) }
+        let stacked = current().frame
+        await step("nested", panes: 4) { store.splitAnimated(.right) }
+        // Beside the pane it split, in that pane's half of the stack.
+        let nested = current().frame
+        guard nested.height < stacked.height + 1, nested.width < stacked.width * 0.6 else {
+            fail("split test: the nested split left its stack (\(nested) from \(stacked))")
+        }
+        guard abs(first.frame.width - wide) < 1 else {
+            fail("split test: later splits changed a dragged size (\(wide) → \(first.frame.width))")
+        }
+        // Split as far as there is room, across and down: no pane ends
+        // up smaller than a pane can be, and then there is no splitting.
+        var count = 4
+        for direction in [Store.SplitDirection.right, .down] {
+            while store.canSplit(direction), count < 12 {
+                count += 1
+                await step("fill", panes: count) { store.splitAnimated(direction) }
+            }
+            await step("refused", panes: count) { store.splitAnimated(direction) }
+        }
+        let panes = store.place(store.layout, in: store.paneArea).panes
+        guard panes.allSatisfy({
+            $0.frame.width >= Metrics.paneMinWidth - 0.5 && $0.frame.height >= Metrics.paneMinHeight - 0.5
+        }) else { fail("split test: a pane is smaller than a pane can be: \(panes.map(\.frame))") }
+        while count > 4 {
+            count -= 1
+            await step("widen", panes: count) { store.closePaneAnimated() }
+        }
+        let last = window.firstResponder
+        await step("walk", panes: 4) { store.focusPane(offset: 1) }
+        guard window.firstResponder !== last else { fail("split test: ⌘] did not move the keyboard") }
+        await step("close", panes: 3) { store.closePaneAnimated() }
+        await step("close-again", panes: 2) { store.closePaneAnimated() }
+        await step("close-last", panes: 1) { store.closePaneAnimated() }
+        store.closePaneAnimated()
+        guard store.paneCount == 1 else { fail("split test: the last pane closed") }
+        guard store.text == text else { fail("split test: the note's text changed") }
         exit(0)
     }
 

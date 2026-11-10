@@ -42,6 +42,11 @@ struct LiveEditor: NSViewRepresentable {
     /// to know whose title it holds.
     let note: URL
     let rename: (String) -> Void
+    /// The store's count of focus moves while this is the focused pane,
+    /// nil otherwise. The editor takes the keyboard when it sees a new one.
+    let focusRequest: Int?
+    /// Called when the text or the title takes the keyboard.
+    let focus: () -> Void
     @Binding var scrollTarget: String?
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text, mode: $mode) }
@@ -123,7 +128,7 @@ struct LiveEditor: NSViewRepresentable {
             object: title
         )
 
-        let scroll = NSScrollView()
+        let scroll = OverlayScrollView()
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         scroll.documentView = LiveDocumentView(text: view, title: title)
@@ -154,6 +159,13 @@ struct LiveEditor: NSViewRepresentable {
             c.note = note
         }
         c.rename = rename
+        c.focus = focus
+        view.focused = focus
+        if let focusRequest, focusRequest != c.focusRequest {
+            c.focusRequest = focusRequest
+            // Later: making a first responder isn't for a view update.
+            DispatchQueue.main.async { view.takeKeyboard() }
+        }
         if c.keymap != keymap {
             c.keymap = keymap
             c.modal.keymap = keymap
@@ -204,6 +216,10 @@ struct LiveEditor: NSViewRepresentable {
         var mono = NSFont.monospacedSystemFont(ofSize: Metrics.editorFontSize, weight: .regular)
         var baseURL = URL.documentsDirectory
         var rename: (String) -> Void = { _ in }
+        var focus: () -> Void = {}
+        /// The last focus move seen: the store starts at 0, so the editor
+        /// leaves the keyboard alone at launch.
+        var focusRequest = 0
         var note: URL?
         var themeRevision = 0
         var keymap = EditorKeymap.normal
@@ -727,6 +743,7 @@ struct LiveEditor: NSViewRepresentable {
         @objc func titleEditingBegan(_ note: Notification) {
             ((note.object as? NSTextField)?.currentEditor() as? NSTextView)?.insertionPointColor = .themeCursor
             view?.updateCursor()
+            focus()
         }
 
         func controlTextDidBeginEditing(_ note: Notification) {
@@ -1244,8 +1261,25 @@ final class LiveTextView: CursorTextView {
         if redraw { needsDisplay = true }
     }
 
+    /// Asked to take the keyboard before it was in a window: a pane just
+    /// made. It takes it on arriving.
+    private var wantsKeyboard = false
+
+    /// Become first responder, unless the keyboard is already in this
+    /// editor: a click in it, or its title being typed.
+    func takeKeyboard() {
+        guard let window else {
+            wantsKeyboard = true
+            return
+        }
+        wantsKeyboard = false
+        if let scroll = enclosingScrollView, (window.firstResponder as? NSView)?.isDescendant(of: scroll) == true { return }
+        window.makeFirstResponder(self)
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if wantsKeyboard { DispatchQueue.main.async { [weak self] in self?.takeKeyboard() } }
         NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: nil)
         if let window {
             // The pointer is tracked for the code blocks' copy buttons.
@@ -1480,3 +1514,14 @@ extension NSAppearance {
     var isDark: Bool { bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
 }
 
+
+/// A scroll view whose scroller is always the thin one that floats over
+/// the text and hides at rest, even with a mouse attached. The legacy
+/// scroller cuts a gutter down the panel's rounded edge. An override,
+/// because AppKit sets the style back whenever the system setting is read.
+final class OverlayScrollView: NSScrollView {
+    override var scrollerStyle: NSScroller.Style {
+        get { .overlay }
+        set { super.scrollerStyle = .overlay }
+    }
+}

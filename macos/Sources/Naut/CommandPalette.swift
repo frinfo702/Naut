@@ -30,7 +30,7 @@ struct CommandPalette: View {
         let rows = rows(for: current)
         ZStack(alignment: .top) {
             // Clicking outside closes, like a menu.
-            Color.black.opacity(0.35)
+            Color.black.opacity(Metrics.scrimOpacity)
                 .ignoresSafeArea()
                 .onTapGesture { close(revert: true) }
 
@@ -146,6 +146,10 @@ struct CommandPalette: View {
             ))
         }
         list.append(Command(title: "New note", keyword: "new", symbol: "square.and.pencil", shortcut: "⌘N", action: .run { store.newNote() }))
+        list.append(Command(title: "Split right", keyword: "split pane", symbol: "rectangle.split.2x1", shortcut: "⌘D", action: .run { store.splitAnimated(.right) }))
+        list.append(Command(title: "Split down", keyword: "split pane", symbol: "rectangle.split.1x2", shortcut: "⇧⌘D", action: .run { store.splitAnimated(.down) }))
+        list.append(Command(title: "Float pane", keyword: "float window", symbol: "rectangle.on.rectangle", action: .run { store.toggleFloat() }))
+        list.append(Command(title: "Maximize pane", keyword: "maximize zoom", symbol: "arrow.up.left.and.arrow.down.right", shortcut: "⇧⌘↩", action: .run { store.toggleMaximize() }))
         list.append(Command(title: "Settings…", keyword: "settings", symbol: "gearshape", shortcut: "⌘,", action: .run { openSettings() }))
         return list
     }

@@ -10,8 +10,8 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     /// Set by the sidebar outline; the preview scrolls there and clears it.
     @State private var scrollTarget: String?
-    /// The mode the focused Vim or Helix editor is in, shown in its corner.
-    @State private var modalMode: ModalMode = .normal
+    /// Each pane's Vim or Helix mode. The focused one's shows in the title bar.
+    @State private var modes: [Pane.ID: ModalMode] = [:]
 
     /// The command palette's scope while it is open.
     @State private var palette: CommandPalette.Scope?
@@ -24,8 +24,7 @@ struct ContentView: View {
         ZStack {
             HStack(spacing: Metrics.panelGap) {
                 if store.showSidebar, store.sidebarSide == .left { sidebar }
-                detail
-                    .panel(store.windowBackground)
+                Panes(scrollTarget: $scrollTarget, modes: $modes) { openSettings() }
                 if store.showSidebar, store.sidebarSide == .right { sidebar }
             }
             .padding([.horizontal, .bottom], Metrics.panelGap)
@@ -43,10 +42,31 @@ struct ContentView: View {
                         Image(systemName: store.sidebarSide == .left ? "sidebar.left" : "sidebar.right")
                             .foregroundStyle(store.showSidebar ? Theme.fgBody : Theme.fgDim)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressStyle())
                     .help(store.showSidebar ? "Hide Sidebar (⌃⌘S)" : "Show Sidebar (⌃⌘S)")
                     titleBar
-                    if !store.tabs.isEmpty { TabStrip() }
+                    if !store.tabs.isEmpty {
+                        // The toolbar draws above the palette's scrim, so
+                        // the strip takes the same dimming itself.
+                        TabStrip().overlay {
+                            if palette != nil {
+                                Capsule().fill(.black.opacity(Metrics.scrimOpacity)).allowsHitTesting(false)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .toolbar {
+            if store.keymap.isModal || store.showCharacterCount {
+                // Pushes the status to the window's far edge.
+                ToolbarItem { Spacer() }
+                ToolbarItem(placement: .primaryAction) {
+                    StatusBar(
+                        keymap: store.keymap,
+                        mode: modes[store.focus] ?? .normal,
+                        characters: store.showCharacterCount ? store.text.count : nil
+                    )
                 }
             }
         }
@@ -57,11 +77,23 @@ struct ContentView: View {
             Group {
                 Button("") { palette = palette == nil ? .root : nil }.keyboardShortcut("k")
                 Button("") { palette = .search }.keyboardShortcut("f", modifiers: [.command, .shift])
-                // ⌘W closes the tab; with one left it closes the window, as
-                // the menu's Close does when this button isn't here.
-                if store.tabs.count > 1, let selection = store.selection {
+                // ⌘W closes the pane, or with one pane the tab; with one tab
+                // left it closes the window, as the menu's Close does when
+                // this button isn't here.
+                if store.paneCount > 1 {
+                    Button("") { store.closePaneAnimated() }.keyboardShortcut("w")
+                } else if store.tabs.count > 1, let selection = store.selection {
                     Button("") { store.closeTab(selection) }.keyboardShortcut("w")
                 }
+            }
+            .hidden()
+        }
+        .background {
+            // ⌘] and ⌘[ walk the panes.
+            Group {
+                Button("") { store.focusPane(offset: 1) }.keyboardShortcut("]")
+                Button("") { store.focusPane(offset: -1) }.keyboardShortcut("[")
+                Button("") { store.toggleMaximize() }.keyboardShortcut(.return, modifiers: [.command, .shift])
                 Button("") { store.selectTab(offset: 1) }.keyboardShortcut(.tab, modifiers: .control)
                 Button("") { store.selectTab(offset: -1) }.keyboardShortcut(.tab, modifiers: [.control, .shift])
                 Button("") { store.selectTab(offset: 1) }.keyboardShortcut("]", modifiers: [.command, .shift])
@@ -83,6 +115,7 @@ struct ContentView: View {
             if Snapshot.isMathEditTest { await Snapshot.runMathEditTest(store: store) }
             if Snapshot.isMathScrollTest { await Snapshot.runMathScrollTest(store: store) }
             if Snapshot.isDollarTest { await Snapshot.runDollarTest(store: store) }
+            if Snapshot.isSplitTest { await Snapshot.runSplitTest(store: store) }
             #endif
             if let path = Snapshot.path {
                 if Snapshot.settingsPane != nil { openSettings() }
@@ -118,76 +151,6 @@ struct ContentView: View {
         }
         .padding(.leading, 4)
     }
-
-    @ViewBuilder private var detail: some View {
-        @Bindable var store = store
-        if let note = store.selectedNote {
-            VStack(spacing: 0) {
-                header(note)
-                editor(note)
-                if store.keymap.isModal || store.showCharacterCount {
-                    StatusBar(
-                        keymap: store.keymap,
-                        mode: modalMode,
-                        characters: store.showCharacterCount ? store.text.count : nil
-                    )
-                }
-            }
-            .onChange(of: note.id) { _, _ in modalMode = .normal }
-            .onChange(of: store.keymap) { _, _ in modalMode = .normal }
-        } else {
-            Text("No note selected")
-                .foregroundStyle(Theme.fgDim)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    /// The note's name, its star, and the publish control.
-    private func header(_ note: Note) -> some View {
-        @Bindable var store = store
-        return HStack(spacing: 10) {
-            Image(systemName: "doc.text")
-                .foregroundStyle(Theme.fgBody)
-            Text(note.displayName)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(note.isUntitled ? Theme.fgDim : Theme.fg)
-                .lineLimit(1)
-            let favorite = store.isFavorite(note.id)
-            Button { store.toggleFavorite(note.id) } label: {
-                Image(systemName: favorite ? "star.fill" : "star")
-                    .foregroundStyle(favorite ? Theme.cursor : Theme.fgDim)
-            }
-            .buttonStyle(.plain)
-            .help(favorite ? "Remove from Favorites" : "Add to Favorites")
-            Spacer()
-            PublishButton(note: note, openSettings: { openSettings() })
-        }
-        .font(.system(size: 13))
-        .padding(.leading, 18)
-        .padding(.trailing, 12)
-        .frame(height: Metrics.panelHeaderHeight)
-    }
-
-    private func editor(_ note: Note) -> some View {
-        @Bindable var store = store
-        return LiveEditor(
-            text: $store.text,
-            font: store.textNSFont,
-            mono: store.sourceNSFont,
-            lineHeight: store.density.lineHeight,
-            outline: store.outline,
-            baseURL: store.folder,
-            title: note.title,
-            themeRevision: store.themeRevision,
-            keymap: store.keymap,
-            cursorShape: store.cursorShape,
-            cursorBlink: store.cursorBlink,
-            mode: $modalMode,
-            note: note.id,
-            rename: { store.rename(note, to: $0) },
-            scrollTarget: $scrollTarget
-        )
-    }
 }
 
 /// The one control for the web: a pill that takes the cursor colour when
@@ -204,10 +167,10 @@ struct PublishButton: View {
         Button {
             if store.site == nil { openSettings() } else { showPopover.toggle() }
         } label: {
-            PublishPill(published: isPublished, busy: store.isBusy(note))
+            PublishIcon(published: isPublished, busy: store.isBusy(note))
         }
-        .buttonStyle(.plain)
-        .help(store.site == nil ? "Set up publishing in Settings" : "Publish to the web")
+        .buttonStyle(PressStyle())
+        .help(store.site == nil ? "Set up publishing in Settings" : isPublished ? "Published to the web" : "Publish to the web")
         .popover(isPresented: $showPopover, arrowEdge: .bottom) {
             PublishPopover(note: note)
                 .modifier(FittedPopover())

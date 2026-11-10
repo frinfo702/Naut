@@ -33,7 +33,10 @@ struct Sidebar: View {
 
             Button { store.newNote() } label: {
                 HStack(spacing: 8) {
+                    // A quarter turn per note: the plus lands looking
+                    // the same, having visibly done something.
                     Image(systemName: "plus")
+                        .rotationEffect(.degrees(Double(store.created) * 90))
                     Text("New note")
                     Spacer()
                     Text("⌘N").foregroundStyle(Theme.fgDim)
@@ -43,12 +46,15 @@ struct Sidebar: View {
                 .padding(.horizontal, 8)
                 .frame(height: 30)
                 .contentShape(Rectangle())
+                .hoverFill(Theme.surface, radius: Metrics.rowRadius)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressStyle())
             .help("New Note (⌘N)")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
+        // A new note: its rows arrive, and the rows below spring apart.
+        .animation(reduceMotion ? nil : Metrics.arrive, value: store.created)
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(.upArrow) { move(-1) }
@@ -100,14 +106,16 @@ struct Sidebar: View {
             .frame(height: Metrics.rowHeight)
             .background {
                 if selected {
-                    RoundedRectangle(cornerRadius: 9)
+                    RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
                         .fill(Theme.surfaceRaised)
                         .strokeBorder(Theme.line, lineWidth: 1)
                 }
             }
             .contentShape(Rectangle())
+            .hoverFill(Theme.surface, radius: Metrics.rowRadius)
         }
         .buttonStyle(.plain)
+        .transition(Arrive())
         .contextMenu {
             Button(store.isFavorite(note.id) ? "Remove from Favorites" : "Add to Favorites") {
                 store.toggleFavorite(note.id)
@@ -135,8 +143,10 @@ struct Sidebar: View {
                         }
                         .font(.system(size: 13))
                         .foregroundStyle(Theme.fgDim)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .frame(height: Metrics.outlineRowHeight)
                         .contentShape(Rectangle())
+                        .hoverFill(Theme.surface, radius: Metrics.rowRadius - 2)
                     }
                     .buttonStyle(.plain)
                     .padding(.leading, 14)
@@ -177,6 +187,18 @@ struct Unfold: Transition {
     }
 }
 
+/// A new note's row: it comes into focus while sliding out from the edge,
+/// overshooting a little with the spring that moves the rows around it.
+struct Arrive: Transition {
+    func body(content: Content, phase: TransitionPhase) -> some View {
+        content
+            .opacity(phase.isIdentity ? 1 : 0)
+            .blur(radius: phase.isIdentity ? 0 : 4)
+            .scaleEffect(phase.isIdentity ? 1 : 0.92, anchor: .leading)
+            .offset(x: phase.isIdentity ? 0 : -Metrics.arriveSlide)
+    }
+}
+
 /// "├─" or "└─", drawn so stacked rows join into one continuous line.
 struct TreeGuide: Shape {
     let isLast: Bool
@@ -212,6 +234,6 @@ struct SearchPill: View {
             .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressStyle())
     }
 }

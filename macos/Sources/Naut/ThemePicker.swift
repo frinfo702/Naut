@@ -16,38 +16,21 @@ struct ThemeSection: View {
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.fgDim)
 
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal) {
-                        HStack(spacing: ThemePickerMetrics.gap) {
-                            ForEach(themes) { theme in
-                                ThemeCard(theme: theme, selected: selection == theme.id) {
-                                    withAnimation(.snappy(duration: ThemePickerMetrics.selectionDuration)) {
-                                        selection = theme.id
-                                    }
-                                }
-                                .id(theme.id)
+                // A grid, so every theme is in view and none is cut by an edge.
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: ThemePickerMetrics.cardMinWidth), spacing: ThemePickerMetrics.gap)],
+                    spacing: ThemePickerMetrics.gap
+                ) {
+                    ForEach(themes) { theme in
+                        ThemeCard(theme: theme, selected: selection == theme.id) {
+                            withAnimation(.snappy(duration: ThemePickerMetrics.selectionDuration)) {
+                                selection = theme.id
                             }
-                        }
-                        // Room for the selection ring, which sits outside the card.
-                        .padding(.vertical, 3)
-                        .padding(.horizontal, 3)
-                    }
-                    .scrollIndicators(.hidden)
-                    // A saved theme may be off-screen; show what is selected.
-                    // Wait for the first layout, or the content size is not
-                    // known yet and the scroll lands short.
-                    .onAppear {
-                        Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(30))
-                            proxy.scrollTo(selection, anchor: .center)
-                        }
-                    }
-                    .onChange(of: selection) { _, id in
-                        withAnimation(.snappy(duration: ThemePickerMetrics.selectionDuration)) {
-                            proxy.scrollTo(id, anchor: .center)
                         }
                     }
                 }
+                // Room for the selection ring, which sits outside the card.
+                .padding(3)
             }
             .padding(ThemePickerMetrics.padding)
         }
@@ -105,17 +88,14 @@ private struct ThemeCard: View {
                 ForEach(theme.swatches.indices, id: \.self) { i in
                     Circle()
                         .fill(Color(theme: theme.swatches[i]))
-                        .frame(width: 9, height: 9)
+                        .frame(width: 7, height: 7)
                         .frame(maxWidth: .infinity)
                 }
             }
         }
         .padding(10)
-        .frame(
-            width: ThemePickerMetrics.cardWidth,
-            height: ThemePickerMetrics.previewHeight,
-            alignment: .topLeading
-        )
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(height: ThemePickerMetrics.previewHeight)
         .background(
             color(.bg),
             in: RoundedRectangle(cornerRadius: ThemePickerMetrics.cardRadius, style: .continuous)
@@ -139,12 +119,12 @@ private struct ThemeCard: View {
 
 enum ThemePickerMetrics {
     // MARK: - Sizing
-    static let cardWidth: CGFloat = 140
-    static let previewHeight: CGFloat = 86
+    static let cardMinWidth: CGFloat = 96
+    static let previewHeight: CGFloat = 70
     static let cardRadius: CGFloat = 9
     static let cursorWidth: CGFloat = 7
     static let cursorHeight: CGFloat = 24
-    static let gap: CGFloat = 16
+    static let gap: CGFloat = 12
     static let padding: CGFloat = 14
     static let captionGap: CGFloat = 10
 

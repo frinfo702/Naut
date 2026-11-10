@@ -31,6 +31,15 @@ struct NautApp: App {
                     .keyboardShortcut("n")
             }
             CommandGroup(after: .sidebar) {
+                Button("Split Right") { store.splitAnimated(.right) }
+                    .keyboardShortcut("d")
+                    .disabled(!store.canSplit(.right))
+                Button("Split Down") { store.splitAnimated(.down) }
+                    .keyboardShortcut("d", modifiers: [.command, .shift])
+                    .disabled(!store.canSplit(.down))
+                Button(store.floating[store.focus] == nil ? "Float Pane" : "Stop Floating") { store.toggleFloat() }
+                Button(store.maximized == store.focus ? "Restore Pane" : "Maximize Pane") { store.toggleMaximize() }
+                Divider()
                 Button(store.showSidebar ? "Hide Sidebar" : "Show Sidebar") { store.toggleSidebar() }
                     .keyboardShortcut("s", modifiers: [.control, .command])
             }
@@ -89,16 +98,23 @@ enum Metrics {
     // MARK: - Window
     /// Space between the floating panels and around them, as in Rex.
     static let panelGap: CGFloat = 8
-    static let panelRadius: CGFloat = 14
+    /// Concentric with the window: its corner radius less the gap. Windows
+    /// are rounder from macOS 26 on.
+    static let panelRadius: CGFloat = if #available(macOS 26.0, *) { 18 } else { 14 }
+    /// Concentric again: the panel's radius less the sidebar's padding.
+    static let rowRadius: CGFloat = panelRadius - 8
+    /// How far the note's text fades out under the panel header.
+    static let scrollFade: CGFloat = 18
     static let titleBarHeight: CGFloat = 44
     /// Room for the traffic lights before the title bar's own content.
     static let trafficLightsWidth: CGFloat = 78
     static let panelHeaderHeight: CGFloat = 44
-    static let statusBarHeight: CGFloat = 30
     /// Long note names in a tab are cut after this many characters.
     static let tabMaxCharacters = 24
     /// How much of the theme's background Glass keeps over the desktop.
     static let glassOpacity: Double = 0.62
+    /// How dark the window goes behind the command palette.
+    static let scrimOpacity: Double = 0.35
 
     // MARK: - Sidebar
     static let sidebarWidth: CGFloat = 260
@@ -112,6 +128,10 @@ enum Metrics {
     static let guideTick: CGFloat = 10
     /// How far the outline drops in from when a note is selected.
     static let unfoldOffset: CGFloat = 6
+    /// A new note's row starts this far left of its place, and its page
+    /// this far below.
+    static let arriveSlide: CGFloat = 8
+    static let arriveRise: CGFloat = 18
 
     // MARK: - Search
     static let searchHeight: CGFloat = 34
@@ -128,8 +148,27 @@ enum Metrics {
     static let measure: CGFloat = 760
 
     // MARK: - Animation
+    static let pressDuration = 0.16 // long enough to see, short enough not to wait for
     static let toggleDuration = 0.2 // fast enough to feel instant, slow enough to track
     static let unfoldDuration = 0.22 // Rex's docs nav folds in about 0.2s
+    /// A new note arriving: slower than a toggle and with a little
+    /// overshoot, since it happens rarely and is worth noticing.
+    static let arriveSpring = Spring(duration: 0.45, bounce: 0.3)
+    static let arrive = Animation.spring(arriveSpring)
+    static let paneCloseDuration = 0.25
+    /// How much of itself a pane without the focus keeps.
+    static let unfocusedPaneOpacity = 0.6
+    /// The least a pane can be, by splitting or by a divider. As wide as
+    /// its header needs to show every control beside a short title and
+    /// the star; as tall as the header and a few lines of text.
+    static let paneMinWidth: CGFloat = 264
+    static let paneMinHeight: CGFloat = 140
+    /// The grip that shows on a divider under the pointer.
+    static let gripLength: CGFloat = 36
+    /// A pane control's square in the header.
+    static let paneControl: CGFloat = 26
+    /// The blur of the shadow under a floating pane.
+    static let floatShadow: CGFloat = 24
 }
 
 extension Color {

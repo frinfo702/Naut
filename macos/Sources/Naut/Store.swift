@@ -44,6 +44,7 @@ final class Store {
             guard selection != oldValue else { return }
             saveNow(oldValue)
             load()
+            mapPanes { $0.id == focus ? selection : $0.note }
             guard let selection else { return }
             if !tabs.contains(selection) { tabs.append(selection) }
             recent.removeAll { $0 == selection }
@@ -110,6 +111,168 @@ final class Store {
     func selectTab(offset: Int) {
         guard let selection, let index = tabs.firstIndex(of: selection), !tabs.isEmpty else { return }
         self.selection = tabs[(index + offset + tabs.count) % tabs.count]
+    }
+
+    // MARK: - Panes
+
+    enum SplitDirection { case right, down }
+
+    /// The window's panes, as a tree of splits. Not kept across launches.
+    private(set) var layout = PaneNode.pane(Pane())
+    /// The pane the selection, the sidebar and the keyboard act on. Its
+    /// note is always `selection`.
+    private(set) var focus = UUID()
+    /// Counts the times focus was moved here rather than by a click in an
+    /// editor. The focused pane's editor takes the keyboard when it changes.
+    private(set) var focusRequest = 0
+
+    /// What splitting and closing do to the sizes of the other panes.
+    var paneScaling = PaneScaling(rawValue: UserDefaults.standard.string(forKey: "paneScaling") ?? "") ?? .adaptive {
+        didSet {
+            // The split test picks a mode; the user's stays theirs.
+            guard !Snapshot.isHarness else { return }
+            UserDefaults.standard.set(paneScaling.rawValue, forKey: "paneScaling")
+        }
+    }
+
+    private var panes: [Pane] { layout.panes }
+    var paneCount: Int { panes.count }
+
+    private func mapPanes(_ note: (Pane) -> Note.ID?) { layout.mapPanes(note) }
+
+    /// A divider dragged: the pane before it takes `weight` of the two's
+    /// shares, and neither goes below the least a pane can be.
+    func resizePanes(_ divider: PaneNode.Divider, to weight: CGFloat) {
+        layout.resize(divider, to: weight)
+    }
+
+    /// The size of the panes' area as last laid out, which decides whether
+    /// there is room to split.
+    var paneArea = CGSize.zero
+
+    /// Where the panes and dividers are in `area`.
+    func place(_ layout: PaneNode, in area: CGSize) -> (panes: [PaneNode.Placed], dividers: [PaneNode.Divider]) {
+        layout.place(
+            in: CGRect(origin: .zero, size: area), gap: Metrics.panelGap, floating: Set(floating.keys),
+            least: CGSize(width: Metrics.paneMinWidth, height: Metrics.paneMinHeight)
+        )
+    }
+
+    /// Whether the focused pane has room to split: neither half may be
+    /// smaller than the least a pane can be.
+    func canSplit(_ direction: SplitDirection) -> Bool {
+        guard paneArea != .zero else { return true }
+        var trial = layout
+        let new = Pane()
+        trial.split(focus, vertical: direction == .down, new: new, scaling: paneScaling)
+        let down = direction == .down
+        let least = down ? Metrics.paneMinHeight : Metrics.paneMinWidth
+        let before = Dictionary(uniqueKeysWithValues: place(layout, in: paneArea).panes.map {
+            ($0.pane.id, down ? $0.frame.height : $0.frame.width)
+        })
+        // Evening out shrinks the split pane's neighbours too. A pane that
+        // was already too small, in a window made small, doesn't count
+        // unless it would shrink. Half a point of grace for rounding.
+        return place(trial, in: paneArea).panes.allSatisfy { placed in
+            let length = down ? placed.frame.height : placed.frame.width
+            return length >= least - 0.5 || length >= (before[placed.pane.id] ?? .infinity) - 0.5
+        }
+    }
+
+    /// Panes lifted out of the layout to float in front of it, and where:
+    /// in fractions of the panes' area, so they keep their place when the
+    /// window is resized. A floating pane keeps its place in the tree, and
+    /// goes back there when it stops floating.
+    private(set) var floating: [Pane.ID: CGRect] = [:]
+
+    /// The pane shown as if it were the only one, over the rest of the
+    /// layout. Floating panes stay in front of it.
+    private(set) var maximized: Pane.ID?
+
+    /// Float the pane in front of the others, or put it back.
+    func toggleFloat(_ id: Pane.ID? = nil) {
+        let id = id ?? focus
+        if floating.removeValue(forKey: id) != nil { return }
+        if maximized == id { maximized = nil }
+        // Each one a little down and right of the last, so none hides another.
+        let step = CGFloat(floating.count % 5) * 0.03
+        floating[id] = CGRect(x: 0.24 + step, y: 0.1 + step, width: 0.52, height: 0.72)
+    }
+
+    /// Move a floating pane, keeping it inside the panes' area.
+    func moveFloat(_ id: Pane.ID, to origin: CGPoint) {
+        guard var rect = floating[id] else { return }
+        rect.origin.x = min(max(origin.x, 0), 1 - rect.width)
+        rect.origin.y = min(max(origin.y, 0), 1 - rect.height)
+        floating[id] = rect
+    }
+
+    /// Show the pane alone, or go back to the layout.
+    func toggleMaximize(_ id: Pane.ID? = nil) {
+        let id = id ?? focus
+        floating[id] = nil
+        maximized = maximized == id ? nil : id
+    }
+
+    /// Open a pane beside or below the focused one, on the same note, and
+    /// focus it: the next note picked opens there.
+    func split(_ direction: SplitDirection) {
+        guard canSplit(direction) else {
+            NSSound.beep()
+            return
+        }
+        let pane = Pane(note: selection)
+        layout.split(focus, vertical: direction == .down, new: pane, scaling: paneScaling)
+        // The new pane is in the layout, which has to show for it to be seen.
+        maximized = nil
+        focus = pane.id
+        focusRequest += 1
+    }
+
+    /// Focus a pane; its note becomes the selection.
+    func focus(_ id: Pane.ID) {
+        guard id != focus, let pane = panes.first(where: { $0.id == id }) else { return }
+        focus = id
+        focusRequest += 1
+        // Another pane of the layout: it has to show, as tmux unzooms.
+        if maximized != id, floating[id] == nil { maximized = nil }
+        selection = pane.note
+    }
+
+    /// The pane `offset` places from the focused one, wrapping around.
+    func focusPane(offset: Int) {
+        guard let index = panes.firstIndex(where: { $0.id == focus }) else { return }
+        focus(panes[(index + offset + panes.count) % panes.count].id)
+    }
+
+    /// Close a pane, never the last. Closing the focused one focuses the
+    /// pane before it.
+    func closePane(_ id: Pane.ID? = nil) {
+        let id = id ?? focus
+        guard panes.count > 1, let index = panes.firstIndex(where: { $0.id == id }) else { return }
+        let next = panes[index == 0 ? 1 : index - 1]
+        layout.remove(id, scaling: paneScaling)
+        floating[id] = nil
+        if maximized == id { maximized = nil }
+        if id == focus { focus(next.id) }
+    }
+
+    /// A pane's text: the selected note's as typed, any other as saved.
+    /// Only the selected note is edited, and it is saved before the
+    /// selection moves on, so the file is current for the rest.
+    func text(in pane: Pane) -> String {
+        if pane.note == selection { return text }
+        return pane.note.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+    }
+
+    /// An editor's edit. Editing takes the keyboard, which focuses the
+    /// pane first, so it is always of the selected note.
+    func setText(_ text: String, in pane: Pane) {
+        if pane.note == selection { self.text = text }
+    }
+
+    func outline(in pane: Pane) -> [Heading] {
+        pane.note == selection ? outline : Markdown.render(text(in: pane)).outline
     }
 
     /// The selected note's text. Saved shortly after each edit.
@@ -353,6 +516,7 @@ final class Store {
         tabs = restore("tabs")
         favorites = restore("favorites")
         recent = restore("recent")
+        focus = panes[0].id
         reload()
         if notes.isEmpty { newNote(named: "Welcome", text: Self.welcome) }
         selection = tabs.first ?? notes.first?.id
@@ -374,7 +538,14 @@ final class Store {
         tabs.removeAll(where: gone)
         favorites.removeAll(where: gone)
         recent.removeAll(where: gone)
+        // A pane left showing it closes; the focused one follows the
+        // selection instead.
+        for pane in panes where pane.id != focus && pane.note.map(gone) == true { closePane(pane.id) }
     }
+
+    /// Counts notes made here. The window animates when it changes, so a
+    /// new note arrives instead of appearing.
+    private(set) var created = 0
 
     func newNote(named name: String = "Untitled", text: String = "") {
         var url = folder.appending(path: "\(name).md")
@@ -384,6 +555,7 @@ final class Store {
             n += 1
         }
         try? text.write(to: url, atomically: true, encoding: .utf8)
+        created += 1
         reload()
         selection = url
     }
@@ -420,6 +592,8 @@ final class Store {
 
         let renamed = Note(url: url)
         let wasPublished = published.contains(note.name)
+        // Before the reload, which closes panes whose note is gone.
+        mapPanes { $0.note == note.id && $0.id != focus ? renamed.id : $0.note }
         reload()
         // The renamed note keeps its place in every list.
         if let i = tabs.firstIndex(of: note.id) { tabs[i] = renamed.id }

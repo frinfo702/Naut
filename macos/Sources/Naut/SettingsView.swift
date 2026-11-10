@@ -86,7 +86,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     /// Extra words that find this pane from the search field.
     private var keywords: [String] {
         switch self {
-        case .appearance: ["theme", "dark", "light", "color", "colour", "scheme", "sidebar", "left", "right", "glass", "solid"]
+        case .appearance: ["theme", "dark", "light", "color", "colour", "scheme", "sidebar", "left", "right", "glass", "solid", "pane", "split", "resize", "adaptive", "even"]
         case .editor: ["font", "size", "typography", "character", "count", "status", "live", "preview", "markdown", "source", "line", "spacing", "density", "compact", "comfortable", "keymap", "vim", "helix", "modal", "normal", "cursor", "caret", "block", "bar", "blink", "sound", "typing", "click", "volume", "mechanical", "switch", "cherry", "topre"]
         case .notes: ["folder", "files", "markdown", "finder", "location"]
         case .publishing: ["cloudflare", "web", "publish", "token", "account", "workers", "terraform"]
@@ -387,6 +387,20 @@ private struct AppearancePane: View {
             }
         }
 
+        SettingsGroup(
+            title: "Panes",
+            footer: "Adaptive keeps the panes of a split at even sizes until you drag a divider there, then leaves your sizes alone. Always even goes back to even sizes on every split. Keep sizes halves the pane you split and touches nothing else."
+        ) {
+            SettingsRow(title: "When splitting", divider: false) {
+                Picker("", selection: $store.paneScaling) {
+                    ForEach(PaneScaling.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+        }
+
         ThemeSection(
             title: "Light Mode",
             themes: ThemePalette.lightThemes,
@@ -413,7 +427,7 @@ private struct EditorPane: View {
             title: "Status bar",
             footer: "The keymap and its mode show there while Vim or Helix is in use."
         ) {
-            SettingsRow(title: "Character count", subtitle: "In the status bar under the note", divider: false) {
+            SettingsRow(title: "Character count", subtitle: "In the title bar, for the focused pane", divider: false) {
                 Toggle("", isOn: $store.showCharacterCount)
                     .toggleStyle(.switch)
                     .labelsHidden()
@@ -726,6 +740,11 @@ private struct ShortcutsPane: View {
     private let shortcuts: [(String, [String])] = [
         ("New note", ["⌘", "N"]),
         ("Search notes", ["⌘", "K"]),
+        ("Split right", ["⌘", "D"]),
+        ("Split down", ["⇧", "⌘", "D"]),
+        ("Next or previous pane", ["⌘", "]"]),
+        ("Maximize the pane", ["⇧", "⌘", "↩"]),
+        ("Close the pane", ["⌘", "W"]),
         ("Show or hide the editor", ["⌘", "E"]),
         ("Settings", ["⌘", ","]),
     ]
