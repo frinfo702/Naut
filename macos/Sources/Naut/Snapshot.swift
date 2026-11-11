@@ -820,6 +820,15 @@ enum Snapshot {
         await step("close-last", panes: 1) { store.closePaneAnimated() }
         store.closePaneAnimated()
         guard store.paneCount == 1 else { fail("split test: the last pane closed") }
+        // A picker pane takes the keyboard in its search field.
+        store.splitContent = .picker
+        store.splitAnimated(.right)
+        try? await Task.sleep(for: .milliseconds(800))
+        guard let field = window.firstResponder as? NSTextView, field.isFieldEditor, !(field is LiveTextView) else {
+            fail("split test: the note picker's search field did not take the keyboard")
+        }
+        store.closePaneAnimated()
+        try? await Task.sleep(for: .milliseconds(400))
         guard store.text == text else { fail("split test: the note's text changed") }
         exit(0)
     }

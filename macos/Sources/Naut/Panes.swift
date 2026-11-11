@@ -223,9 +223,13 @@ struct NotePane: View {
                     .onChange(of: note.id) { _, _ in modalMode = .normal }
                     .onChange(of: store.keymap) { _, _ in modalMode = .normal }
             } else {
-                NotePicker { id in
+                NotePicker(focusRequest: focused ? store.focusRequest : nil) { id in
                     store.focus(pane.id)
                     store.selection = id
+                } create: { title in
+                    store.focus(pane.id)
+                    store.newNote()
+                    if !title.isEmpty, let note = store.selectedNote { store.rename(note, to: title) }
                 }
             }
         }
@@ -449,10 +453,14 @@ private struct PageArrival {
 
 /// An empty pane's way to a note: a search field that is a button until
 /// pressed, over the notes opened last, or once searching the notes that
-/// match by title or text.
+/// match by title or text. Last, a new note, named what was typed.
 private struct NotePicker: View {
     @Environment(Store.self) private var store
+    /// As an editor's: a focus moved here, as by a split, starts a search.
+    let focusRequest: Int?
     let open: (Note.ID) -> Void
+    /// Make a note with this title, or untitled when it is empty.
+    let create: (String) -> Void
     @State private var searching = false
     @State private var query = ""
     @State private var index = 0
@@ -481,15 +489,36 @@ private struct NotePicker: View {
                 }
                 .buttonStyle(PressStyle())
             }
-            if searching, notes.isEmpty, !query.isEmpty {
-                Text("No matching notes").foregroundStyle(Theme.fgDim).padding(.horizontal, 10).frame(height: 30)
+            Button { create(title) } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "plus").foregroundStyle(Theme.fgDim).frame(width: 16)
+                    Text(title.isEmpty ? "New note" : "New note “\(title)”").foregroundStyle(Theme.fgBody).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background {
+                    if searching, index == notes.count {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.surface)
+                    }
+                }
+                .contentShape(Rectangle())
+                .hoverFill(Theme.surface, radius: 6)
             }
+            .buttonStyle(PressStyle())
         }
         .font(.system(size: 13))
         .frame(maxWidth: 360)
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: query) { _, _ in index = 0 }
+        // 0 is launch, which leaves the keyboard alone.
+        .onChange(of: focusRequest, initial: true) { _, request in
+            guard let request, request > 0 else { return }
+            searching = true
+            // Later: the field has to be in the window to take focus.
+            DispatchQueue.main.async { fieldFocused = true }
+        }
     }
 
     @ViewBuilder private var field: some View {
@@ -509,7 +538,7 @@ private struct NotePicker: View {
                     }
                     .onSubmit {
                         let notes = notes()
-                        if notes.indices.contains(index) { open(notes[index].id) }
+                        if notes.indices.contains(index) { open(notes[index].id) } else { create(title) }
                     }
             } else {
                 Text("Search notes").foregroundStyle(Theme.fgDim)
@@ -528,6 +557,8 @@ private struct NotePicker: View {
         .padding(.bottom, 6)
     }
 
+    private var title: String { searching ? query.trimmingCharacters(in: .whitespaces) : "" }
+
     /// Recent notes until something is typed, then what matches it.
     private func notes() -> [Note] {
         let q = query.trimmingCharacters(in: .whitespaces)
@@ -537,8 +568,8 @@ private struct NotePicker: View {
     }
 
     private func move(_ delta: Int) -> KeyPress.Result {
-        let count = notes().count
-        guard count > 0 else { return .ignored }
+        // The notes and the new note after them.
+        let count = notes().count + 1
         index = (index + delta + count) % count
         return .handled
     }
