@@ -15,6 +15,7 @@ import SwiftUI
 @MainActor
 enum EditorTest {
     nonisolated static var isEnabled: Bool { CommandLine.arguments.contains("--editor-test") }
+#if DEBUG
 
     enum Key {
         case type(String)
@@ -379,6 +380,7 @@ enum EditorTest {
         for m in messages { FileHandle.standardError.write(Data("naut: editor test failed: \(m)\n".utf8)) }
         exit(1)
     }
+#endif
 }
 
 private extension NSView {

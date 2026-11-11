@@ -16,7 +16,7 @@
       # mkShellNoCC on purpose: the nix C toolchain exports SDKROOT and
       # DEVELOPER_DIR, which breaks Xcode's Swift. Swift comes from Xcode.
       default = pkgs.mkShellNoCC {
-        packages = [pkgs.zig pkgs.terraform];
+        packages = [pkgs.zig pkgs.terraform pkgs.swiftlint pkgs.swiftformat];
       };
 
       # Terraform is unfree, so it isn't in the binary cache and builds from

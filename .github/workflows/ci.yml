@@ -22,8 +22,10 @@ jobs:
         run: nix develop .#ci --command zig build test -Demit-macos-app=false --summary all
 
   # libnaut, the xcframework, NautKit and the app bundle, then Swift tests.
+  # On the Xcode the app is developed with: its AppKit puts the layout
+  # manager on the main actor, which older SDKs reject the code without.
   macos:
-    runs-on: macos-15
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31

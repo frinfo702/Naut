@@ -1,0 +1,8 @@
+--swift-version 6.0
+--exclude macos/.build
+
+# The codebase keeps short bodies on one line and `#if` at the margin.
+--ifdef outdent
+--disable wrapIfStatementBodies,wrapPropertyBodies,wrapLoopBodies,wrapFunctionBodies
+--disable wrapIfExpressionBodies,conditionalAssignment
+--disable unusedArguments,noForceUnwrapInTests,initCoderUnavailable,docComments

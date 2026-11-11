@@ -64,7 +64,10 @@ A file for [guiding coding agents](https://agents.md/).
     the note's text is unchanged. `--frames dir` saves the window through
     each animation, to look at the motion.
 - **Formatting (Zig)**: `zig fmt .`
-- **Formatting (Swift)**: `swiftlint lint --strict --fix`
+- **Lint (Swift)**: `swiftlint lint --strict` (`--fix` to correct)
+- **Formatting (Swift)**: `swiftformat macos/Sources macos/Tests`
+  - Both come from the dev shell (`nix develop`, or direnv); their
+    settings are `.swiftlint.yml` and `.swiftformat`.
 - **Formatting (other)**: `prettier -w .`
 
 ## Directory Structure
