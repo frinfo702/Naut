@@ -452,8 +452,12 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
 
     /// The baseline of the line at display position `i`: where its first
     /// glyph sits, so a taller fallback font (Japanese, say) moves it too.
+    /// An empty line's newline sits below the baseline, so there, and
+    /// past the end, where text typed would sit: the font's own.
     private func baseline(at i: Int, used: NSRect, font: NSFont) -> CGFloat {
-        guard let storage = textStorage, i < storage.length else { return used.minY + font.ascender }
+        guard let storage = textStorage, i < storage.length, (storage.string as NSString).character(at: i) != 0x0A else {
+            return used.minY + defaultBaselineOffset(for: font)
+        }
         let g = glyphIndexForCharacter(at: i)
         return lineFragmentRect(forGlyphAt: g, effectiveRange: nil).minY + location(forGlyphAt: g).y
     }
