@@ -205,6 +205,14 @@ public struct LiveProjection {
         return NSUnionRange(first, last)
     }
 
+    /// The display index of the drawn block (equation, table, picture) on
+    /// whose line a caret at display `p` would be: just before it or just
+    /// after. A block fills its line, so a caret there has no text to be
+    /// in; the editor selects the block instead.
+    public func block(beside p: Int) -> Int? {
+        [p, p - 1].first { at in attachments[at].map { elements[$0].kind.isBlockAtom } ?? false }
+    }
+
     /// The display index of element `i`'s attachment, if it is drawn as one.
     public func attachment(of element: Int) -> Int? {
         attachments.first { $0.value == element }?.key

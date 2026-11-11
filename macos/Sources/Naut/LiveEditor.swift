@@ -48,6 +48,10 @@ struct LiveEditor: NSViewRepresentable {
     /// Called when the text or the title takes the keyboard.
     let focus: () -> Void
     @Binding var scrollTarget: String?
+    /// Keeps a pasted picture (its bytes and file extension) and returns
+    /// what the note links to. Without it, pasting a picture pastes what
+    /// text the clipboard has.
+    var saveImage: ((Data, String) async throws -> String)?
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text, mode: $mode) }
 
@@ -100,13 +104,16 @@ struct LiveEditor: NSViewRepresentable {
         c.cursorBlink = cursorBlink
         view.appearanceChanged = { [weak c] in c?.refresh() }
         view.widthChanged = { [weak c] in c?.refresh() }
-        view.click = { [weak c] in c?.click(at: $0) ?? false }
+        view.click = { [weak c] in c?.click(at: $0, count: $1) ?? false }
+        view.selectAllInBlock = { [weak c] in c?.selectAllInBlock() ?? false }
         view.key = { [weak c] in c?.key($0) ?? false }
         view.modalKey = { [weak c] in c?.handleModal($0) ?? false }
         view.copySource = { [weak c] in c?.copyMarkdown(of: $0) ?? "" }
         view.copyCode = { [weak c] in c?.copyCode($0) }
         view.editFirstMath = { [weak c] in c?.editFirstMath() }
         view.laidOut = { [weak c] in c?.positionMath() }
+        view.pasteImage = { [weak c] in c?.pasteImage(from: $0) ?? false }
+        view.blockKey = { [weak c] in c?.blockKey($0) ?? false }
 
         let title = NSTextField(string: "")
         title.isBordered = false
@@ -159,6 +166,7 @@ struct LiveEditor: NSViewRepresentable {
             c.note = note
         }
         c.rename = rename
+        c.saveImage = saveImage
         c.focus = focus
         view.focused = focus
         if let focusRequest, focusRequest != c.focusRequest {
@@ -216,6 +224,7 @@ struct LiveEditor: NSViewRepresentable {
         var mono = NSFont.monospacedSystemFont(ofSize: Metrics.editorFontSize, weight: .regular)
         var baseURL = URL.documentsDirectory
         var rename: (String) -> Void = { _ in }
+        var saveImage: ((Data, String) async throws -> String)?
         var focus: () -> Void = {}
         /// The last focus move seen: the store starts at 0, so the editor
         /// leaves the keyboard alone at launch.
@@ -239,6 +248,8 @@ struct LiveEditor: NSViewRepresentable {
         /// When typing last registered an undo step: typing within a short
         /// while is one step, as in any editor.
         private var lastTyping: Date?
+        /// The attachments the display now shows, by what they draw.
+        private var attachmentCache: [String: NSTextAttachment] = [:]
         /// When the copy button's check goes back to the copy icon.
         private var copiedReset: Timer?
 
@@ -278,6 +289,9 @@ struct LiveEditor: NSViewRepresentable {
         /// Bring the equation's editor into view at its next placement: on
         /// opening it, and as it is typed in.
         private var revealMath = false
+        /// A picture being resized by its handle: its element and width,
+        /// drawn at that width until the drag ends and the note is changed.
+        private var resizing: (element: Int, width: CGFloat)?
 
         init(text: Binding<String>, mode: Binding<ModalMode>) {
             _text = text
@@ -380,17 +394,39 @@ struct LiveEditor: NSViewRepresentable {
             // The editor's size decides its block's, so it is brought up to
             // date first.
             syncMath()
-            LiveStyle(font: font, mono: mono).style(projection, in: storage) { attachment(for: $0) }
-            layout.state = LiveLayout.State(projection)
-            layout.mathBlocks = projection.elements.indices.compactMap { i in
-                guard case .mathBlock = projection.elements[i].kind, let at = projection.attachment(of: i) else { return nil }
-                return (at, i)
+            // Styled aside, then only the runs that differ are set: the
+            // layout keeps every line an edit didn't touch, so the page
+            // neither re-measures nor moves under the caret.
+            let styled = NSMutableAttributedString(string: storage.string)
+            var fresh: [String: NSTextAttachment] = [:]
+            LiveStyle(font: font, mono: mono).style(projection, in: styled) { attachment(for: $0, fresh: &fresh) }
+            attachmentCache = fresh
+            storage.beginEditing()
+            var i = 0
+            while i < storage.length {
+                var a = NSRange(), b = NSRange()
+                let new = styled.attributes(at: i, effectiveRange: &a)
+                let old = storage.attributes(at: i, effectiveRange: &b)
+                let end = min(NSMaxRange(a), NSMaxRange(b))
+                if !(new as NSDictionary).isEqual(to: old) { storage.setAttributes(new, range: NSRange(location: i, length: end - i)) }
+                i = end
             }
-            if let h = layout.hoveredMath, !layout.mathBlocks.contains(where: { $0.element == h }) { layout.hoveredMath = nil }
+            storage.endEditing()
+            layout.state = LiveLayout.State(projection)
+            layout.blocks = IndexSet(projection.attachments.filter { projection.elements[$0.value].kind.isBlockAtom }.keys)
+            layout.atoms = projection.atoms.compactMap { atom in
+                guard atom.isBlock, let at = projection.attachment(of: atom.element) else { return nil }
+                let kind: LiveLayout.Chrome.Kind = switch projection.elements[atom.element].kind {
+                case .mathBlock: .math
+                case .table: .table
+                default: .image
+                }
+                return (at, atom.element, kind)
+            }
             layout.selection = view.selectedRange()
             // The old note's blocks are gone, and so are their controls.
-            if let h = layout.hoveredCode, !layout.state.code.contains(where: { $0.element == h }) { layout.hoveredCode = nil }
-            if let c = layout.copiedCode, !layout.state.code.contains(where: { $0.element == c }) { layout.copiedCode = nil }
+            if let h = layout.hovered, layout.kind(of: h) == nil { layout.hovered = nil }
+            if let c = layout.copiedCode, layout.kind(of: c) == nil { layout.copiedCode = nil }
             view.updateHover()
             view.window?.invalidateCursorRects(for: view)
             if let a = typingAttributes(at: view.selectedRange()) { view.typingAttributes = a }
@@ -412,15 +448,72 @@ struct LiveEditor: NSViewRepresentable {
 
         /// Select `r`. Not scrolling: only an edit the user made scrolls to
         /// where it happened (`perform`), as the text view's own do.
+        ///
+        /// A drawn block fills its line, so a caret beside one selects it:
+        /// the block is the thing there, as in Notion and Linear. Vim's and
+        /// Helix's normal modes keep their cursor, which sits on the block
+        /// as on a character and rings it (`LiveTextView.cursorBlock`).
         private func place(_ r: NSRange) {
-            view?.setSelectedRange(r)
+            view?.setSelectedRange(blockSelection(for: r) ?? r)
+        }
+
+        /// The block a caret at `r` is beside, as a selection.
+        private func blockSelection(for r: NSRange) -> NSRange? {
+            guard r.length == 0, !keymap.isModal || modal.mode == .insert, r.location <= projection.display.length else { return nil }
+            return projection.block(beside: r.location).map { NSRange(location: $0, length: 1) }
+        }
+
+        /// The display index of the block that alone is selected.
+        private var selectedBlock: Int? {
+            guard let r = view?.selectedRange(), r.length == 1, projection.block(beside: r.location) == r.location else { return nil }
+            return r.location
+        }
+
+        /// Every move of the selection the user makes (arrows, clicks,
+        /// drags) comes through here before it happens; the ones we make
+        /// go through `place`.
+        func textView(_ view: NSTextView, willChangeSelectionFromCharacterRange old: NSRange, toCharacterRange new: NSRange) -> NSRange {
+            guard !applying, pending == nil, !view.hasMarkedText() else { return new }
+            return blockSelection(for: new) ?? new
+        }
+
+        /// Step off the selected block at `at`: to the end of the line
+        /// above, or the start of the line below, made if the block ends
+        /// the note.
+        private func leave(_ at: Int, forward: Bool) {
+            guard let view else { return }
+            if !forward {
+                guard at > 0 else { return }
+                place(NSRange(location: at - 1, length: 0))
+            } else if at + 1 < projection.display.length {
+                place(NSRange(location: at + 2, length: 0))
+            } else {
+                let end = (source as NSString).length
+                replace(NSRange(location: end, length: 0), with: "\n", select: NSRange(location: end + 1, length: 0))
+            }
+            view.scrollRangeToVisible(view.selectedRange())
+        }
+
+        /// ⌘A in a code block selects its code; again, the note.
+        func selectAllInBlock() -> Bool {
+            guard let view, let layout else { return false }
+            let s = view.selectedRange()
+            guard let code = layout.state.code.first(where: { s.location >= $0.lines.location && NSMaxRange(s) < NSMaxRange($0.lines) }) else { return false }
+            let content = NSRange(location: code.lines.location, length: code.lines.length - 1)
+            guard content.length > 0, s != content else { return false }
+            place(content)
+            return true
         }
 
         // MARK: Attachments
 
         /// Element `i` drawn: math and tables by WebKit, pictures from disk
         /// or the web; until then, and when empty, dim text in their place.
-        private func attachment(for i: Int) -> NSTextAttachment? {
+        ///
+        /// The same drawing is the same attachment from one styling to the
+        /// next (`attachmentCache`), so a block that didn't change isn't
+        /// laid out again. `fresh` collects the ones in use.
+        private func attachment(for i: Int, fresh: inout [String: NSTextAttachment]) -> NSTextAttachment? {
             guard let view else { return nil }
             let e = projection.elements[i]
             let dark = view.effectiveAppearance.isDark
@@ -432,45 +525,71 @@ struct LiveEditor: NSViewRepresentable {
             func fitted(_ size: NSSize) -> NSSize {
                 size.width <= width ? size : NSSize(width: width, height: size.height * width / size.width)
             }
-            let cell: LiveAttachmentCell
+            // What the drawing is of, and the picture if it has arrived.
+            let content: String, picture: NSImage?
             switch e.kind {
             case let .mathBlock(tex):
-                // A framed box the width of the text; while edited, just the
-                // editor's room.
-                let box = (width - 1).rounded(.down)
-                if i == editingMath, let mathEditor {
-                    let a = NSTextAttachment()
-                    a.attachmentCell = MathBlockCell(picture: nil, size: NSSize(width: box, height: mathEditor.height(for: box)), element: i)
-                    return a
-                }
-                let image = tex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? Self.placeholder("New equation", font: font)
-                    : rendered("$$\n\(tex)\n$$") ?? Self.placeholder(tex, font: small)
-                let height = min(image.size.height, image.size.height * (box - 2 * MathBlockCell.padding) / max(image.size.width, 1))
-                let a = NSTextAttachment()
-                a.attachmentCell = MathBlockCell(picture: image, size: NSSize(width: box, height: height + 2 * MathBlockCell.padding), element: i)
-                return a
+                content = tex
+                picture = tex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : rendered("$$\n\(tex)\n$$")
             case .table:
                 // Laid out to the text's width, as on the page, so its edges
                 // line up with code blocks.
-                let markdown = projection.source.substring(with: e.range)
-                let image = rendered(markdown, width: width.rounded(.down)) ?? Self.placeholder(markdown, font: small)
-                cell = LiveAttachmentCell(picture: image, size: fitted(image.size))
-            case let .image(source):
+                content = projection.source.substring(with: e.range)
+                picture = rendered(content, width: width.rounded(.down))
+            case let .image(source, _):
+                content = source
                 let url = URL(string: source).flatMap { $0.scheme == nil ? nil : $0 }
                     ?? URL(filePath: source.removingPercentEncoding ?? source, relativeTo: baseURL)
-                let image = LiveImages.shared.picture(url) ?? Self.placeholder("Image: \(source)", font: font)
-                // page.css: img { border-radius: var(--radius-sm) }
-                cell = LiveAttachmentCell(picture: image, size: fitted(image.size), radius: 6)
+                picture = LiveImages.shared.picture(url)
             case let .math(tex):
-                let image = rendered("$\(tex)$") ?? Self.placeholder(tex, font: small)
-                // Centred on the text's x-height, where operators sit.
-                cell = LiveAttachmentCell(picture: image, size: image.size, baselineOffset: font.xHeight / 2 - image.size.height / 2)
+                content = tex
+                picture = rendered("$\(tex)$")
             default:
                 return nil
             }
+            // A framed box the width of the text; while edited, just the
+            // editor's room.
+            let box = (width - 1).rounded(.down)
+            let editing = i == editingMath ? mathEditor?.height(for: box) : nil
+            let resized = resizing?.element == i ? resizing?.width : nil
+            let key = "\(i)|\(e.kind)|\(content)|\(width)|\(dark)|\(font.fontName)|\(font.pointSize)|\(picture.map { "\(ObjectIdentifier($0))" } ?? "-")|\(editing ?? -1)|\(baseURL.path)|\(resized ?? -1)"
+            if let a = attachmentCache[key] {
+                fresh[key] = a
+                return a
+            }
+
+            let cell: NSTextAttachmentCell
+            switch e.kind {
+            case .mathBlock:
+                if let editing {
+                    cell = MathBlockCell(picture: nil, size: NSSize(width: box, height: editing), element: i)
+                } else {
+                    let image = picture ?? (content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? Self.placeholder("New equation", font: font) : Self.placeholder(content, font: small))
+                    let height = min(image.size.height, image.size.height * (box - 2 * MathBlockCell.padding) / max(image.size.width, 1))
+                    cell = MathBlockCell(picture: image, size: NSSize(width: box, height: height + 2 * MathBlockCell.padding), element: i)
+                }
+            case .table:
+                let image = picture ?? Self.placeholder(content, font: small)
+                cell = LiveAttachmentCell(picture: image, size: fitted(image.size))
+            case let .image(_, set):
+                let image = picture ?? Self.placeholder("Image: \(content)", font: font)
+                // `![alt|320](…)` is 320 wide, as on the page; never wider
+                // than the text.
+                var size = fitted(image.size)
+                if picture != nil, let w = resized ?? set.map({ CGFloat($0) }), w > 0 {
+                    size = fitted(NSSize(width: w, height: image.size.height * w / max(image.size.width, 1)))
+                }
+                // page.css: img { border-radius: var(--radius-sm) }
+                cell = LiveAttachmentCell(picture: image, size: size, radius: 6)
+            default:
+                let image = picture ?? Self.placeholder(content, font: small)
+                // Centred on the text's x-height, where operators sit.
+                cell = LiveAttachmentCell(picture: image, size: image.size, baselineOffset: font.xHeight / 2 - image.size.height / 2)
+            }
             let a = NSTextAttachment()
             a.attachmentCell = cell
+            fresh[key] = a
             return a
         }
 
@@ -555,7 +674,29 @@ struct LiveEditor: NSViewRepresentable {
                 }
                 perform(editing.newline(selection, preferring: caretSource))
                 return true
-            case #selector(NSResponder.moveUp(_:)) where selection.length == 0 && onFirstLine():
+            case #selector(NSResponder.deleteBackward(_:)) where selection.length == 0:
+                // At the start of a line's text, backspace takes the line's
+                // syntax; elsewhere the text view deletes, through `delete`.
+                guard let edit = editing.backspace(at: selection.location, preferring: caretSource) else { return false }
+                perform(edit)
+                return true
+            case #selector(NSResponder.insertTab(_:)), #selector(NSResponder.insertBacktab(_:)):
+                if let edit = editing.indent(selection, outdent: selector == #selector(NSResponder.insertBacktab(_:))) { perform(edit) }
+                return true
+            case #selector(NSResponder.moveRight(_:)), #selector(NSResponder.moveForward(_:)):
+                guard let at = selectedBlock else { return false }
+                leave(at, forward: true)
+                return true
+            case #selector(NSResponder.moveLeft(_:)), #selector(NSResponder.moveBackward(_:)):
+                guard let at = selectedBlock else { return false }
+                leave(at, forward: false)
+                return true
+            case #selector(NSResponder.moveDown(_:)):
+                // Down from a block that ends the note makes the line below.
+                guard let at = selectedBlock, at + 1 == projection.display.length else { return false }
+                leave(at, forward: true)
+                return true
+            case #selector(NSResponder.moveUp(_:)) where (selection.length == 0 || selectedBlock != nil) && onFirstLine():
                 // Up from the first line goes to the title.
                 focusTitle()
                 return true
@@ -582,7 +723,7 @@ struct LiveEditor: NSViewRepresentable {
             let typed = LiveProjection((source as NSString).replacingCharacters(in: r, with: s))
             let i = typed.display(at: after.location) - 1
             guard i >= 0, i < typed.display.length else { return nil }
-            let storage = NSTextStorage(string: typed.display as String)
+            let storage = NSMutableAttributedString(string: typed.display as String)
             LiveStyle(font: font, mono: mono).style(typed, in: storage) { _ in nil }
             var a = storage.attributes(at: i, effectiveRange: nil)
             a[.attachment] = nil
@@ -681,10 +822,16 @@ struct LiveEditor: NSViewRepresentable {
 
         /// Copy a code block's text, and show a check for a moment.
         func copyCode(_ element: Int) {
-            guard element < projection.elements.count, let layout else { return }
+            guard element < projection.elements.count else { return }
             let code = projection.source.substring(with: projection.elements[element].content)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(code, forType: .string)
+            showCopied(element)
+        }
+
+        /// The copy button's check, for a moment.
+        private func showCopied(_ element: Int) {
+            guard let layout else { return }
             layout.copiedCode = element
             view?.needsDisplay = true
             copiedReset?.invalidate()
@@ -695,6 +842,180 @@ struct LiveEditor: NSViewRepresentable {
                     self.view?.needsDisplay = true
                 }
             }
+        }
+
+        // MARK: Blocks
+
+        /// A click on a block's chrome: its handle, a button of its bar, or
+        /// a picture's side.
+        func chrome(_ control: LiveLayout.Chrome.Control, of element: Int) {
+            switch control {
+            case .handle: dragBlock(element)
+            case let .resize(edge): resizeImage(element, edge: edge)
+            case .button(.copy):
+                if case .image = projection.elements[element].kind { copyImage(element) } else { copyCode(element) }
+            case .button(.edit), .button(.language): open(element)
+            case .button(.fullScreen): showFullScreen(element)
+            case .button(.open): if let url = imageURL(element) { NSWorkspace.shared.open(url) }
+            case .button(.delete): deleteBlock(element)
+            }
+        }
+
+        /// Where picture element `i` is: a URL as written, or a path
+        /// relative to the notes, as in the preview.
+        private func imageURL(_ i: Int) -> URL? {
+            guard case let .image(source, _) = projection.elements[i].kind else { return nil }
+            return URL(string: source).flatMap { $0.scheme == nil ? nil : $0 }
+                ?? URL(filePath: source.removingPercentEncoding ?? source, relativeTo: baseURL)
+        }
+
+        private func copyImage(_ i: Int) {
+            guard let url = imageURL(i), let image = LiveImages.shared.picture(url) else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.writeObjects([image])
+            showCopied(i)
+        }
+
+        private func deleteBlock(_ i: Int) {
+            let scope = projection.elements[i].scope
+            replace(scope, with: "", select: NSRange(location: scope.location, length: 0))
+        }
+
+        private func showFullScreen(_ i: Int) {
+            guard let view, let window = view.window, let url = imageURL(i), let image = LiveImages.shared.picture(url) else { return }
+            ImageViewer.show(image, in: window) { [weak view] in
+                guard let view else { return }
+                view.window?.makeFirstResponder(view)
+            }
+        }
+
+        /// Space on a selected picture shows it full screen, as Notion's
+        /// does. Not in Vim's or Helix's normal mode, where Space is theirs.
+        func blockKey(_ event: NSEvent) -> Bool {
+            guard !keymap.isModal || modal.mode == .insert, let at = selectedBlock,
+                  let i = projection.attachments[at], case .image = projection.elements[i].kind,
+                  event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+                  event.charactersIgnoringModifiers == " "
+            else { return false }
+            showFullScreen(i)
+            return true
+        }
+
+        /// The point of `event` in container coordinates.
+        private func containerPoint(_ event: NSEvent) -> NSPoint {
+            guard let view else { return .zero }
+            let p = view.convert(event.locationInWindow, from: nil)
+            return NSPoint(x: p.x - view.textContainerOrigin.x, y: p.y - view.textContainerOrigin.y)
+        }
+
+        /// Drag block `i` by its handle to between two other lines. The
+        /// line it would land on shows as it moves; the page scrolls at the
+        /// edges.
+        private func dragBlock(_ i: Int) {
+            guard let view, let layout, let window = view.window else { return }
+            let scope = projection.elements[i].scope
+            layout.dragging = i
+            view.needsDisplay = true
+            NSCursor.closedHand.push()
+            var target: Int?
+            while let event = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]), event.type == .leftMouseDragged {
+                view.autoscroll(with: event)
+                let drop = dropTarget(at: containerPoint(event))
+                target = drop?.source
+                layout.dropLine = drop?.y
+                view.needsDisplay = true
+            }
+            NSCursor.pop()
+            layout.dragging = nil
+            layout.dropLine = nil
+            view.needsDisplay = true
+            guard let target else { return }
+            perform(editing.moveBlock(scope, to: target))
+        }
+
+        /// Where a block dropped at `p` goes: the start of the source line
+        /// above or below the line under the pointer, whichever is nearer,
+        /// and how far down to draw the line that shows it.
+        private func dropTarget(at p: NSPoint) -> (source: Int, y: CGFloat)? {
+            guard let view, let layout, let container = view.textContainer else { return nil }
+            let display = projection.display
+            let source = projection.source
+            guard display.length > 0 else { return nil }
+            let c = layout.characterIndex(for: p, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
+            let line = display.paragraphRange(for: NSRange(location: min(c, display.length - 1), length: 0))
+            guard let (top, bottom) = layout.verticalExtent(of: line) else { return nil }
+            let d = p.y > (top + bottom) / 2 ? NSMaxRange(line) : line.location
+            let start = d >= display.length ? source.length : source.lineRange(for: NSRange(location: projection.units[d].location, length: 0)).location
+            let target = editing.blockBoundary(start)
+            let shown = projection.display(at: target)
+            let y: CGFloat
+            if shown >= display.length {
+                y = layout.verticalExtent(of: NSRange(location: display.length - 1, length: 1))?.1 ?? bottom
+            } else {
+                y = layout.verticalExtent(of: NSRange(location: shown, length: 0))?.0 ?? top
+            }
+            return (target, y)
+        }
+
+        /// Drag a picture's side: it grows or shrinks about its centre, as
+        /// the page centres it, and the note gets its width when let go.
+        /// As wide as the text, it loses its width and fills the column.
+        ///
+        /// ponytail: restyles the note per mouse move. Fine for notes of a
+        /// few thousand lines; restyle only the picture's line if it lags.
+        private func resizeImage(_ i: Int, edge: LiveLayout.Chrome.Edge) {
+            guard let view, let layout, let window = view.window, let container = view.textContainer,
+                  let rect = layout.blockRect(i) else { return }
+            let start = view.convert(window.mouseLocationOutsideOfEventStream, from: nil).x
+            let widest = container.size.width - 2 * container.lineFragmentPadding
+            var width = rect.width
+            NSCursor.resizeLeftRight.push()
+            while let event = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]), event.type == .leftMouseDragged {
+                let dx = (view.convert(event.locationInWindow, from: nil).x - start) * (edge == .right ? 1 : -1)
+                width = min(widest, max(48, rect.width + 2 * dx))
+                resizing = (i, width)
+                refresh()
+            }
+            NSCursor.pop()
+            resizing = nil
+            guard abs(width - rect.width) >= 1 else { return refresh() }
+            perform(editing.resizeImage(i, width: width >= widest - 0.5 ? nil : Int(width.rounded())))
+        }
+
+        /// ⌘V with a picture on the clipboard: kept where Settings says, and
+        /// linked on a line of its own at the caret.
+        func pasteImage(from pasteboard: NSPasteboard) -> Bool {
+            guard let saveImage, let (data, ext) = Self.image(on: pasteboard) else { return false }
+            Task { [weak self] in
+                do {
+                    let link = try await saveImage(data, ext)
+                    guard let self, let view = self.view else { return }
+                    self.perform(self.editing.insertBlock("![](\(link))", over: view.selectedRange()))
+                } catch {
+                    NSSound.beep()
+                }
+            }
+            return true
+        }
+
+        /// A picture on the clipboard, as bytes and their file extension: a
+        /// copied image file, or image data (a screenshot, an image copied
+        /// in a browser). Not image data that comes with text: rich text
+        /// apps put a picture of the copied text on the clipboard too.
+        static func image(on pasteboard: NSPasteboard) -> (Data, String)? {
+            let kinds = ["png", "jpg", "jpeg", "gif", "webp", "heic", "tiff"]
+            if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+               let url = urls.first, kinds.contains(url.pathExtension.lowercased()),
+               let data = try? Data(contentsOf: url) {
+                let ext = url.pathExtension.lowercased()
+                return (data, ext == "jpeg" ? "jpg" : ext)
+            }
+            guard pasteboard.availableType(from: [.string]) == nil else { return nil }
+            if let png = pasteboard.data(forType: .png) { return (png, "png") }
+            if let tiff = pasteboard.data(forType: .tiff), let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                return (png, "png")
+            }
+            return nil
         }
 
         // MARK: Title
@@ -777,11 +1098,25 @@ struct LiveEditor: NSViewRepresentable {
 
         // MARK: Clicks and the popover
 
-        func click(at point: NSPoint) -> Bool {
+        /// A click on something drawn; `count` is 1, or 2 for a double
+        /// click. A click on a block selects it, a double click edits it.
+        func click(at point: NSPoint, count: Int) -> Bool {
             guard let view, let layout, let container = view.textContainer else { return false }
             let p = NSPoint(x: point.x - view.textContainerOrigin.x, y: point.y - view.textContainerOrigin.y)
-            if let (element, button) = layout.mathButton(at: p) {
-                if button == .copy { copyCode(element) } else { open(element) }
+            // An attachment: a block is selected, then opened; inline math
+            // opens its source.
+            let g = layout.glyphIndex(for: p, in: container, fractionOfDistanceThroughGlyph: nil)
+            let c = layout.characterIndexForGlyph(at: g)
+            let hit = projection.attachments[c].flatMap {
+                layout.boundingRect(forGlyphRange: NSRange(location: g, length: 1), in: container).contains(p) ? $0 : nil
+            }
+            guard count == 1 else {
+                guard let hit else { return false }
+                open(hit)
+                return true
+            }
+            if let (element, control) = layout.chromeHit(at: p), let control {
+                chrome(control, of: element)
                 return true
             }
             // A click in the text, outside the equation being edited, leaves
@@ -799,22 +1134,15 @@ struct LiveEditor: NSViewRepresentable {
                 place(selection)
                 return true
             }
-            if let code = layout.copyButton(at: p) {
-                copyCode(code.element)
-                return true
+            guard let hit else { return false }
+            if projection.elements[hit].kind.isBlockAtom {
+                view.window?.makeFirstResponder(view)
+                // With modal keys, the cursor on it; otherwise selected.
+                place(NSRange(location: c, length: keymap.isModal && modal.mode != .insert ? 0 : 1))
+            } else {
+                open(hit)
             }
-            if let code = layout.languageLabel(at: p) {
-                open(code.element)
-                return true
-            }
-            // An attachment opens its source.
-            let g = layout.glyphIndex(for: p, in: container, fractionOfDistanceThroughGlyph: nil)
-            let c = layout.characterIndexForGlyph(at: g)
-            if let i = projection.attachments[c], layout.boundingRect(forGlyphRange: NSRange(location: g, length: 1), in: container).contains(p) {
-                open(i)
-                return true
-            }
-            return false
+            return true
         }
 
         /// Opens the popover if an edit left the caret in a block: ``` or
@@ -856,8 +1184,8 @@ struct LiveEditor: NSViewRepresentable {
             }
 
             var anchor = NSRect.zero
-            if case .codeBlock = e.kind, let code = layout.state.code.first(where: { $0.element == i }) {
-                anchor = layout.labelRect(code) ?? .zero
+            if case .codeBlock = e.kind, let rect = layout.languageRect(i) {
+                anchor = rect
             } else {
                 let shown = projection.attachment(of: i).map { NSRange(location: $0, length: 1) } ?? projection.displayRange(e.content)
                 anchor = layout.boundingRect(forGlyphRange: layout.glyphRange(forCharacterRange: shown, actualCharacterRange: nil), in: container)
@@ -1060,12 +1388,13 @@ extension LiveEditor.Coordinator: ModalTarget {
     var modalIsComposing: Bool { view?.hasMarkedText() ?? false }
 
     func modalDelete(_ range: NSRange, linewise: Bool) {
-        guard let view else { return }
         if linewise {
             let source = linewiseSourceRange(range)
             performModal(.replace(source, with: "", selection: NSRange(location: source.location, length: 0)))
         } else {
-            performModal(editing.delete(range, selection: view.selectedRange()))
+            // An operator names what it deletes: a block under the cursor
+            // goes at once, not selected first as Backspace does in passing.
+            performModal(editing.delete(range, selection: range))
         }
     }
 
@@ -1218,7 +1547,50 @@ final class LiveTextView: CursorTextView {
     /// uses it to show the equation editor.
     var editFirstMath: (() -> Void)?
     /// A click on something drawn; true if it was handled.
-    var click: ((NSPoint) -> Bool)?
+    var click: ((NSPoint, Int) -> Bool)?
+    /// ⌘A inside a code block; true if it selected the code.
+    var selectAllInBlock: (() -> Bool)?
+    /// Pastes a picture on the pasteboard; false if there is none.
+    var pasteImage: ((NSPasteboard) -> Bool)?
+    /// A key for the selected block, such as Space on a picture.
+    var blockKey: ((NSEvent) -> Bool)?
+
+    /// The blocks' chrome, over the text and attachments. Here rather
+    /// than in the layout's drawing, which is clipped to the text column:
+    /// the handle sits in the margin and a name can run past it.
+    override func draw(_ dirtyRect: NSRect) {
+        // NSTextView leaves its drawing clipped to the text column.
+        NSGraphicsContext.saveGraphicsState()
+        super.draw(dirtyRect)
+        NSGraphicsContext.restoreGraphicsState()
+        (layoutManager as? LiveLayout)?.drawChrome(at: textContainerOrigin)
+    }
+
+    override func paste(_ sender: Any?) {
+        if pasteImage?(.general) == true { return }
+        super.paste(sender)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if window?.firstResponder === self, !hasMarkedText(), blockKey?(event) == true { return }
+        super.keyDown(with: event)
+    }
+
+    /// The drawn block Vim's or Helix's cursor is on. It shows as the
+    /// block selected, not as a cursor the size of a picture.
+    var cursorBlock: Int? {
+        let r = selectedRange()
+        guard r.length == 0, keymap.isModal, modalMode != .insert,
+              (layoutManager as? LiveLayout)?.blocks.contains(r.location) == true else { return nil }
+        return r.location
+    }
+
+    override var hidesCursor: Bool { cursorBlock != nil }
+
+    override func selectAll(_ sender: Any?) {
+        if selectAllInBlock?() == true { return }
+        super.selectAll(sender)
+    }
     /// Formatting shortcuts; true if handled.
     var key: ((NSEvent) -> Bool)?
     /// The Markdown behind a display range, for copying.
@@ -1353,17 +1725,10 @@ final class LiveTextView: CursorTextView {
             guard bounds.contains(p) else { return nil }
             return NSPoint(x: p.x - textContainerOrigin.x, y: p.y - textContainerOrigin.y)
         }
-        let block = point.flatMap { p in layout.state.code.first { layout.codeBlockRect($0.lines)?.contains(p) ?? false } }
-        let button = point.map { p in block.flatMap { layout.copyButtonRect($0)?.contains(p) ?? false } ?? false } ?? false
-        let element = block?.element
-        let math = point.flatMap { p in layout.mathBlocks.first { layout.mathRect(at: $0.at)?.contains(p) ?? false } }
-        let mathButton = point.flatMap { layout.mathButton(at: $0) }?.button
-        guard layout.hoveredCode != element || layout.hoveringButton != button
-            || layout.hoveredMath != math?.element || layout.hoveredMathButton != mathButton else { return }
-        layout.hoveredCode = element
-        layout.hoveringButton = button
-        layout.hoveredMath = math?.element
-        layout.hoveredMathButton = mathButton
+        let hit = point.flatMap { layout.chromeHit(at: $0) }
+        guard layout.hovered != hit?.element || layout.hoveredControl != hit?.control else { return }
+        layout.hovered = hit?.element
+        layout.hoveredControl = hit?.control
         // The controls are a few points wide, but the layout draws the
         // whole block; one full redraw per block entered or left is cheap.
         needsDisplay = true
@@ -1373,14 +1738,14 @@ final class LiveTextView: CursorTextView {
     override func resetCursorRects() {
         super.resetCursorRects()
         guard let layout = layoutManager as? LiveLayout else { return }
-        for block in layout.state.code {
-            guard let rect = layout.copyButtonRect(block) else { continue }
-            addCursorRect(rect.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y), cursor: .pointingHand)
-        }
-        for block in layout.mathBlocks {
-            guard let rect = layout.mathRect(at: block.at) else { continue }
-            for (_, button) in MathBlockCell.buttons(in: rect) {
-                addCursorRect(button.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y), cursor: .pointingHand)
+        let o = textContainerOrigin
+        for element in layout.blockElements {
+            if let handle = layout.handleRect(element) { addCursorRect(handle.offsetBy(dx: o.x, dy: o.y), cursor: .openHand) }
+            for (_, button) in layout.buttons(element) { addCursorRect(button.offsetBy(dx: o.x, dy: o.y), cursor: .pointingHand) }
+            guard layout.kind(of: element) == .image else { continue }
+            for edge in [LiveLayout.Chrome.Edge.left, .right] {
+                guard let r = layout.resizeRect(element, edge) else { continue }
+                addCursorRect(r.insetBy(dx: -8, dy: -8).offsetBy(dx: o.x, dy: o.y), cursor: .resizeLeftRight)
             }
         }
     }
@@ -1436,7 +1801,7 @@ final class LiveTextView: CursorTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 1, click?(convert(event.locationInWindow, from: nil)) == true { return }
+        if event.clickCount <= 2, click?(convert(event.locationInWindow, from: nil), event.clickCount) == true { return }
         super.mouseDown(with: event)
     }
 

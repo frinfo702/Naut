@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import NautKit
 import Observation
 import Security
@@ -665,6 +666,42 @@ final class Store {
     /// Names of published notes.
     private(set) var published = Set(UserDefaults.standard.stringArray(forKey: "published") ?? []) {
         didSet { UserDefaults.standard.set(Array(published), forKey: "published") }
+    }
+
+    /// Where a picture pasted into a note goes.
+    enum ImageStorage: String, CaseIterable {
+        /// A file in `attachments/`, beside the notes.
+        case local
+        /// The publishing Worker's KV, linked by its URL, so the note's
+        /// pictures show wherever the note is read.
+        case cloudflare
+
+        var title: String { self == .local ? "On this Mac" : "Cloudflare" }
+    }
+
+    var imageStorage = ImageStorage(rawValue: UserDefaults.standard.string(forKey: "imageStorage") ?? "") ?? .local {
+        didSet { UserDefaults.standard.set(imageStorage.rawValue, forKey: "imageStorage") }
+    }
+
+    /// Keep a pasted picture and return what the note links to: a path
+    /// relative to the notes, or a URL on the published site. Named by its
+    /// content, so pasting it twice keeps one copy. An upload that fails is
+    /// kept on this Mac instead, so the picture is never lost; the error
+    /// shows where publishing errors do.
+    func saveImage(_ data: Data, ext: String) async throws -> String {
+        let name = SHA256.hash(data: data).prefix(8).map { String(format: "%02x", $0) }.joined() + "." + ext
+        if imageStorage == .cloudflare, let site {
+            do {
+                try await cloudflare.put(site, key: "images/\(name)", data: data)
+                return site.url.appending(path: "images/\(name)").absoluteString
+            } catch {
+                self.error = "Could not upload the picture, so it was saved on this Mac: \(error.localizedDescription)"
+            }
+        }
+        let dir = folder.appending(path: "attachments", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try data.write(to: dir.appending(path: name), options: .atomic)
+        return "attachments/\(name)"
     }
 
     /// The tail of each note's chain of Cloudflare requests, keyed by

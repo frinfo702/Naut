@@ -127,6 +127,15 @@ public struct Cloudflare: Sendable {
         }
     }
 
+    /// Put bytes, such as a picture, under `key`.
+    public func put(_ site: Site, key: String, data: Data) async throws {
+        _ = try await run { cf, out in
+            data.withUnsafeBytes { buf in
+                naut_cloudflare_put(cf, site.namespaceID, key, buf.baseAddress?.assumingMemoryBound(to: CChar.self), buf.count, out)
+            }
+        }
+    }
+
     public func delete(_ site: Site, key: String) async throws {
         _ = try await run { cf, out in naut_cloudflare_delete(cf, site.namespaceID, key, out) }
     }

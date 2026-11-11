@@ -109,6 +109,7 @@ struct ContentView: View {
             if let name = Snapshot.note { store.selection = store.notes.first { $0.name == name }?.id }
             if let scope = Snapshot.palette { palette = scope }
             #if DEBUG
+            if EditorTest.isEnabled { await EditorTest.run() }
             if Snapshot.isCaretTest { await Snapshot.runCaretTest() }
             if Snapshot.isModalTest { await Snapshot.runModalTest() }
             if Snapshot.isTitleSwitchTest { await Snapshot.runTitleSwitchTest(store: store) }

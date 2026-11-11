@@ -18,8 +18,20 @@ A file for [guiding coding agents](https://agents.md/).
     `--focus-editor` focuses the editor body first, so its cursor and
     selection are in the picture; `--caret N` puts the caret at display
     position N, and `--select A,B` selects that display range.
+    `--hover-block N [--hover-button K]` shows the Nth block's chrome
+    (handle, button bar, a picture's resize handles) as if the pointer
+    were on it, and the name of its Kth button.
     Needs no Screen Recording permission. Look at a snapshot after every
     UI change; "it builds" is not "it looks right".
+- **Editor regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --editor-test [--shots dir]`
+  - Drives a Live Preview editor of its own (no note is opened) through
+    typing, an input method, Backspace, Return, Tab, the arrows, ⌘A, undo,
+    an equation edited in place and Helix's keys, and fails unless each
+    leaves the Markdown and the selection where a block editor would. A
+    case is a line in `EditorTest.cases`: the note before, the keys, the
+    note after, with `‸` for the caret and `«…»` for the selection. Add
+    one for every editing bug. `--shots dir` also saves the window with
+    each kind of block selected.
 - **Caret regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --caret-test`
   - Focuses the Live Preview body, moves focus to the title, and fails if
     the body caret survives the hand-off or does not return.

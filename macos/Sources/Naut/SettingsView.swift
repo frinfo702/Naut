@@ -607,6 +607,20 @@ private struct PublishingPane: View {
             }
         }
 
+        SettingsGroup(
+            title: "Pasted images",
+            footer: "On Cloudflare, a pasted image is uploaded to the publishing Worker and the note links to its URL, so it shows wherever the note is read. Set up publishing first; until then images stay on this Mac, in **attachments** beside your notes."
+        ) {
+            SettingsRow(title: "Save to", divider: false) {
+                Picker("", selection: $store.imageStorage) {
+                    ForEach(Store.ImageStorage.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .disabled(store.site == nil && store.imageStorage == .local)
+            }
+        }
+
         let published = store.notes.filter { store.published.contains($0.name) }
         SettingsGroup(title: "Published notes") {
             if published.isEmpty {

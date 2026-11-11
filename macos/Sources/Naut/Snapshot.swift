@@ -70,7 +70,7 @@ enum Snapshot {
     /// Any of the harnesses above. They open notes too, and must not change
     /// the user's tabs, favorites or recent notes.
     static var isHarness: Bool {
-        path != nil || isCaretTest || isModalTest || isTitleSwitchTest || isMathEditTest || isMathScrollTest || isDollarTest || isSplitTest
+        path != nil || EditorTest.isEnabled || isCaretTest || isModalTest || isTitleSwitchTest || isMathEditTest || isMathScrollTest || isDollarTest || isSplitTest
     }
 
     /// `Naut --snapshot out.png --publish-popover [--note Name]` captures
@@ -184,6 +184,21 @@ enum Snapshot {
             window.makeKeyAndOrderFront(nil)
             body.editFirstMath?()
             try? await Task.sleep(for: settle)
+        }
+
+        // `--hover-block N` shows the Nth block's chrome as if the pointer
+        // were on it; `--hover-button K`, also its Kth button and its name.
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--hover-block"), i + 1 < args.count, let n = Int(args[i + 1]),
+           let body = window.contentView?.descendants(of: LiveTextView.self).first,
+           let layout = body.layoutManager as? LiveLayout, n < layout.blockElements.count {
+            let element = layout.blockElements[n]
+            layout.hovered = element
+            if let j = args.firstIndex(of: "--hover-button"), j + 1 < args.count, let k = Int(args[j + 1]),
+               let kind = layout.kind(of: element), k < layout.actions(kind).count {
+                layout.hoveredControl = .button(layout.actions(kind)[k])
+            }
+            body.needsDisplay = true
         }
 
         if publishPopover {

@@ -72,9 +72,9 @@ func everyThemeTokenIsAColour(token: ThemeToken, dark: Bool) {
     let els = LiveMarkdown.parse(src)
     let table = els.first { $0.kind == .table }
     #expect(table.map { (src as NSString).substring(with: $0.range) } == "| a | b |\n|:--|--:|\n| 1 | 2 |")
-    #expect(els.contains { $0.kind == .image(url: "pics/x.png") })
+    #expect(els.contains { $0.kind == .image(url: "pics/x.png", width: nil) })
     // Only an image alone on its line is drawn.
-    #expect(!els.contains { $0.kind == .image(url: "y.png") })
+    #expect(!els.contains { $0.kind == .image(url: "y.png", width: nil) })
     #expect(els.contains { $0.kind == .codeBlock(language: "zig") })
 }
 
@@ -174,10 +174,79 @@ func liveMappingRoundTrips(note: String) {
     }
 }
 
-@Test func liveDeletingIntoAHeadingMakesAParagraph() {
-    // Backspace at the start of "Title" deletes the newline before it.
-    let e = LiveEditing(text: "a\n## Title")
-    #expect(e.delete(NSRange(location: 1, length: 1), selection: caret(2)) == .replace(NSRange(location: 2, length: 3), with: "", selection: caret(2)))
+/// Backspace at the start of a line's text takes the line's syntax, a
+/// nested item one level out first; at the start of the note too, where
+/// there is no character to delete.
+@Test func liveBackspaceAtALineStartTakesItsSyntax() {
+    func backspaced(_ s: String, at p: Int) -> String? { LiveEditing(text: s).backspace(at: p).flatMap { apply($0, to: s)?.text } }
+    #expect(backspaced("a\n## Title", at: 2) == "a\nTitle")
+    #expect(backspaced("## Title", at: 0) == "Title")
+    #expect(backspaced("> q", at: 0) == "q")
+    #expect(backspaced("- a\n  - b", at: 2) == "- a\n- b")
+    #expect(backspaced("- a\n- b", at: 2) == "- a\nb")
+    #expect(backspaced("- [ ] t", at: 0) == "t")
+    // An empty code block goes; one with code stays.
+    #expect(backspaced("a\n```\n\n```\nb", at: 2) == "a\n\nb")
+    #expect(backspaced("```\ncode\n```", at: 0) == nil)
+    // Anywhere else backspace just deletes.
+    #expect(backspaced("## Title", at: 1) == nil)
+    #expect(backspaced("plain", at: 0) == nil)
+}
+
+/// Forward delete at the end of the line above a heading joins the two.
+@Test func liveDeletingTheNewlineBeforeAHeadingJoinsIt() {
+    let note = "a\n## Title"
+    #expect(apply(LiveEditing(text: note).delete(NSRange(location: 1, length: 1), selection: caret(1)), to: note)?.text == "aTitle")
+}
+
+/// A selection that takes one fence of a code block takes the other, and
+/// one of all of a block's lines takes the block: no unpaired ``` shows.
+@Test func liveDeletingAcrossACodeFenceKeepsFencesPaired() throws {
+    let note = "ab\n```\ncode\n```\nyz"
+    let e = LiveEditing(text: note)
+    #expect(e.projection.display == "ab\ncode\nyz")
+    // "b\nco": from the text above into the code.
+    let above = try #require(apply(e.delete(NSRange(location: 1, length: 4), selection: NSRange(location: 1, length: 4)), to: note))
+    #expect(above.text == "ade\nyz")
+    #expect(above.selection == caret(1))
+    // "de\ny": from the code into the text below.
+    let below = try #require(apply(e.delete(NSRange(location: 5, length: 4), selection: NSRange(location: 5, length: 4)), to: note))
+    #expect(below.text == "ab\ncoz")
+    #expect(below.selection == caret(5))
+    // "code\n": all of the block's lines.
+    let all = try #require(apply(e.delete(NSRange(location: 3, length: 5), selection: NSRange(location: 3, length: 5)), to: note))
+    #expect(all.text == "ab\nyz")
+    #expect(all.selection == caret(3))
+    // "code": its text only leaves the block, empty.
+    #expect(apply(e.delete(NSRange(location: 3, length: 4), selection: NSRange(location: 3, length: 4)), to: note)?.text == "ab\n```\n\n```\nyz")
+}
+
+/// Backspace on the empty line below a block takes the line and selects
+/// the block, as in Notion.
+@Test func liveDeletingABlankLineBesideABlockSelectsTheBlock() throws {
+    let note = "![p](i.png)\n\nb"
+    let done = try #require(apply(LiveEditing(text: note).delete(NSRange(location: 1, length: 1), selection: caret(2)), to: note))
+    #expect(done.text == "![p](i.png)\nb")
+    #expect(done.selection == NSRange(location: 0, length: 11))
+}
+
+@Test func liveTabNestsListItems() throws {
+    func tabbed(_ s: String, _ r: NSRange, outdent: Bool = false) -> String? { LiveEditing(text: s).indent(r, outdent: outdent).flatMap { apply($0, to: s)?.text } }
+    #expect(tabbed("- a\n- b", caret(2)) == "- a\n  - b")
+    #expect(tabbed("- a\n  - b", caret(2), outdent: true) == "- a\n- b")
+    // Both items of a selection; the first can't nest under nothing.
+    #expect(tabbed("- a\n- b\n- c", NSRange(location: 2, length: 3)) == "- a\n  - b\n  - c")
+    #expect(LiveEditing(text: "- a").indent(caret(0), outdent: false) == LiveEditing.Edit.none)
+    // Code indents; a paragraph has nothing to do.
+    #expect(tabbed("```\nx\n```", caret(0)) == "```\n    x\n```")
+    #expect(LiveEditing(text: "plain").indent(caret(0), outdent: false) == nil)
+    let e = try #require(LiveEditing(text: "- a\n- b").indent(caret(3), outdent: false))
+    #expect(apply(e, to: "- a\n- b")?.selection == caret(9))
+}
+
+/// A fence closed on the next line has no line for a caret: it is text.
+@Test func liveMarkdownEmptyFencePairIsText() {
+    #expect(LiveProjection("```\n```\nx").display == "```\n```\nx")
 }
 
 @Test func liveDeletingABlockSelectsItFirst() {
@@ -208,7 +277,7 @@ func liveMappingRoundTrips(note: String) {
     let note = "```plain text\nrex server start --tailscale\n```\n- "
     let p = LiveProjection(note)
     #expect(p.display == "rex server start --tailscale\n")
-    let edit = LiveEditing(p).delete(NSRange(location: p.display.length - 1, length: 1), selection: caret(p.display.length))
+    let edit = try #require(LiveEditing(p).backspace(at: p.display.length))
     let done = try #require(apply(edit, to: note))
     let expected = "```plain text\nrex server start --tailscale\n```\n"
     #expect(done.text == expected)
@@ -463,4 +532,38 @@ func everyKeySoundHasItsRecordings(sound: KeySound) {
             #expect(FileManager.default.fileExists(atPath: path), "\(path)")
         }
     }
+}
+
+@Test func imagesCarryAWidth() {
+    #expect(LiveMarkdown.parse("![shot|320](a.png)").first?.kind == .image(url: "a.png", width: 320))
+    #expect(LiveMarkdown.parse("![a|b](a.png)").first?.kind == .image(url: "a.png", width: nil))
+    let note = "x\n![shot|320](a.png)\ny"
+    #expect(apply(LiveEditing(text: note).resizeImage(0, width: 200), to: note)?.text == "x\n![shot|200](a.png)\ny")
+    #expect(apply(LiveEditing(text: note).resizeImage(0, width: nil), to: note)?.text == "x\n![shot](a.png)\ny")
+}
+
+@Test func pastedBlocksGetALineOfTheirOwn() {
+    func paste(_ s: String, at p: Int) -> String? { apply(LiveEditing(text: s).insertBlock("![](i.png)", over: caret(p)), to: s)?.text }
+    #expect(paste("ab", at: 1) == "a\n![](i.png)\nb")
+    #expect(paste("ab", at: 2) == "ab\n![](i.png)\n")
+    #expect(paste("a\n", at: 2) == "a\n![](i.png)\n")
+    #expect(paste("", at: 0) == "![](i.png)\n")
+}
+
+@Test func blocksMoveByWholeLines() {
+    let note = "a\n$$\nx\n$$\nb\nc"
+    let math = NSRange(location: 2, length: 8) // "$$\nx\n$$\n"
+    func move(to p: Int) -> String? { apply(LiveEditing(text: note).moveBlock(math, to: p), to: note)?.text }
+    #expect(move(to: 0) == "$$\nx\n$$\na\nb\nc")
+    #expect(move(to: 12) == "a\nb\n$$\nx\n$$\nc")
+    // To the end of a note with no final newline.
+    #expect(move(to: 13) == "a\nb\nc\n$$\nx\n$$")
+    // Onto itself: nothing.
+    #expect(LiveEditing(text: note).moveBlock(math, to: 10) == .none)
+    // The last line, moved up, leaves no empty line behind.
+    let last = "a\n![](i.png)"
+    #expect(apply(LiveEditing(text: last).moveBlock(NSRange(location: 2, length: 10), to: 0), to: last)?.text == "![](i.png)\na")
+    // Dropped inside a code block: above it.
+    let code = "```\nk\n```\n![](i.png)"
+    #expect(apply(LiveEditing(text: code).moveBlock(NSRange(location: 10, length: 10), to: 4), to: code)?.text == "![](i.png)\n```\nk\n```")
 }

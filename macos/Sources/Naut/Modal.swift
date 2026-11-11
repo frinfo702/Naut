@@ -908,9 +908,13 @@ final class ModalEngine {
 
     private func leaveInsert() {
         let p = clamp(selection.location)
+        // A block selected while inserting: the cursor goes on it.
+        let onBlock = selection.length > 0
         setMode(.normal)
         // As in Vim, Esc leaves the caret on the character just typed.
-        if p > 0, text.length > 0, text.character(at: p - 1) != 0x0A {
+        if onBlock {
+            setCaret(p)
+        } else if p > 0, text.length > 0, text.character(at: p - 1) != 0x0A {
             let previous = text.rangeOfComposedCharacterSequence(at: p - 1).location
             setCaret(previous)
         }

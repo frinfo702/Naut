@@ -211,6 +211,9 @@ class CursorTextView: NSTextView {
     /// source of truth: no caret while we are not editing.
     private var resigned = false
 
+    /// For subclasses that show where the cursor is some other way.
+    var hidesCursor: Bool { false }
+
     /// The shape `cursorShape` resolves to now.
     var resolvedCursorShape: CursorShape {
         guard cursorShape == .match else { return cursorShape }
@@ -346,7 +349,7 @@ class CursorTextView: NSTextView {
         if cursor.superview == nil {
             addSubview(cursor, positioned: .above, relativeTo: nil)
         }
-        let visible = insertionVisible && insertionRect.width > 0 && insertionRect.height > 0
+        let visible = insertionVisible && insertionRect.width > 0 && insertionRect.height > 0 && !hidesCursor
         let shape = resolvedCursorShape
         var rect = insertionRect
         if shape == .block || shape == .underline {

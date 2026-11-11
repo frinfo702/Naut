@@ -441,11 +441,15 @@ pub const Renderer = struct {
 
                 '!' => if (i + 1 < text.len and text[i + 1] == '[') {
                     if (link(text, i + 1)) |l| {
+                        // `![alt|320](url)`: a width, as Obsidian writes
+                        // one; elsewhere it reads as alt text.
+                        const sized = imageWidth(l.label);
                         try w.writeAll("<img src=\"");
                         try escapeUrl(w, l.url);
                         try w.writeAll("\" alt=\"");
-                        try escape(w, try stripMarkup(self.alloc, l.label));
+                        try escape(w, try stripMarkup(self.alloc, sized.alt));
                         try w.writeByte('"');
+                        if (sized.width) |px| try w.print(" width=\"{s}\"", .{px});
                         try writeTitle(w, l.title);
                         try w.writeByte('>');
                         i = l.end;
@@ -982,8 +986,19 @@ test "markdown: javascript links are neutralised" {
     try expectHtml("[x](javascript:alert(1)) [y](https://a.b) [z](./c:d)", "<p><a href=\"#\">x</a> <a href=\"https://a.b\">y</a> <a href=\"./c:d\">z</a></p>\n");
 }
 
+/// An image label's `|width` suffix: digits only, so a `|` in alt text
+/// is left alone.
+fn imageWidth(label: []const u8) struct { alt: []const u8, width: ?[]const u8 } {
+    const bar = std.mem.lastIndexOfScalar(u8, label, '|') orelse return .{ .alt = label, .width = null };
+    const px = label[bar + 1 ..];
+    if (px.len == 0 or px.len > 5) return .{ .alt = label, .width = null };
+    for (px) |c| if (!std.ascii.isDigit(c)) return .{ .alt = label, .width = null };
+    return .{ .alt = label[0..bar], .width = px };
+}
+
 test "markdown: images and autolinks" {
     try expectHtml("![a *b*](i.png \"t\") <https://x.y>", "<p><img src=\"i.png\" alt=\"a b\" title=\"t\"> <a href=\"https://x.y\">https://x.y</a></p>\n");
+    try expectHtml("![shot|320](i.png) ![a|b](j.png)", "<p><img src=\"i.png\" alt=\"shot\" width=\"320\"> <img src=\"j.png\" alt=\"a|b\"></p>\n");
 }
 
 test "markdown: inline math and dollars" {

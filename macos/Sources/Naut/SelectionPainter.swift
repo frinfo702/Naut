@@ -34,6 +34,8 @@ enum SelectionPainter {
             }
             guard end > hit.location else { return }
             let content = NSRange(location: hit.location, length: end - hit.location)
+            // A drawn block shows its own ring when selected.
+            if content.length == 1, (layout as? LiveLayout)?.blocks.contains(content.location) == true { return }
             let contentGlyphs = layout.glyphRange(forCharacterRange: content, actualCharacterRange: nil)
             let box = layout.boundingRect(forGlyphRange: contentGlyphs, in: lineContainer)
             NSRect(x: box.minX + origin.x, y: used.minY + origin.y, width: box.width, height: used.height).fill()

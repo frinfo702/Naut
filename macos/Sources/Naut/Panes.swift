@@ -326,7 +326,8 @@ struct NotePane: View {
             rename: { store.rename(note, to: $0) },
             focusRequest: focused ? store.focusRequest : nil,
             focus: { store.focus(pane.id) },
-            scrollTarget: focused ? $scrollTarget : .constant(nil)
+            scrollTarget: focused ? $scrollTarget : .constant(nil),
+            saveImage: { try await store.saveImage($0, ext: $1) }
         )
         // Text scrolling up fades into the header instead of being cut by
         // an edge that isn't drawn. Not in Glass: the panel is translucent

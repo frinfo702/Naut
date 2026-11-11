@@ -22,8 +22,9 @@ public enum LiveMarkdown {
             case codeBlock(language: String)
             /// A GFM table; `range` is all its rows.
             case table
-            /// An image alone on its line: `![alt](url)`.
-            case image(url: String)
+            /// An image alone on its line: `![alt](url)`, or
+            /// `![alt|320](url)` shown 320 points wide.
+            case image(url: String, width: Int?)
             case quote
             /// `markers` is the bullet or number.
             case listItem
@@ -60,6 +61,13 @@ public enum LiveMarkdown {
                 let markers = [line, lines[j].line]
                 // ```math is display math, as libnaut renders it.
                 let language = trimmed.dropFirst(fence.count).split(separator: " ").first.map(String.init) ?? ""
+                // A code fence closed on the very next line has no line to
+                // put a caret on: both lines stay text, shown and editable.
+                // (``` then Return makes a block with an empty line.)
+                if j == i + 1, language != "math" {
+                    i = j + 1
+                    continue
+                }
                 let kind: Element.Kind = language == "math" ? .mathBlock(tex: text.substring(with: inner)) : .codeBlock(language: language)
                 out.append(Element(kind: kind, range: scope, markers: markers, content: inner, scope: scope))
                 i = j + 1
@@ -91,8 +99,9 @@ public enum LiveMarkdown {
             }
 
             if let m = image.firstMatch(in: source, range: line) {
-                let url = text.substring(with: m.range(at: 1))
-                out.append(Element(kind: .image(url: url), range: line, markers: [line], content: m.range(at: 1), scope: enclosing))
+                let url = text.substring(with: m.range(at: 2))
+                let width = imageWidth(text.substring(with: m.range(at: 1))).width
+                out.append(Element(kind: .image(url: url, width: width), range: line, markers: [line], content: m.range(at: 2), scope: enclosing))
                 i += 1
                 continue
             }
@@ -172,6 +181,15 @@ public enum LiveMarkdown {
         ["```", "~~~"].first { trimmed.hasPrefix($0) }
     }
 
+    /// An image label's `|width` suffix, as libnaut reads it: digits
+    /// only, so a `|` in alt text is left alone.
+    public static func imageWidth(_ label: String) -> (alt: String, width: Int?) {
+        guard let bar = label.lastIndex(of: "|") else { return (label, nil) }
+        let px = label[label.index(after: bar)...]
+        guard (1...5).contains(px.count), px.allSatisfy({ $0.isASCII && $0.isNumber }), let n = Int(px) else { return (label, nil) }
+        return (String(label[..<bar]), n)
+    }
+
     private static func union(_ a: NSRange, _ b: NSRange) -> NSRange { NSUnionRange(a, b) }
 
     // Block prefixes, each matched at the start of a line.
@@ -182,7 +200,7 @@ public enum LiveMarkdown {
     /// `| :-- | --: |`: only dashes and colons between pipes.
     private static let delimiter = try! NSRegularExpression(pattern: "^[ \\t]*\\|?[ \\t]*:?-+:?[ \\t]*(\\|[ \\t]*:?-+:?[ \\t]*)*\\|?[ \\t]*$")
     /// The whole line, an optional title after the URL.
-    private static let image = try! NSRegularExpression(pattern: "^[ \\t]*!\\[[^\\]\\n]*\\]\\(([^)\\s]+)(?:[ \\t]+\"[^\"\\n]*\")?\\)[ \\t]*$")
+    static let image = try! NSRegularExpression(pattern: "^[ \\t]*!\\[([^\\]\\n]*)\\]\\(([^)\\s]+)(?:[ \\t]+\"[^\"\\n]*\")?\\)[ \\t]*$")
 
     /// The content can't start or end with a backtick, so ``` alone (a
     /// fence being typed) isn't a span around one backtick.
@@ -207,6 +225,14 @@ public enum LiveMarkdown {
 }
 
 extension LiveMarkdown.Element.Kind {
+    /// Drawn as one attachment on a line of its own.
+    public var isBlockAtom: Bool {
+        switch self {
+        case .mathBlock, .table, .image: true
+        default: false
+        }
+    }
+
     /// Inline formatting with markers on both sides, within one line.
     public var isSpan: Bool {
         switch self {

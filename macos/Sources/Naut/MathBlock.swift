@@ -40,19 +40,9 @@ final class MathBlockCell: NSTextAttachmentCell {
             in: NSRect(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2, width: size.width, height: size.height),
             from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil
         )
-        if let layout = layoutManager as? LiveLayout {
-            layout.drawMathControls(for: element, in: frame)
-        }
-
         // Selected, it shows as selected, as a Notion block does.
-        let selection = layoutManager.firstTextView?.selectedRange() ?? NSRange(location: 0, length: 0)
-        if selection.length > 0, NSLocationInRange(characterIndex, selection) {
-            let path = NSBezierPath(roundedRect: frame.insetBy(dx: 1, dy: 1), xRadius: Self.radius, yRadius: Self.radius)
-            NSColor.controlAccentColor.withAlphaComponent(0.1).setFill()
-            path.fill()
-            NSColor.controlAccentColor.setStroke()
-            path.lineWidth = 2
-            path.stroke()
+        if (layoutManager as? LiveLayout)?.isSelected(characterIndex) == true {
+            LiveLayout.drawSelectionRing(frame, radius: Self.radius)
         }
     }
 
@@ -68,16 +58,6 @@ final class MathBlockCell: NSTextAttachmentCell {
         NSColor(token: .edgeTop).setStroke()
         path.lineWidth = 1
         path.stroke()
-    }
-
-    enum Button { case copy, edit }
-
-    /// The copy and edit buttons, top right of a block's frame.
-    static func buttons(in frame: NSRect) -> [(Button, NSRect)] {
-        let side: CGFloat = 28
-        let edit = NSRect(x: frame.maxX - side - 10, y: frame.minY + 10, width: side, height: side)
-        let copy = edit.offsetBy(dx: -side - 2, dy: 0)
-        return [(.copy, copy), (.edit, edit)]
     }
 }
 

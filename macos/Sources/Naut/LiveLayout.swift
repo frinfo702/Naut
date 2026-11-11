@@ -8,6 +8,17 @@ struct LiveStyle {
     let font: NSFont
     let mono: NSFont
 
+    /// One colour object per token. A dynamic colour made anew each time
+    /// never equals the last, and every run would look restyled. Only the
+    /// main thread styles.
+    nonisolated(unsafe) private static var colors: [ThemeToken: NSColor] = [:]
+    static func color(_ token: ThemeToken) -> NSColor {
+        if let c = colors[token] { return c }
+        let c = NSColor(token: token)
+        colors[token] = c
+        return c
+    }
+
     /// page.css's h1–h6 sizes, in em.
     static let headingScale: [CGFloat] = [2.6, 1.6, 1.25, 1, 1, 1]
     /// page.css pads code blocks 22px at the sides.
@@ -19,11 +30,11 @@ struct LiveStyle {
     static let nestInset: CGFloat = 24
 
     var body: [NSAttributedString.Key: Any] {
-        [.font: font, .foregroundColor: NSColor(token: .fgBody), .paragraphStyle: NSParagraphStyle.default]
+        [.font: font, .foregroundColor: Self.color(.fgBody), .paragraphStyle: NSParagraphStyle.default]
     }
 
     /// Style all of `s`, which holds `p.display`.
-    func style(_ p: LiveProjection, in s: NSTextStorage, attachment: (Int) -> NSTextAttachment?) {
+    func style(_ p: LiveProjection, in s: NSMutableAttributedString, attachment: (Int) -> NSTextAttachment?) {
         s.beginEditing()
         s.setAttributes(body, range: NSRange(location: 0, length: s.length))
         for i in p.elements.indices { apply(i, of: p, to: s, attachment: attachment) }
@@ -31,11 +42,11 @@ struct LiveStyle {
     }
 
     /// Style element `index` of `p` in `s`, which holds `p.display`.
-    func apply(_ index: Int, of p: LiveProjection, to s: NSTextStorage, attachment: (Int) -> NSTextAttachment?) {
+    func apply(_ index: Int, of p: LiveProjection, to s: NSMutableAttributedString, attachment: (Int) -> NSTextAttachment?) {
         let e = p.elements[index]
         let display = p.display
-        let fg = NSColor(token: .fg)
-        let dim = NSColor(token: .fgDim)
+        let fg = Self.color(.fg)
+        let dim = Self.color(.fgDim)
         let range = p.displayRange(e.range)
         let content = p.displayRange(e.content)
         // The display paragraphs the element's lines became.
@@ -85,7 +96,9 @@ struct LiveStyle {
             let style = NSMutableParagraphStyle()
             style.paragraphSpacingBefore = LiveLayout.blockMargin
             style.paragraphSpacing = LiveLayout.blockMargin
+            // Equations and pictures are centred, as on the page.
             if case .mathBlock = e.kind { style.alignment = .center }
+            if case .image = e.kind { style.alignment = .center }
             s.addAttribute(.paragraphStyle, value: style, range: display.paragraphRange(for: NSRange(location: at, length: 0)))
         case .math:
             guard let at = p.attachment(of: index), let a = attachment(index) else { return }
@@ -119,16 +132,16 @@ struct LiveStyle {
     /// page.css's .hl-* colours.
     private static func color(_ c: Highlight.Class) -> NSColor {
         switch c {
-        case .keyword: NSColor(token: .synKeyword)
-        case .string: NSColor(token: .synString)
-        case .number: NSColor(token: .synNumber)
-        case .comment: NSColor(token: .synComment)
-        case .function, .variable: NSColor(token: .synAttr)
+        case .keyword: color(.synKeyword)
+        case .string: color(.synString)
+        case .number: color(.synNumber)
+        case .comment: color(.synComment)
+        case .function, .variable: color(.synAttr)
         }
     }
 
     /// Change the paragraph style over `r`, keeping what is set there.
-    private func change(_ r: NSRange, in s: NSTextStorage, _ body: (NSMutableParagraphStyle) -> Void) {
+    private func change(_ r: NSRange, in s: NSMutableAttributedString, _ body: (NSMutableParagraphStyle) -> Void) {
         guard s.length > 0 else { return }
         let current = (s.attribute(.paragraphStyle, at: min(r.location, s.length - 1), effectiveRange: nil) as? NSParagraphStyle) ?? .default
         let style = current.mutableCopy() as! NSMutableParagraphStyle
@@ -138,7 +151,7 @@ struct LiveStyle {
 
     /// Change the font across a range that may already mix fonts, e.g.
     /// emphasis inside a heading.
-    private func convert(_ range: NSRange, in s: NSTextStorage, _ f: (NSFont) -> NSFont) {
+    private func convert(_ range: NSRange, in s: NSMutableAttributedString, _ f: (NSFont) -> NSFont) {
         guard range.length > 0 else { return }
         s.enumerateAttribute(.font, in: range) { value, r, _ in
             s.addAttribute(.font, value: f(value as? NSFont ?? font), range: r)
@@ -184,14 +197,8 @@ final class LiveAttachmentCell: NSTextAttachmentCell {
         NSGraphicsContext.restoreGraphicsState()
 
         // Selected, it shows as selected, as a Notion block does.
-        let selection = layoutManager.firstTextView?.selectedRange() ?? NSRange(location: 0, length: 0)
-        if selection.length > 0, NSLocationInRange(characterIndex, selection) {
-            let path = NSBezierPath(roundedRect: frame.insetBy(dx: -4, dy: -4), xRadius: 6, yRadius: 6)
-            NSColor.controlAccentColor.withAlphaComponent(0.1).setFill()
-            path.fill()
-            NSColor.controlAccentColor.setStroke()
-            path.lineWidth = 2
-            path.stroke()
+        if (layoutManager as? LiveLayout)?.isSelected(characterIndex) == true {
+            LiveLayout.drawSelectionRing(frame.insetBy(dx: -5, dy: -5), radius: radius + 4)
         }
     }
 
@@ -242,18 +249,22 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
     }
 
     var state = State()
-    /// The code block the pointer is over, and whether it is over its copy
-    /// button. The button shows only then, as on the page.
-    var hoveredCode: Int?
-    var hoveringButton = false
-    /// The code block or equation whose copy button just copied, showing
-    /// a check.
+    /// The block under the pointer, by element, and the control of its
+    /// chrome the pointer is on (`BlockChrome.swift`).
+    var hovered: Int?
+    var hoveredControl: Chrome.Control?
+    /// The block whose copy button just copied, showing a check.
     var copiedCode: Int?
-    /// Display equations: where each one's attachment is, and its element.
-    var mathBlocks: [(at: Int, element: Int)] = []
-    /// The equation under the pointer, and the button it is over.
-    var hoveredMath: Int?
-    var hoveredMathButton: MathBlockCell.Button?
+    /// The drawn blocks (equations, tables, pictures): where each one's
+    /// attachment is, its element, and what it is.
+    var atoms: [(at: Int, element: Int, kind: Chrome.Kind)] = []
+    /// Where the drawn blocks are. Selected, they draw a ring of their own
+    /// instead of the text's highlight.
+    var blocks = IndexSet()
+    /// While a block is dragged by its handle: the block, and the line it
+    /// would land on (container y).
+    var dragging: Int?
+    var dropLine: CGFloat?
     /// The text view's selection, in display positions, kept by the editor.
     var selection = NSRange(location: 0, length: 0)
 
@@ -327,13 +338,11 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
             NSColor(token: .edgeTop).setStroke()
             path.lineWidth = 1
             path.stroke()
-            // The copy button on hover, as on the page, and while the block
-            // is edited. The language, which the fence would otherwise keep,
-            // shows while the block is edited; clicking it edits the
-            // language.
-            let editing = editingCode?.element == block.element
-            guard editing || block.element == hoveredCode || block.element == copiedCode else { continue }
-            drawControls(for: block, editing: editing, at: origin)
+            // All of its lines selected, the block shows as selected, as a
+            // drawn block does.
+            if selection.length > 0, selection.location <= block.lines.location, NSMaxRange(selection) >= NSMaxRange(block.lines) - 1 {
+                Self.drawSelectionRing(r, radius: 14)
+            }
         }
 
         // Inline code's pill: as tall as its own font around its baseline,
@@ -411,6 +420,23 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         tick.stroke()
     }
 
+    /// Whether the attachment at display `i` is in the selection, or
+    /// under a modal cursor.
+    func isSelected(_ i: Int) -> Bool {
+        guard let view = firstTextView else { return false }
+        let s = view.selectedRange()
+        return s.length > 0 && NSLocationInRange(i, s) || (view as? LiveTextView)?.cursorBlock == i
+    }
+
+    /// The ring around a selected block: the accent colour, as Notion's
+    /// and Linear's.
+    static func drawSelectionRing(_ rect: NSRect, radius: CGFloat) {
+        let path = NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), xRadius: radius, yRadius: radius)
+        NSColor.controlAccentColor.setStroke()
+        path.lineWidth = 2
+        path.stroke()
+    }
+
     // MARK: Geometry
 
     /// The used rect of the line at display position `i`; past the last
@@ -451,45 +477,6 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         return boundingRect(forGlyphRange: glyphRange(forCharacterRange: NSRange(location: character, length: 1), actualCharacterRange: nil), in: container)
     }
 
-    /// The equation and its button at `point`, if the pointer is on one.
-    func mathButton(at point: NSPoint) -> (element: Int, button: MathBlockCell.Button)? {
-        for block in mathBlocks {
-            guard let rect = mathRect(at: block.at), rect.contains(point) else { continue }
-            for (button, r) in MathBlockCell.buttons(in: rect) where r.contains(point) {
-                return (block.element, button)
-            }
-        }
-        return nil
-    }
-
-    /// An equation's copy and edit buttons, under the pointer or just
-    /// after copying, as code blocks show theirs.
-    func drawMathControls(for element: Int, in frame: NSRect) {
-        guard hoveredMath == element || copiedCode == element else { return }
-        for (button, rect) in MathBlockCell.buttons(in: frame) {
-            let over = hoveredMath == element && hoveredMathButton == button
-            if over {
-                NSColor(token: .surfaceRaised).setFill()
-                NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
-            }
-            let copied = button == .copy && copiedCode == element
-            let symbol = button == .edit ? "chevron.left.forwardslash.chevron.right" : copied ? "checkmark" : "square.on.square"
-            Self.icon(symbol, color: NSColor(token: over || copied ? .fg : .fgDim), in: rect.insetBy(dx: 6, dy: 6))
-        }
-    }
-
-    /// The code block whose language label is at `point`. The label is
-    /// drawn only while the block is edited.
-    func languageLabel(at point: NSPoint) -> State.Code? {
-        guard let code = editingCode else { return nil }
-        return labelRect(code)?.insetBy(dx: -6, dy: -4).contains(point) == true ? code : nil
-    }
-
-    /// The code block whose copy button is at `point`.
-    func copyButton(at point: NSPoint) -> State.Code? {
-        state.code.first { copyButtonRect($0)?.contains(point) ?? false }
-    }
-
     /// The code block whose caret is inside: its language label shows.
     /// An empty block has no characters of its own; its caret is at its
     /// start. `selection` is the text view's, kept here by the editor.
@@ -509,24 +496,8 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
             .insetBy(dx: 0, dy: Self.codeMargin)
     }
 
-    /// The copy button's rect: top right, on the first line's centre, so
-    /// its icon lines up with the code.
-    func copyButtonRect(_ block: State.Code) -> NSRect? {
-        guard let box = codeBlockRect(block.lines) else { return nil }
-        let side: CGFloat = 28
-        let line = usedRect(at: block.lines.location)?.midY ?? box.minY + 4 + side / 2
-        return NSRect(x: box.maxX - side - 10, y: line - side / 2, width: side, height: side)
-    }
-
-    /// The language label's rect: left of the copy button, on its line.
-    func labelRect(_ block: State.Code) -> NSRect? {
-        guard let button = copyButtonRect(block) else { return nil }
-        let size = Self.label(block.label).size()
-        return NSRect(x: button.minX - size.width - 10, y: button.midY - size.height / 2, width: size.width, height: size.height)
-    }
-
     /// Top of a range's first line to the bottom of its last.
-    private func verticalExtent(of range: NSRange) -> (CGFloat, CGFloat)? {
+    func verticalExtent(of range: NSRange) -> (CGFloat, CGFloat)? {
         guard let storage = textStorage, storage.length > 0 else { return nil }
         let first = min(range.location, storage.length - 1)
         let last = min(max(range.location, NSMaxRange(range) - 1), storage.length - 1)
@@ -535,7 +506,7 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         return (top.minY, bottom.maxY)
     }
 
-    private func font(at i: Int) -> NSFont {
+    func font(at i: Int) -> NSFont {
         guard let storage = textStorage, storage.length > 0 else { return .systemFont(ofSize: 13) }
         return storage.attribute(.font, at: min(i, storage.length - 1), effectiveRange: nil) as? NSFont ?? .systemFont(ofSize: 13)
     }
@@ -547,39 +518,6 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
 
     static func boxSide(_ font: NSFont) -> CGFloat { (font.capHeight + 5).rounded() }
 
-    /// The copy button and, beside it, the language label while editing.
-    private func drawControls(for block: State.Code, editing: Bool, at origin: NSPoint) {
-        if editing, let label = labelRect(block)?.offsetBy(dx: origin.x, dy: origin.y) {
-            Self.label(block.label).draw(at: label.origin)
-        }
-        let showing = editing || block.element == hoveredCode || block.element == copiedCode
-        guard showing, let rect = copyButtonRect(block)?.offsetBy(dx: origin.x, dy: origin.y) else { return }
-        if block.element == hoveredCode, hoveringButton {
-            NSColor(token: .surfaceRaised).setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
-        }
-        let copied = block.element == copiedCode
-        let color: ThemeToken = copied || (hoveringButton && block.element == hoveredCode) ? .fg : .fgDim
-        Self.icon(copied ? "checkmark" : "square.on.square", color: NSColor(token: color), in: rect.insetBy(dx: 6, dy: 6))
-    }
-
-    /// A symbol tinted with `color`, centred in `rect`. Drawn rather than
-    /// put in a button: the page's button is drawn by the layout too.
-    static func icon(_ name: String, color: NSColor, in rect: NSRect) {
-        let resolved = color.usingColorSpace(.sRGB) ?? color
-        let configuration = NSImage.SymbolConfiguration(paletteColors: [resolved])
-            .applying(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
-        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return }
-        let size = image.size
-        image.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height))
-    }
-
-    private static func label(_ language: String) -> NSAttributedString {
-        NSAttributedString(string: language, attributes: [
-            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-            .foregroundColor: NSColor(token: .fgDim),
-        ])
-    }
 }
 
 extension LiveLayout.State {
