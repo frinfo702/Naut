@@ -155,6 +155,9 @@ enum Metrics {
     /// overshoot, since it happens rarely and is worth noticing.
     static let arriveSpring = Spring(duration: 0.45, bounce: 0.3)
     static let arrive = Animation.spring(arriveSpring)
+    /// A pane splitting off, maximizing or floating: no overshoot, since
+    /// panes that bounce past their edge read as jitter, not motion.
+    static let paneSplit = Animation.smooth(duration: 0.3)
     static let paneCloseDuration = 0.25
     /// How much of itself a pane without the focus keeps.
     static let unfocusedPaneOpacity = 0.6

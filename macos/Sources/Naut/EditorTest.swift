@@ -113,6 +113,7 @@ enum EditorTest {
     private final class Model: ObservableObject {
         @Published var text = ""
         @Published var keymap = EditorKeymap.normal
+        @Published var displayLines = false
     }
 
     private struct Host: View {
@@ -130,6 +131,7 @@ enum EditorTest {
                 title: "Editor test",
                 themeRevision: 0,
                 keymap: model.keymap,
+                displayLineMotion: model.displayLines,
                 cursorShape: .match,
                 cursorBlink: .normal,
                 mode: $mode,
@@ -255,6 +257,89 @@ enum EditorTest {
         }
         press("d")
         if editor.source != "a\nb" { failures.append("helix: d on a block gave \(editor.source.debugDescription)") }
+        // Move by display line: j and k step through a wrapped line, as
+        // gj and gk do, and leave it for the next source line at its end.
+        model.keymap = .vim
+        model.displayLines = true
+        try? await Task.sleep(for: .milliseconds(300))
+        let wrapped = String(repeating: "word ", count: 80) + "end\nnext"
+        model.text = wrapped
+        editor.load(wrapped)
+        body.layoutManager?.ensureLayout(for: body.textContainer!)
+        body.setSelectedRange(NSRange(location: 0, length: 0))
+        press("j")
+        let newline = (wrapped as NSString).range(of: "\n").location
+        let down = body.selectedRange().location
+        if down == 0 || down >= newline { failures.append("display lines: j went to \(down), not within the wrapped line") }
+        press("k")
+        if body.selectedRange().location != 0 { failures.append("display lines: k went to \(body.selectedRange().location), not 0") }
+        press("G")
+        press("k")
+        let up = body.selectedRange().location
+        if up >= newline || up < newline - 200 { failures.append("display lines: k from the next line went to \(up), not the wrapped line's last row") }
+        // Helix keeps the column too, rather than stopping at the row's end.
+        model.keymap = .helix
+        try? await Task.sleep(for: .milliseconds(300))
+        body.setSelectedRange(NSRange(location: 12, length: 0))
+        press("j")
+        let rows = { (p: Int) -> CGFloat in
+            let layout = body.layoutManager!
+            return layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: p), effectiveRange: nil).minY
+        }
+        let column = { (p: Int) -> CGFloat in
+            let layout = body.layoutManager!
+            return layout.location(forGlyphAt: layout.glyphIndexForCharacter(at: p)).x
+        }
+        let helixDown = body.selectedRange().location
+        if rows(helixDown) <= rows(12) || abs(column(helixDown) - column(12)) > 12 {
+            failures.append("display lines: helix j went from 12 to \(helixDown), not the same column a row down")
+        }
+        // Past a short row and a blank line, j comes back to the column
+        // it started from, as Helix's goal column does; on wide Japanese
+        // characters it doesn't creep left a character a row.
+        let paragraphs = String(repeating: "wrapped words ", count: 14) + "end\n\n" + String(repeating: "more words ", count: 30)
+        let japanese = String(repeating: "折り返しのある行を何度も書いてテストする。", count: 12)
+        for (sample, presses) in [(paragraphs, 4), (japanese, 4)] {
+            model.text = sample
+            editor.load(sample)
+            body.layoutManager?.ensureLayout(for: body.textContainer!)
+            body.setSelectedRange(NSRange(location: 30, length: 0))
+            for _ in 0..<presses { press("j") }
+            let p = body.selectedRange().location
+            if abs(column(p) - column(30)) > 16 || rows(p) <= rows(30) {
+                failures.append("display lines: \(presses) j from 30 went to \(p), x \(column(p)), not x \(column(30))")
+            }
+        }
+        // j onto a row that a wrap starts mid-word lands on that row's
+        // first character and draws the caret there, not at the end of
+        // the row above; gl and gh stop at the row's ends.
+        let prose = "この issue は ISSUE-1924 と、その追加実験 ISSUE-1925 の報告である。関係を部品のプログラムとして定義で与え、カメラの姿勢を入れれば、視点に依存する関係が解けるかを測った。" + japanese
+        model.text = prose
+        editor.load(prose)
+        body.layoutManager?.ensureLayout(for: body.textContainer!)
+        body.setSelectedRange(NSRange(location: 0, length: 0))
+        press("j")
+        let second = body.selectedRange().location
+        body.updateInsertionPointStateAndRestartTimer(true)
+        body.display()
+        if second == 0 || abs(column(second) - column(0)) > 1 || rows(second) <= rows(0) {
+            failures.append("display lines: j from 0 went to \(second), x \(column(second)), not the next row's start")
+        } else if abs(body.testInsertionRect.minY - body.textContainerOrigin.y - rows(second)) > 8 {
+            failures.append("display lines: the caret at \(second) was drawn at y \(body.testInsertionRect.minY), not on its row at \(rows(second))")
+        }
+        body.setSelectedRange(NSRange(location: 0, length: 0))
+        press("g"); press("l")
+        if body.selectedRange().location != second - 1 { failures.append("display lines: gl went to \(body.selectedRange().location), not \(second - 1)") }
+        press("g"); press("h")
+        if body.selectedRange().location != 0 { failures.append("display lines: gh went to \(body.selectedRange().location), not 0") }
+        model.keymap = .vim
+        model.displayLines = false
+        try? await Task.sleep(for: .milliseconds(300))
+        model.text = wrapped
+        editor.load(wrapped)
+        body.setSelectedRange(NSRange(location: 0, length: 0))
+        press("j")
+        if body.selectedRange().location != newline + 1 { failures.append("source lines: j went to \(body.selectedRange().location), not \(newline + 1)") }
         if !failures.isEmpty { fail(failures) }
         if let i = CommandLine.arguments.firstIndex(of: "--shots"), i + 1 < CommandLine.arguments.count {
             await shoot(model, editor, body, into: URL(filePath: CommandLine.arguments[i + 1]))

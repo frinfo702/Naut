@@ -50,8 +50,8 @@ struct Panes: View {
             }
             // Floating and maximizing are a pane changing its frame, on the
             // spring a new pane arrives on. Not the drag of a floating one.
-            .animation(reduceMotion ? nil : Metrics.arrive, value: store.maximized)
-            .animation(reduceMotion ? nil : Metrics.arrive, value: Set(store.floating.keys))
+            .animation(reduceMotion ? nil : Metrics.paneSplit, value: store.maximized)
+            .animation(reduceMotion ? nil : Metrics.paneSplit, value: Set(store.floating.keys))
             .onChange(of: geometry.size, initial: true) { _, size in store.paneArea = size }
         }
     }
@@ -175,7 +175,7 @@ extension Store {
     private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
     func splitAnimated(_ direction: SplitDirection) {
-        withAnimation(reduceMotion ? nil : Metrics.arrive) { split(direction) }
+        withAnimation(reduceMotion ? nil : Metrics.paneSplit) { split(direction) }
     }
 
     /// Leaving is quicker than arriving and doesn't bounce.
@@ -319,6 +319,7 @@ struct NotePane: View {
             title: note.title,
             themeRevision: store.themeRevision,
             keymap: store.keymap,
+            displayLineMotion: store.displayLineMotion,
             cursorShape: store.cursorShape,
             cursorBlink: store.cursorBlink,
             mode: $modalMode,

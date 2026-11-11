@@ -34,6 +34,8 @@ struct LiveEditor: NSViewRepresentable {
     let themeRevision: Int
     /// Vim, Helix or the standard keys.
     let keymap: EditorKeymap
+    /// j and k move through wrapped lines rather than source lines.
+    let displayLineMotion: Bool
     let cursorShape: CursorShape
     let cursorBlink: CursorBlink
     /// The modal mode, shown in the corner and used for the cursor shape.
@@ -100,10 +102,11 @@ struct LiveEditor: NSViewRepresentable {
         view.modalMode = mode
         c.keymap = keymap
         c.modal.keymap = keymap
+        c.modal.displayLines = displayLineMotion
         c.cursorShape = cursorShape
         c.cursorBlink = cursorBlink
         view.appearanceChanged = { [weak c] in c?.refresh() }
-        view.widthChanged = { [weak c] in c?.refresh() }
+        view.widthChanged = { [weak c] in c?.widthChanged() }
         view.click = { [weak c] in c?.click(at: $0, count: $1) ?? false }
         view.selectAllInBlock = { [weak c] in c?.selectAllInBlock() ?? false }
         view.key = { [weak c] in c?.key($0) ?? false }
@@ -182,6 +185,7 @@ struct LiveEditor: NSViewRepresentable {
             // Later: making a first responder isn't for a view update.
             DispatchQueue.main.async { view.takeKeyboard() }
         }
+        c.modal.displayLines = displayLineMotion
         if c.keymap != keymap {
             c.keymap = keymap
             c.modal.keymap = keymap
@@ -445,6 +449,18 @@ struct LiveEditor: NSViewRepresentable {
             if let a = typingAttributes(at: view.selectedRange()) { view.typingAttributes = a }
             relayoutEnd()
             positionMath()
+        }
+
+        private var widthSettle: DispatchWorkItem?
+
+        /// The width moves every frame while a pane splits, closes or the
+        /// window is resized; restyling the whole note each time made those
+        /// stutter. Pictures and tables are fitted once it stops instead.
+        func widthChanged() {
+            widthSettle?.cancel()
+            let settle = DispatchWorkItem { [weak self] in self?.refresh() }
+            widthSettle = settle
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: settle)
         }
 
         /// Redo the look, e.g. when images arrive or the appearance, width
@@ -1422,7 +1438,15 @@ extension LiveEditor.Coordinator: ModalTarget {
 
     var modalSelection: NSRange {
         get { view?.selectedRange() ?? NSRange(location: 0, length: 0) }
-        set { place(newValue) }
+        set {
+            place(newValue)
+            // A caret at a wrap belongs to the row it starts, where the
+            // block cursor's character is; AppKit would draw it at the end
+            // of the row before.
+            if let view, modal.mode != .insert, view.selectedRange().length == 0 {
+                view.setSelectedRange(view.selectedRange(), affinity: .downstream, stillSelecting: false)
+            }
+        }
     }
 
     var modalIsComposing: Bool { view?.hasMarkedText() ?? false }
@@ -1546,6 +1570,85 @@ extension LiveEditor.Coordinator: ModalTarget {
 
     func modalScrollToVisible() {
         view?.scrollRangeToVisible(selectionForScroll())
+    }
+
+    func modalDisplayRow(at position: Int) -> NSRange? {
+        guard let view, let layout = view.layoutManager else { return nil }
+        let text = projection.display
+        guard position < text.length else { return nil }
+        layout.ensureLayout(forCharacterRange: NSRange(location: position, length: 1))
+        var glyphs = NSRange()
+        layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: position), effectiveRange: &glyphs)
+        var row = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        if row.length > 0, text.character(at: NSMaxRange(row) - 1) == 0x0A { row.length -= 1 }
+        return row
+    }
+
+    func modalDisplayLineTarget(from position: Int, delta: Int, allowLineEnd: Bool, goal: inout CGFloat?) -> Int? {
+        guard let view, let layout = view.layoutManager, let container = view.textContainer else { return nil }
+        let length = projection.display.length
+        guard length > 0, delta != 0 else { return nil }
+        layout.ensureLayout(for: container)
+        let glyphs = layout.numberOfGlyphs
+        guard glyphs > 0 else { return nil }
+        let extra = layout.extraLineFragmentRect
+        let hasExtra = extra.height > 0
+
+        // The caret's fragment and x. Past the last character it sits on
+        // the empty line after a trailing newline, or after the last glyph.
+        var inExtra = position >= length && hasExtra
+        var glyph = layout.glyphIndexForCharacter(at: min(position, length - 1))
+        var range = NSRange()
+        var fragment = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: &range)
+        let x: CGFloat
+        if let goal {
+            x = goal
+        } else if inExtra {
+            x = 0
+        } else if position >= length {
+            x = layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).maxX
+        } else {
+            x = fragment.minX + layout.location(forGlyphAt: glyph).x
+        }
+        goal = x
+
+        for _ in 0..<abs(delta) {
+            if delta > 0 {
+                guard !inExtra else { break }
+                let next = NSMaxRange(range)
+                if next >= glyphs {
+                    guard hasExtra else { break }
+                    inExtra = true
+                    continue
+                }
+                glyph = next
+            } else if inExtra {
+                inExtra = false
+                glyph = glyphs - 1
+            } else {
+                guard range.location > 0 else { break }
+                glyph = range.location - 1
+            }
+            fragment = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: &range)
+        }
+        if inExtra { return length }
+
+        var fraction: CGFloat = 0
+        let hit = layout.glyphIndex(for: NSPoint(x: x, y: fragment.midY), in: container, fractionOfDistanceThroughGlyph: &fraction)
+        let last = NSMaxRange(range) - 1
+        glyph = min(max(hit, range.location), last)
+        var p = layout.characterIndexForGlyph(at: glyph)
+        let text = projection.display
+        let endsLine = text.character(at: layout.characterIndexForGlyph(at: last)) == 0x0A
+        if glyph == last {
+            if endsLine {
+                // Vim's normal mode stays off the newline unless the line is empty.
+                if !allowLineEnd, glyph > range.location { p = layout.characterIndexForGlyph(at: glyph - 1) }
+            } else if allowLineEnd, fraction > 0.5, NSMaxRange(range) >= glyphs {
+                p = length
+            }
+        }
+        return p
     }
 
     func modalModeChanged(_ mode: ModalMode) {

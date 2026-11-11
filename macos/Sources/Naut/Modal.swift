@@ -19,6 +19,13 @@ protocol ModalTarget: AnyObject {
     func modalUndo()
     func modalRedo()
     func modalScrollToVisible()
+    /// Where moving `delta` wrapped lines from `position` lands, at x
+    /// `goal`, or the caret's own x when nil, which it then sets; nil when
+    /// the layout can't say.
+    /// The characters of the wrapped row at `position`, without its
+    /// newline; nil past the end.
+    func modalDisplayRow(at position: Int) -> NSRange?
+    func modalDisplayLineTarget(from position: Int, delta: Int, allowLineEnd: Bool, goal: inout CGFloat?) -> Int?
     func modalModeChanged(_ mode: ModalMode)
 }
 
@@ -38,6 +45,13 @@ final class ModalEngine {
             reset()
         }
     }
+
+    /// j and k step through wrapped lines, as Vim's gj and gk do.
+    var displayLines = false
+    /// The x that j and k keep to across short rows, and the caret they
+    /// left: any other motion moves the caret, which drops it.
+    private var goalX: CGFloat?
+    private var goalCaret = -1
 
     private(set) var mode: ModalMode = .normal
     /// The last yank or linewise delete, for p and P.
@@ -649,11 +663,11 @@ final class ModalEngine {
         case "e":
             setCaret(lastLineStart())
         case "h":
-            setCaret(ModalText.lineRange(text, at: caret).location)
+            setCaret(rowStart(caret))
         case "l":
-            setCaret(NSMaxRange(ModalText.lineContentRange(text, at: caret)))
+            setCaret(rowEnd(caret))
         case "s":
-            setCaret(ModalText.firstNonBlank(text, at: caret))
+            setCaret(rowFirstNonBlank(caret))
         default:
             clearPending()
         }
@@ -842,13 +856,13 @@ final class ModalEngine {
             helixHead = lastLineStart()
             updateHelixSelection()
         case "h":
-            helixHead = ModalText.lineRange(text, at: helixHead).location
+            helixHead = rowStart(helixHead)
             updateHelixSelection()
         case "l":
-            helixHead = NSMaxRange(ModalText.lineContentRange(text, at: helixHead))
+            helixHead = rowEnd(helixHead)
             updateHelixSelection()
         case "s":
-            helixHead = ModalText.firstNonBlank(text, at: helixHead)
+            helixHead = rowFirstNonBlank(helixHead)
             updateHelixSelection()
         default:
             clearPending()
@@ -1082,6 +1096,13 @@ final class ModalEngine {
     }
 
     private func verticalTarget(delta: Int, allowLineEnd: Bool) -> Int {
+        if displayLines {
+            if caret != goalCaret { goalX = nil }
+            if let p = target?.modalDisplayLineTarget(from: caret, delta: delta, allowLineEnd: allowLineEnd, goal: &goalX) {
+                goalCaret = composedStart(p)
+                return goalCaret
+            }
+        }
         let current = ModalText.lineRange(text, at: caret)
         let column = max(0, caret - current.location)
         var start = current.location
@@ -1120,6 +1141,32 @@ final class ModalEngine {
             if i < n - 1, q + 1 < text.length { q += 1 }
         }
         return min(text.length, q + 1)
+    }
+
+    /// The wrapped row at `p`, when j and k move by them.
+    private func displayRow(at p: Int) -> NSRange? {
+        displayLines ? target?.modalDisplayRow(at: p) : nil
+    }
+
+    /// Helix's gh, gl and gs: of the row on screen when moving by
+    /// display line, else of the source line.
+    private func rowStart(_ p: Int) -> Int {
+        displayRow(at: p)?.location ?? ModalText.lineRange(text, at: p).location
+    }
+
+    private func rowEnd(_ p: Int) -> Int {
+        let end = NSMaxRange(ModalText.lineContentRange(text, at: p))
+        // A wrapped row's end is the start of the next row: stop on its
+        // last character instead.
+        guard let row = displayRow(at: p), row.length > 0, NSMaxRange(row) < end else { return end }
+        return composedStart(NSMaxRange(row) - 1)
+    }
+
+    private func rowFirstNonBlank(_ p: Int) -> Int {
+        guard let row = displayRow(at: p), row.location > ModalText.lineRange(text, at: p).location else {
+            return ModalText.firstNonBlank(text, at: p)
+        }
+        return row.location
     }
 
     private func composedStart(_ p: Int) -> Int {

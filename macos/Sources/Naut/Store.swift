@@ -391,6 +391,11 @@ final class Store {
         }
     }
 
+    /// Vim and Helix's j and k move by wrapped line, as gj and gk do.
+    var displayLineMotion = UserDefaults.standard.bool(forKey: "displayLineMotion") {
+        didSet { UserDefaults.standard.set(displayLineMotion, forKey: "displayLineMotion") }
+    }
+
     /// Bar, block or underline; `match` uses a block for Vim and Helix.
     var cursorShape = CursorShape(rawValue: UserDefaults.standard.string(forKey: "cursorShape") ?? "") ?? .match {
         didSet {

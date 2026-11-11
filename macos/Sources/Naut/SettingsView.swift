@@ -87,7 +87,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     private var keywords: [String] {
         switch self {
         case .appearance: ["theme", "dark", "light", "color", "colour", "scheme", "sidebar", "left", "right", "glass", "solid", "pane", "split", "resize", "adaptive", "even"]
-        case .editor: ["font", "size", "typography", "character", "count", "status", "live", "preview", "markdown", "source", "line", "spacing", "density", "compact", "comfortable", "keymap", "vim", "helix", "modal", "normal", "cursor", "caret", "block", "bar", "blink", "sound", "typing", "click", "volume", "mechanical", "switch", "cherry", "topre"]
+        case .editor: ["font", "size", "typography", "character", "count", "status", "live", "preview", "markdown", "source", "line", "spacing", "density", "compact", "comfortable", "keymap", "vim", "helix", "modal", "wrap", "display", "gj", "gk", "normal", "cursor", "caret", "block", "bar", "blink", "sound", "typing", "click", "volume", "mechanical", "switch", "cherry", "topre"]
         case .notes: ["folder", "files", "markdown", "finder", "location"]
         case .publishing: ["cloudflare", "web", "publish", "token", "account", "workers", "terraform"]
         case .shortcuts: ["keyboard", "keys", "bindings", "hotkeys"]
@@ -438,13 +438,18 @@ private struct EditorPane: View {
             title: "Keymap",
             footer: "Vim and Helix add modal editing to both editors. Esc returns to normal mode. A note saves itself and has no process to quit, so there is no command line: `:w` and `:q` have nothing to do."
         ) {
-            SettingsRow(title: "Editing keys", divider: false) {
+            SettingsRow(title: "Editing keys") {
                 Picker("", selection: $store.keymap) {
                     ForEach(EditorKeymap.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .fixedSize()
+            }
+            SettingsRow(title: "Move by display line", subtitle: "j and k step through wrapped lines, like gj and gk", divider: false) {
+                Toggle("", isOn: $store.displayLineMotion)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
             }
         }
 

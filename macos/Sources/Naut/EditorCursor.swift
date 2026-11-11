@@ -432,5 +432,7 @@ class CursorTextView: NSTextView {
     }
 
     var testInsertionHidden: Bool { cursor.isHidden }
+    /// Where AppKit last drew the caret.
+    var testInsertionRect: NSRect { insertionRect }
 #endif
 }
