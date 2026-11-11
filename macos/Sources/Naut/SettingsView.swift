@@ -22,6 +22,7 @@ struct SettingsView: View {
                     switch pane {
                     case .appearance: AppearancePane()
                     case .editor: EditorPane()
+                    case .trackpad: TrackpadPane()
                     case .notes: NotesPane()
                     case .publishing: PublishingPane()
                     case .shortcuts: ShortcutsPane()
@@ -57,7 +58,7 @@ struct SettingsView: View {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case appearance, editor, notes, publishing, shortcuts
+    case appearance, editor, trackpad, notes, publishing, shortcuts
 
     var id: Self { self }
 
@@ -65,6 +66,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: "Appearance"
         case .editor: "Editor"
+        case .trackpad: "Trackpad"
         case .notes: "Notes"
         case .publishing: "Publishing"
         case .shortcuts: "Shortcuts"
@@ -75,6 +77,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: .palette
         case .editor: .symbol("textformat", top: 0x64D2FF, bottom: 0x0A84FF)
+        case .trackpad: .symbol("hand.draw.fill", top: 0x30D158, bottom: 0x248A3D)
         case .notes: .symbol("folder.fill", top: 0xFFD60A, bottom: 0xFF9F0A)
         // Purple globe, like Rex's Remote Hosts. The Cloudflare mark stays
         // on the status card so the two don't repeat each other.
@@ -88,6 +91,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: ["theme", "dark", "light", "color", "colour", "scheme", "sidebar", "left", "right", "glass", "solid", "pane", "split", "resize", "adaptive", "even"]
         case .editor: ["font", "size", "typography", "character", "count", "status", "live", "preview", "markdown", "source", "line", "spacing", "density", "compact", "comfortable", "keymap", "vim", "helix", "modal", "wrap", "display", "gj", "gk", "normal", "cursor", "caret", "block", "bar", "blink", "sound", "typing", "click", "volume", "mechanical", "switch", "cherry", "topre"]
+        case .trackpad: ["gesture", "gestures", "swipe", "two-finger", "sidebar"]
         case .notes: ["folder", "files", "markdown", "finder", "location"]
         case .publishing: ["cloudflare", "web", "publish", "token", "account", "workers", "terraform"]
         case .shortcuts: ["keyboard", "keys", "bindings", "hotkeys"]
@@ -550,6 +554,26 @@ private struct EditorPane: View {
             Text("\(Int(value.wrappedValue)) pt")
                 .font(.system(size: 13).monospacedDigit())
                 .foregroundStyle(Theme.fgDim)
+        }
+    }
+}
+
+private struct TrackpadPane: View {
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        @Bindable var store = store
+
+        SettingsGroup(title: "Trackpad Gestures") {
+            SettingsRow(
+                title: "Swipe to toggle sidebar",
+                subtitle: "Two fingers sideways, anywhere in the window",
+                divider: false
+            ) {
+                Toggle("", isOn: $store.swipeSidebar)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+            }
         }
     }
 }

@@ -98,6 +98,7 @@ struct ContentView: View {
             .hidden()
         }
         .task {
+            store.watchSidebarSwipe()
             if let name = Snapshot.note { store.selection = store.notes.first { $0.name == name }?.id }
             if let scope = Snapshot.palette { palette = scope }
             if let content = Snapshot.split {

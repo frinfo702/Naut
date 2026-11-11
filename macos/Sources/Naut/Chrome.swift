@@ -92,6 +92,35 @@ extension Store {
     func toggleSidebar() {
         withAnimation(.snappy(duration: Metrics.toggleDuration)) { showSidebar.toggle() }
     }
+
+    private static var watchingSwipe = false
+
+    /// A two-finger swipe anywhere in the window pulls the sidebar out
+    /// from its edge or pushes it back. The scroll still reaches the view
+    /// under the pointer; only a gesture that is mostly sideways and long
+    /// enough counts, once, and its momentum is ignored.
+    func watchSidebarSwipe() {
+        // Once for the app: every window shares this store.
+        guard !Self.watchingSwipe else { return }
+        Self.watchingSwipe = true
+        var travel = CGSize.zero
+        var fired = false
+        NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            guard self.swipeSidebar, event.hasPreciseScrollingDeltas, event.momentumPhase == [] else { return event }
+            if event.phase.contains(.began) { travel = .zero; fired = false }
+            guard event.phase.contains(.changed), !fired else { return event }
+            // Where the fingers went, whatever the natural-scrolling setting.
+            let flip: CGFloat = event.isDirectionInvertedFromDevice ? 1 : -1
+            travel.width += event.scrollingDeltaX * flip
+            travel.height += event.scrollingDeltaY
+            guard abs(travel.width) > 60, abs(travel.width) > abs(travel.height) * 2 else { return event }
+            fired = true
+            // Away from the sidebar's edge opens it; toward it closes.
+            let away = self.sidebarSide == .left ? travel.width > 0 : travel.width < 0
+            if away != self.showSidebar { self.toggleSidebar() }
+            return event
+        }
+    }
 }
 
 // MARK: - Panel header

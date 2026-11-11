@@ -405,6 +405,11 @@ final class Store {
         didSet { UserDefaults.standard.set(showSidebar, forKey: "showSidebar") }
     }
 
+    /// A two-finger sideways swipe toggles the sidebar. On by default.
+    var swipeSidebar = UserDefaults.standard.object(forKey: "swipeSidebar") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(swipeSidebar, forKey: "swipeSidebar") }
+    }
+
     var sidebarSide = SidebarSide(rawValue: UserDefaults.standard.string(forKey: "sidebarSide") ?? "") ?? .left {
         didSet { UserDefaults.standard.set(sidebarSide.rawValue, forKey: "sidebarSide") }
     }

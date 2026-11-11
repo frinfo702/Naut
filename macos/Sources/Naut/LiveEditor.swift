@@ -1986,6 +1986,11 @@ final class LiveTextView: CursorTextView {
 /// under the title. Two views, each with only its own content, have no
 /// geometry to reconcile.
 final class LiveDocumentView: NSView {
+    /// Responsive scrolling takes a gesture's scroll events off the main
+    /// thread after the first, so the app never sees the rest of a swipe
+    /// over the note and the sidebar's swipe can't fire there.
+    override class var isCompatibleWithResponsiveScrolling: Bool { false }
+
     let text: LiveTextView
     let title: NSTextField
     /// Between the title and the first line.
