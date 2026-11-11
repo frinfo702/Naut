@@ -47,6 +47,11 @@ enum Snapshot {
     /// text. It edits the note: use a scratch one.
     static var isMathEditTest: Bool { CommandLine.arguments.contains("--math-edit-test") }
 
+    /// `Naut --tab-edit-test --note Name`: switches the pane to the note
+    /// as a tab does, types, and fails unless the store gets it. Restores
+    /// the note afterwards; still, use a scratch one.
+    static var isTabEditTest: Bool { CommandLine.arguments.contains("--tab-edit-test") }
+
     /// `Naut --math-scroll-test --note Name`: with the note's last display
     /// equation open at the bottom of the window, type spaces and fail if
     /// the page moves. It edits the note: use a scratch one long enough
@@ -70,7 +75,7 @@ enum Snapshot {
     /// Any of the harnesses above. They open notes too, and must not change
     /// the user's tabs, favorites or recent notes.
     static var isHarness: Bool {
-        path != nil || EditorTest.isEnabled || isCaretTest || isModalTest || isTitleSwitchTest || isMathEditTest || isMathScrollTest || isDollarTest || isSplitTest
+        path != nil || EditorTest.isEnabled || isTabEditTest || isCaretTest || isModalTest || isTitleSwitchTest || isMathEditTest || isMathScrollTest || isDollarTest || isSplitTest
     }
 
     /// `Naut --snapshot out.png --publish-popover [--note Name]` captures
@@ -162,10 +167,11 @@ enum Snapshot {
         let settings = settingsPane != nil
         // SwiftUI names the Settings window's identifier after the scene.
         let isSettings = { (w: NSWindow) in w.identifier?.rawValue.contains("Settings") == true }
-        guard let window = NSApp.windows.first(where: {
-            $0.isVisible && $0.contentView != nil && $0.identifier != LiveImages.windowID && isSettings($0) == settings
+        guard var window = NSApp.windows.first(where: {
+            $0.isVisible && $0.contentView != nil && $0.identifier != LiveImages.windowID
+                && $0.identifier != ImageViewer.id && isSettings($0) == settings
         }),
-              let view = window.contentView?.superview ?? window.contentView
+              var view = window.contentView?.superview ?? window.contentView
         else { fail("no window to capture") }
 
         if !settings {
@@ -199,6 +205,24 @@ enum Snapshot {
                 layout.hoveredControl = .button(layout.actions(kind)[k])
             }
             body.needsDisplay = true
+        }
+
+        // `--view-image` opens the note's first picture in the viewer and
+        // captures that window instead.
+        if CommandLine.arguments.contains("--view-image"),
+           let body = window.contentView?.descendants(of: LiveTextView.self).first {
+            NSApp.activate(ignoringOtherApps: true)
+            body.viewFirstImage?()
+            try? await Task.sleep(for: settle)
+            guard let viewer = NSApp.windows.first(where: { $0.identifier == ImageViewer.id }),
+                  let frame = viewer.contentView?.superview ?? viewer.contentView else { fail("no image viewer") }
+            // `--maximize`: as the green light does, the bug's way in.
+            if CommandLine.arguments.contains("--maximize") {
+                viewer.zoom(nil)
+                try? await Task.sleep(for: settle)
+            }
+            window = viewer
+            view = frame
         }
 
         if publishPopover {
@@ -495,6 +519,40 @@ enum Snapshot {
         guard names.contains(first.name), names.contains(second.name) else {
             fail("title switch test: a note was renamed (\(first.name), \(second.name) → \(names.sorted()))")
         }
+        exit(0)
+    }
+
+    /// Switches the pane to another note, as a tab does, then types into
+    /// it, and fails unless the store gets what was typed and the caret
+    /// stays after it. The editor once kept writing to the note its pane
+    /// first showed: the edit was dropped and the note reloaded under the
+    /// caret. Restores the note before it exits.
+    @MainActor static func runTabEditTest(store: Store) async {
+        try? await Task.sleep(for: settle)
+        guard let target = store.notes.first(where: { $0.name == note }),
+              let other = store.notes.first(where: { $0.id != target.id })
+        else { fail("tab edit test: needs --note and one other note") }
+        store.selection = other.id
+        try? await Task.sleep(for: .milliseconds(300))
+        store.selection = target.id
+        try? await Task.sleep(for: .milliseconds(300))
+        NSApp.activate(ignoringOtherApps: true)
+        guard let body = NSApp.windows.lazy.compactMap({ $0.contentView?.descendants(of: LiveTextView.self).first }).first,
+              let window = body.window
+        else { fail("tab edit test: no live editor") }
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(body)
+        let original = store.text
+        let end = (body.string as NSString).length
+        body.setSelectedRange(NSRange(location: end, length: 0))
+        body.insertText("zq", replacementRange: body.selectedRange())
+        try? await Task.sleep(for: .milliseconds(300))
+        let typed = store.text.contains("zq")
+        let caret = body.selectedRange()
+        store.text = original
+        try? await Task.sleep(for: .milliseconds(700))
+        guard typed else { fail("tab edit test: the store did not get the typing") }
+        guard caret == NSRange(location: end + 2, length: 0) else { fail("tab edit test: the caret moved to \(caret), not after the typing") }
         exit(0)
     }
 

@@ -111,8 +111,8 @@ extension LiveLayout {
 
     func resizeRect(_ element: Int, _ edge: Chrome.Edge) -> NSRect? {
         guard let r = blockRect(element) else { return nil }
-        let h = min(48, r.height * 0.4)
-        return NSRect(x: edge == .left ? r.minX + 8 : r.maxX - 14, y: r.midY - h / 2, width: 6, height: h)
+        let h = min(40, r.height * 0.35)
+        return NSRect(x: edge == .left ? r.minX + 6 : r.maxX - 10, y: r.midY - h / 2, width: 4, height: h)
     }
 
     /// The block under `p` (container coordinates), and the control of its
@@ -186,15 +186,16 @@ extension LiveLayout {
         }
     }
 
+    /// A grey pill at rest; under the pointer or held, a light white one.
+    /// The same size either way, so the edge doesn't jump as it is grabbed.
     private func drawResizeHandle(_ r: NSRect, over: Bool) {
-        let r = over ? r.insetBy(dx: -1, dy: -4) : r
         let path = NSBezierPath(roundedRect: r, xRadius: r.width / 2, yRadius: r.width / 2)
         NSGraphicsContext.saveGraphicsState()
         let shadow = NSShadow()
         shadow.shadowColor = NSColor.black.withAlphaComponent(0.3)
         shadow.shadowBlurRadius = 3
         shadow.set()
-        NSColor.white.withAlphaComponent(0.95).setFill()
+        (over ? NSColor.white.withAlphaComponent(0.9) : NSColor(white: 0.55, alpha: 0.9)).setFill()
         path.fill()
         NSGraphicsContext.restoreGraphicsState()
         NSColor.black.withAlphaComponent(0.25).setStroke()
@@ -303,72 +304,5 @@ extension LiveLayout {
             .font: NSFont.systemFont(ofSize: size, weight: .medium),
             .foregroundColor: NSColor(token: token),
         ])
-    }
-}
-
-/// A picture full screen over the window: dimmed page, the picture as
-/// large as fits. A click, Esc or Space puts it away.
-final class ImageViewer: NSView {
-    private let image: NSImage
-    private var onClose: () -> Void = {}
-
-    static func show(_ image: NSImage, in window: NSWindow, onClose: @escaping () -> Void) {
-        guard let content = window.contentView else { return }
-        let viewer = ImageViewer(image: image)
-        viewer.onClose = onClose
-        viewer.frame = content.bounds
-        viewer.autoresizingMask = [.width, .height]
-        viewer.alphaValue = 0
-        content.addSubview(viewer)
-        window.makeFirstResponder(viewer)
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            viewer.animator().alphaValue = 1
-        }
-    }
-
-    private init(image: NSImage) {
-        self.image = image
-        super.init(frame: .zero)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.withAlphaComponent(0.85).setFill()
-        bounds.fill()
-        let room = bounds.insetBy(dx: 48, dy: 48)
-        let scale = min(1, room.width / max(image.size.width, 1), room.height / max(image.size.height, 1))
-        let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
-        let rect = NSRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height)
-        NSGraphicsContext.saveGraphicsState()
-        NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).addClip()
-        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])
-        NSGraphicsContext.restoreGraphicsState()
-    }
-
-    override func mouseDown(with event: NSEvent) { close() }
-
-    override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 || event.charactersIgnoringModifiers == " " { close() } else { super.keyDown(with: event) }
-    }
-
-    override func cancelOperation(_ sender: Any?) { close() }
-
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
-
-    private func close() {
-        let onClose = onClose
-        self.onClose = {}
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
-            animator().alphaValue = 0
-        } completionHandler: {
-            self.removeFromSuperview()
-            onClose()
-        }
     }
 }

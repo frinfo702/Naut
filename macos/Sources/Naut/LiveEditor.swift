@@ -111,6 +111,7 @@ struct LiveEditor: NSViewRepresentable {
         view.copySource = { [weak c] in c?.copyMarkdown(of: $0) ?? "" }
         view.copyCode = { [weak c] in c?.copyCode($0) }
         view.editFirstMath = { [weak c] in c?.editFirstMath() }
+        view.viewFirstImage = { [weak c] in c?.viewFirstImage() }
         view.laidOut = { [weak c] in c?.positionMath() }
         view.pasteImage = { [weak c] in c?.pasteImage(from: $0) ?? false }
         view.blockKey = { [weak c] in c?.blockKey($0) ?? false }
@@ -145,6 +146,13 @@ struct LiveEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let view = (scroll.documentView as? LiveDocumentView)?.text else { return }
         let c = context.coordinator
+        // The binding this view was made with, not the one the coordinator
+        // was: a pane's binding names the note the pane showed when it was
+        // made. After a tab switched the pane to another note, edits went to
+        // the old one and were dropped; the store's text then disagreed with
+        // the editor's, which reloaded it, losing what was typed and putting
+        // the caret back.
+        c.rebind(text: $text, mode: $mode)
         var dirty = c.font != font || c.mono != mono || c.baseURL != baseURL
         if let layout = view.layoutManager as? LiveLayout, layout.lineHeight != lineHeight {
             layout.lineHeight = lineHeight
@@ -292,6 +300,11 @@ struct LiveEditor: NSViewRepresentable {
         /// A picture being resized by its handle: its element and width,
         /// drawn at that width until the drag ends and the note is changed.
         private var resizing: (element: Int, width: CGFloat)?
+
+        func rebind(text: Binding<String>, mode: Binding<ModalMode>) {
+            _text = text
+            _mode = mode
+        }
 
         init(text: Binding<String>, mode: Binding<ModalMode>) {
             _text = text
@@ -522,8 +535,12 @@ struct LiveEditor: NSViewRepresentable {
             func rendered(_ markdown: String, width: Double? = nil) -> NSImage? {
                 LiveImages.shared.image(.init(markdown: markdown, width: width, size: font.pointSize, dark: dark))
             }
+            // A point narrower than the line, as an equation's box: an
+            // attachment as wide as its line can fail to fit by a rounding
+            // error, and TextKit then pushes it onto a line of its own.
+            let room = (width - 1).rounded(.down)
             func fitted(_ size: NSSize) -> NSSize {
-                size.width <= width ? size : NSSize(width: width, height: size.height * width / size.width)
+                size.width <= room ? size : NSSize(width: room, height: size.height * room / size.width)
             }
             // What the drawing is of, and the picture if it has arrived.
             let content: String, picture: NSImage?
@@ -881,11 +898,20 @@ struct LiveEditor: NSViewRepresentable {
             replace(scope, with: "", select: NSRange(location: scope.location, length: 0))
         }
 
+        /// The picture in a viewer window of its own; the note gets the
+        /// keyboard back when it closes.
         private func showFullScreen(_ i: Int) {
             guard let view, let window = view.window, let url = imageURL(i), let image = LiveImages.shared.picture(url) else { return }
-            ImageViewer.show(image, in: window) { [weak view] in
-                guard let view else { return }
-                view.window?.makeFirstResponder(view)
+            ImageViewer.show(image, url: url, over: window) { [weak view, weak window] in
+                window?.makeKeyAndOrderFront(nil)
+                if let view { window?.makeFirstResponder(view) }
+            }
+        }
+
+        /// The first picture in the viewer, for the snapshot harness.
+        func viewFirstImage() {
+            if let i = projection.elements.indices.first(where: { if case .image = projection.elements[$0].kind { true } else { false } }) {
+                showFullScreen(i)
             }
         }
 
@@ -959,7 +985,8 @@ struct LiveEditor: NSViewRepresentable {
 
         /// Drag a picture's side: it grows or shrinks about its centre, as
         /// the page centres it, and the note gets its width when let go.
-        /// As wide as the text, it loses its width and fills the column.
+        /// As wide as the text, it keeps that width: without one it would
+        /// fall back to the picture's own size, often smaller.
         ///
         /// ponytail: restyles the note per mouse move. Fine for notes of a
         /// few thousand lines; restyle only the picture's line if it lags.
@@ -967,19 +994,32 @@ struct LiveEditor: NSViewRepresentable {
             guard let view, let layout, let window = view.window, let container = view.textContainer,
                   let rect = layout.blockRect(i) else { return }
             let start = view.convert(window.mouseLocationOutsideOfEventStream, from: nil).x
-            let widest = container.size.width - 2 * container.lineFragmentPadding
+            let widest = (container.size.width - 2 * container.lineFragmentPadding - 1).rounded(.down)
             var width = rect.width
             NSCursor.resizeLeftRight.push()
             while let event = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]), event.type == .leftMouseDragged {
                 let dx = (view.convert(event.locationInWindow, from: nil).x - start) * (edge == .right ? 1 : -1)
-                width = min(widest, max(48, rect.width + 2 * dx))
+                // Never so small that its bar of buttons doesn't fit.
+                width = min(widest, max(min(240, widest), rect.width + 2 * dx))
                 resizing = (i, width)
-                refresh()
+                // Only the picture's run changes, so only its line is laid
+                // out again. A full `refresh()` threw the whole layout away
+                // per move, and the page jumped while it was rebuilt.
+                style()
+                // Held: the handle stays lit though the pointer runs ahead.
+                layout.hovered = i
+                layout.hoveredControl = .resize(edge)
+                view.needsDisplay = true
+                // Restyling resets the cursor rects, and the cursor with them.
+                NSCursor.resizeLeftRight.set()
             }
             NSCursor.pop()
             resizing = nil
-            guard abs(width - rect.width) >= 1 else { return refresh() }
-            perform(editing.resizeImage(i, width: width >= widest - 0.5 ? nil : Int(width.rounded())))
+            guard abs(width - rect.width) >= 1 else { return style() }
+            // Not `perform`: it scrolls to the selection, and a picture made
+            // tall would pull the page out from under the pointer.
+            guard case let .replace(r, text, select) = editing.resizeImage(i, width: Int(width.rounded())) else { return style() }
+            replace(r, with: text, select: select)
         }
 
         /// ⌘V with a picture on the clipboard: kept where Settings says, and
@@ -1546,6 +1586,8 @@ final class LiveTextView: CursorTextView {
     /// Opens the first display equation in place; the snapshot harness
     /// uses it to show the equation editor.
     var editFirstMath: (() -> Void)?
+    /// Opens the first picture in the viewer, for the snapshot harness.
+    var viewFirstImage: (() -> Void)?
     /// A click on something drawn; true if it was handled.
     var click: ((NSPoint, Int) -> Bool)?
     /// ⌘A inside a code block; true if it selected the code.
@@ -1702,6 +1744,18 @@ final class LiveTextView: CursorTextView {
     override func mouseMoved(with event: NSEvent) {
         updateHover()
         super.mouseMoved(with: event)
+        // NSTextView sets the I-beam on every move, over the cursor rects.
+        chromeCursor?.set()
+    }
+
+    /// The cursor the block chrome under the pointer asks for.
+    var chromeCursor: NSCursor? {
+        switch (layoutManager as? LiveLayout)?.hoveredControl {
+        case .handle: .openHand
+        case .button: .pointingHand
+        case .resize: .resizeLeftRight
+        case nil: nil
+        }
     }
 
     override func mouseEntered(with event: NSEvent) {
