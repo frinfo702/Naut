@@ -827,8 +827,35 @@ enum Snapshot {
         guard let field = window.firstResponder as? NSTextView, field.isFieldEditor, !(field is LiveTextView) else {
             fail("split test: the note picker's search field did not take the keyboard")
         }
-        store.closePaneAnimated()
-        try? await Task.sleep(for: .milliseconds(400))
+        /// ⌘W as typed: through the window and the main menu.
+        func commandW() async {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: .command,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, characters: "w", charactersIgnoringModifiers: "w", isARepeat: false, keyCode: 13
+            ) else { fail("split test: could not make ⌘W") }
+            NSApp.sendEvent(event)
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        // ⌘W closes the pane, then with one pane the tab, never the last
+        // tab, and never the window.
+        let tabs = store.tabs.count
+        await commandW()
+        guard store.paneCount == 1, store.tabs.count == tabs else { fail("split test: ⌘W did not close just the pane") }
+        guard store.notes.count >= 2, let note = store.selection,
+              let other = store.notes.first(where: { $0.id != note })?.id else { fail("split test: needs two notes") }
+        store.selection = other
+        store.selection = note
+        let open = store.tabs.count
+        await commandW()
+        guard store.tabs.count == open - 1, !store.tabs.contains(note) else {
+            fail("split test: ⌘W with one pane did not close the tab (\(store.tabs.count) of \(open))")
+        }
+        store.closeOtherTabs(than: note)
+        await commandW()
+        guard store.tabs == [note], store.selection == note, window.isVisible else {
+            fail("split test: ⌘W closed the last tab or the window")
+        }
         guard store.text == text else { fail("split test: the note's text changed") }
         exit(0)
     }

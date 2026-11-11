@@ -94,10 +94,11 @@ final class Store {
         didSet { persist(tabs, as: "tabs") }
     }
 
-    /// Close a tab. Closing the selected one moves to its neighbour, the
-    /// one after it if there is one, as browsers do.
+    /// Close a tab, never the last: a window with no note had no way back.
+    /// Closing the selected one moves to its neighbour, the one after it if
+    /// there is one, as browsers do.
     func closeTab(_ id: Note.ID) {
-        guard let index = tabs.firstIndex(of: id) else { return }
+        guard tabs.count > 1, let index = tabs.firstIndex(of: id) else { return }
         tabs.remove(at: index)
         guard selection == id else { return }
         selection = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)]
@@ -275,6 +276,18 @@ final class Store {
     func focusPane(offset: Int) {
         guard let index = panes.firstIndex(where: { $0.id == focus }) else { return }
         focus(panes[(index + offset + panes.count) % panes.count].id)
+    }
+
+    /// ⌘W: the focused pane, or with one pane its tab. With one tab left,
+    /// nothing.
+    func closePaneOrTab() {
+        if paneCount > 1 {
+            closePaneAnimated()
+        } else if tabs.count > 1, let selection {
+            closeTab(selection)
+        } else {
+            NSSound.beep()
+        }
     }
 
     /// Close a pane, never the last. Closing the focused one focuses the
@@ -650,7 +663,8 @@ final class Store {
         try? FileManager.default.trashItem(at: note.url, resultingItemURL: nil)
         closeTab(note.id)
         reload()
-        selection = selection ?? notes.first?.id
+        // The last tab doesn't close, but its note is gone from it.
+        if selection == nil || selection == note.id { selection = tabs.first ?? notes.first?.id }
     }
 
     private func load() {

@@ -231,7 +231,7 @@ private struct NoteTab: View {
             // The close button covers the end of the name under the pointer,
             // so a tab keeps its width and has no room set aside for it.
             .overlay(alignment: .trailing) {
-                if hovering {
+                if hovering, store.tabs.count > 1 {
                     Button { store.closeTab(note.id) } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 9, weight: .semibold))
@@ -250,6 +250,7 @@ private struct NoteTab: View {
             .onHover { hovering = $0 }
             .contextMenu {
                 Button("Close Tab") { store.closeTab(note.id) }
+                    .disabled(store.tabs.count < 2)
                 Button("Close Other Tabs") { store.closeOtherTabs(than: note.id) }
                     .disabled(store.tabs.count < 2)
             }

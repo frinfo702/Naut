@@ -30,6 +30,20 @@ struct NautApp: App {
                 Button("New Note") { store.newNote() }
                     .keyboardShortcut("n")
             }
+            // ⌘W is the menu's, not a hidden button's: those came and went
+            // with the panes, and the window's Close took ⌘W meanwhile.
+            CommandGroup(replacing: .saveItem) {
+                Button("Close") {
+                    // Settings closes as a window; the image viewer takes
+                    // its own ⌘W before the menu.
+                    if let key = NSApp.keyWindow, key.identifier?.rawValue.contains("Settings") == true {
+                        key.performClose(nil)
+                    } else {
+                        store.closePaneOrTab()
+                    }
+                }
+                .keyboardShortcut("w")
+            }
             CommandGroup(after: .sidebar) {
                 Button("Split Right") { store.splitAnimated(.right) }
                     .keyboardShortcut("d")

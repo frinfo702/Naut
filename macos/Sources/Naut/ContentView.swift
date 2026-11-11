@@ -77,14 +77,6 @@ struct ContentView: View {
             Group {
                 Button("") { palette = palette == nil ? .root : nil }.keyboardShortcut("k")
                 Button("") { palette = .search }.keyboardShortcut("f", modifiers: [.command, .shift])
-                // ⌘W closes the pane, or with one pane the tab; with one tab
-                // left it closes the window, as the menu's Close does when
-                // this button isn't here.
-                if store.paneCount > 1 {
-                    Button("") { store.closePaneAnimated() }.keyboardShortcut("w")
-                } else if store.tabs.count > 1, let selection = store.selection {
-                    Button("") { store.closeTab(selection) }.keyboardShortcut("w")
-                }
             }
             .hidden()
         }
