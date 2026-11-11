@@ -391,8 +391,10 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
                 NSColor(token: .fgDim).setFill()
                 NSBezierPath(ovalIn: NSRect(x: r.maxX - 9, y: r.midY - 2.5, width: 5, height: 5)).fill()
             case let .number(n):
-                let s = NSAttributedString(string: n, attributes: [.font: font(at: item.location), .foregroundColor: NSColor(token: .fgDim)])
-                s.draw(at: NSPoint(x: r.maxX - s.size().width - 4, y: r.midY - s.size().height / 2))
+                // On the text's baseline, as the text's own digits are.
+                let font = font(at: item.location)
+                let s = NSAttributedString(string: n, attributes: [.font: font, .foregroundColor: NSColor(token: .fgDim)])
+                s.draw(at: NSPoint(x: r.maxX - s.size().width - 4, y: r.midY + font.xHeight / 2 - font.ascender))
             case let .task(checked):
                 drawBox(in: r, checked: checked)
             }
@@ -448,13 +450,21 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         return lineFragmentUsedRect(forGlyphAt: glyphIndexForCharacter(at: min(i, storage.length - 1)), effectiveRange: nil)
     }
 
+    /// The baseline of the line at display position `i`: where its first
+    /// glyph sits, so a taller fallback font (Japanese, say) moves it too.
+    private func baseline(at i: Int, used: NSRect, font: NSFont) -> CGFloat {
+        guard let storage = textStorage, i < storage.length else { return used.minY + font.ascender }
+        let g = glyphIndexForCharacter(at: i)
+        return lineFragmentRect(forGlyphAt: g, effectiveRange: nil).minY + location(forGlyphAt: g).y
+    }
+
     /// A list item's marker: in the room its indent leaves before the
     /// text, centred on the text's x-height.
     func markerRect(_ item: State.Item) -> NSRect? {
         guard let used = usedRect(at: item.location), let container = textContainers.first else { return nil }
         let font = self.font(at: item.location)
         let indent = paragraphStyle(at: item.location)?.firstLineHeadIndent ?? LiveStyle.listInset
-        let middle = used.minY + font.ascender - font.xHeight / 2
+        let middle = baseline(at: item.location, used: used, font: font) - font.xHeight / 2
         let side = Self.boxSide(font)
         let right = container.lineFragmentPadding + indent - 8
         if case .task = item.marker {
