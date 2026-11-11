@@ -136,6 +136,31 @@ final class Store {
         }
     }
 
+    /// What a new pane shows.
+    enum SplitContent: String, CaseIterable {
+        /// The note the split pane had.
+        case same
+        /// A new, empty note.
+        case empty
+        /// A picker that finds a note to open.
+        case picker
+
+        var title: String {
+            switch self {
+            case .same: "Same note"
+            case .empty: "New note"
+            case .picker: "Note picker"
+            }
+        }
+    }
+
+    var splitContent = SplitContent(rawValue: UserDefaults.standard.string(forKey: "splitContent") ?? "") ?? .same {
+        didSet {
+            guard !Snapshot.isHarness else { return }
+            UserDefaults.standard.set(splitContent.rawValue, forKey: "splitContent")
+        }
+    }
+
     private var panes: [Pane] { layout.panes }
     var paneCount: Int { panes.count }
 
@@ -215,19 +240,25 @@ final class Store {
         maximized = maximized == id ? nil : id
     }
 
-    /// Open a pane beside or below the focused one, on the same note, and
-    /// focus it: the next note picked opens there.
+    /// Open a pane beside or below the focused one, showing what
+    /// `splitContent` says, and focus it: the next note picked opens there.
     func split(_ direction: SplitDirection) {
         guard canSplit(direction) else {
             NSSound.beep()
             return
         }
-        let pane = Pane(note: selection)
+        let pane = Pane(note: splitContent == .same ? selection : nil)
         layout.split(focus, vertical: direction == .down, new: pane, scaling: paneScaling)
         // The new pane is in the layout, which has to show for it to be seen.
         maximized = nil
         focus = pane.id
         focusRequest += 1
+        // The focused pane's note is the selection, so these fill it.
+        switch splitContent {
+        case .same: break
+        case .empty: newNote()
+        case .picker: selection = nil
+        }
     }
 
     /// Focus a pane; its note becomes the selection.

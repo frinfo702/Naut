@@ -108,6 +108,10 @@ struct ContentView: View {
         .task {
             if let name = Snapshot.note { store.selection = store.notes.first { $0.name == name }?.id }
             if let scope = Snapshot.palette { palette = scope }
+            if let content = Snapshot.split {
+                store.splitContent = content
+                store.split(.right)
+            }
             #if DEBUG
             if EditorTest.isEnabled { await EditorTest.run() }
             if Snapshot.isCaretTest { await Snapshot.runCaretTest() }

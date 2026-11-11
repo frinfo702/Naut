@@ -223,9 +223,10 @@ struct NotePane: View {
                     .onChange(of: note.id) { _, _ in modalMode = .normal }
                     .onChange(of: store.keymap) { _, _ in modalMode = .normal }
             } else {
-                Text("No note selected")
-                    .foregroundStyle(Theme.fgDim)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                NotePicker { id in
+                    store.focus(pane.id)
+                    store.selection = id
+                }
             }
         }
         // The pane is its frame, whatever its content would like to be.
@@ -444,4 +445,101 @@ struct PaneIcon: View {
 private struct PageArrival {
     var opacity = 1.0
     var rise: CGFloat = 0
+}
+
+/// An empty pane's way to a note: a search field that is a button until
+/// pressed, over the notes opened last, or once searching the notes that
+/// match by title or text.
+private struct NotePicker: View {
+    @Environment(Store.self) private var store
+    let open: (Note.ID) -> Void
+    @State private var searching = false
+    @State private var query = ""
+    @State private var index = 0
+    @FocusState private var fieldFocused: Bool
+
+    var body: some View {
+        let notes = notes()
+        VStack(alignment: .leading, spacing: 6) {
+            field
+            ForEach(Array(notes.enumerated()), id: \.element.id) { offset, note in
+                Button { open(note.id) } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "doc.text").foregroundStyle(Theme.fgDim).frame(width: 16)
+                        Text(note.displayName).foregroundStyle(Theme.fgBody).lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 30)
+                    .background {
+                        if searching, offset == index {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.surface)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .hoverFill(Theme.surface, radius: 6)
+                }
+                .buttonStyle(PressStyle())
+            }
+            if searching, notes.isEmpty, !query.isEmpty {
+                Text("No matching notes").foregroundStyle(Theme.fgDim).padding(.horizontal, 10).frame(height: 30)
+            }
+        }
+        .font(.system(size: 13))
+        .frame(maxWidth: 360)
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: query) { _, _ in index = 0 }
+    }
+
+    @ViewBuilder private var field: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(Theme.fgDim)
+            if searching {
+                TextField("Search notes", text: $query)
+                    .textFieldStyle(.plain)
+                    .foregroundStyle(Theme.fg)
+                    .focused($fieldFocused)
+                    .onKeyPress(.downArrow) { move(1) }
+                    .onKeyPress(.upArrow) { move(-1) }
+                    .onKeyPress(.escape) {
+                        searching = false
+                        query = ""
+                        return .handled
+                    }
+                    .onSubmit {
+                        let notes = notes()
+                        if notes.indices.contains(index) { open(notes[index].id) }
+                    }
+            } else {
+                Text("Search notes").foregroundStyle(Theme.fgDim)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 34)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.guide, lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            searching = true
+            fieldFocused = true
+        }
+        .padding(.bottom, 6)
+    }
+
+    /// Recent notes until something is typed, then what matches it.
+    private func notes() -> [Note] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        if searching, !q.isEmpty { return store.search(q).prefix(8).map(\.note) }
+        let recent = store.recent.compactMap { id in store.notes.first { $0.id == id } }
+        return Array((recent.isEmpty ? store.notes : recent).prefix(5))
+    }
+
+    private func move(_ delta: Int) -> KeyPress.Result {
+        let count = notes().count
+        guard count > 0 else { return .ignored }
+        index = (index + delta + count) % count
+        return .handled
+    }
 }

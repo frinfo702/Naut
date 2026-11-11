@@ -389,11 +389,19 @@ private struct AppearancePane: View {
 
         SettingsGroup(
             title: "Panes",
-            footer: "Adaptive keeps the panes of a split at even sizes until you drag a divider there, then leaves your sizes alone. Always even goes back to even sizes on every split. Keep sizes halves the pane you split and touches nothing else."
+            footer: "Adaptive keeps the panes of a split at even sizes until you drag a divider there, then leaves your sizes alone. Always even goes back to even sizes on every split. Keep sizes halves the pane you split and touches nothing else. A new pane shows the same note, a new empty one, or a picker to search for one."
         ) {
-            SettingsRow(title: "When splitting", divider: false) {
+            SettingsRow(title: "When splitting") {
                 Picker("", selection: $store.paneScaling) {
                     ForEach(PaneScaling.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            SettingsRow(title: "New pane shows", divider: false) {
+                Picker("", selection: $store.splitContent) {
+                    ForEach(Store.SplitContent.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()

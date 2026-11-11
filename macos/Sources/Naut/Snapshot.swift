@@ -147,6 +147,14 @@ enum Snapshot {
         return args[i + 1]
     }
 
+    /// `--split same|empty|picker`: split right first, the new pane
+    /// showing that.
+    static var split: Store.SplitContent? {
+        let args = CommandLine.arguments
+        guard path != nil, let i = args.firstIndex(of: "--split"), i + 1 < args.count else { return nil }
+        return Store.SplitContent(rawValue: args[i + 1])
+    }
+
     static var settingsPane: SettingsPane? {
         let args = CommandLine.arguments
         guard path != nil, let i = args.firstIndex(of: "--settings"), i + 1 < args.count else { return nil }
@@ -737,6 +745,7 @@ enum Snapshot {
         }
 
         store.paneScaling = .adaptive
+        store.splitContent = .same
         await step("right", panes: 2) { store.splitAnimated(.right) }
         // No divider dragged yet: a third pane leaves three even ones,
         // and closing it two.
