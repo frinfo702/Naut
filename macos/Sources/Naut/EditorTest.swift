@@ -44,6 +44,7 @@ enum EditorTest {
         ("typing continues bold", "**b‸**", [.type("c")], "**bc‸**"),
         ("return continues a list", "- a‸", [.enter], "- a\n- ‸"),
         ("return on an empty item ends the list", "- a\n- ‸", [.enter], "- a\n‸"),
+        ("return after an ended list stays out of it", "4. a\n5. ‸", [.enter, .enter], "4. a\n\n‸"),
         ("return splits a line", "ab‸cd", [.enter], "ab\n‸cd"),
         ("``` return makes a code block", "```‸", [.enter], "```\n‸\n```"),
         ("typing in a code block", "```\n‸\n```", [.type("x"), .enter, .type("y")], "```\nx\ny‸\n```"),

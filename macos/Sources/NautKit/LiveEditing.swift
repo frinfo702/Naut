@@ -291,8 +291,11 @@ public struct LiveEditing {
         let at = p.position
         let l = line(containing: at)
         let t = source.substring(with: l).trimmingCharacters(in: .whitespaces)
+        // At an element's end only if that end is on this line: the empty
+        // line after a list is past the last item, not in it.
         let element = elements.first {
-            (isLine($0.kind) || isCode($0.kind)) && (NSLocationInRange(at, $0.scope) || at == NSMaxRange($0.scope) && $0.scope.length > 0)
+            (isLine($0.kind) || isCode($0.kind))
+                && (NSLocationInRange(at, $0.scope) || at == NSMaxRange($0.scope) && $0.scope.length > 0 && NSMaxRange($0.scope) > l.location)
         }
 
         if let e = element, isCode(e.kind), at >= e.content.location, at <= NSMaxRange(e.content) {
