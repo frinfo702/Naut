@@ -405,6 +405,12 @@ final class Store {
         didSet { UserDefaults.standard.set(showSidebar, forKey: "showSidebar") }
     }
 
+    /// Only the notes: no title bar, tabs, sidebar, pane headers or panel
+    /// edges. The keyboard keeps every shortcut, splits included. Not kept
+    /// across launches: a window that opens with no way out in sight would
+    /// look broken.
+    var zen = Snapshot.zen
+
     /// A two-finger sideways swipe toggles the sidebar. On by default.
     var swipeSidebar = UserDefaults.standard.object(forKey: "swipeSidebar") as? Bool ?? true {
         didSet { UserDefaults.standard.set(swipeSidebar, forKey: "swipeSidebar") }

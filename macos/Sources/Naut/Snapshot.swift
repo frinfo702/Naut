@@ -86,6 +86,12 @@ enum Snapshot {
 
     /// `Naut --snapshot out.png --publish-popover [--note Name]` captures
     /// the publish popover instead of the window.
+    /// `--zen` opens the window in zen mode; `--unzen` also leaves it
+    /// before the capture, to see the chrome come back; `--enter-zen`
+    /// opens it as usual and goes into zen before the capture.
+    static var zen: Bool { CommandLine.arguments.contains("--zen") || unzen }
+    static var unzen: Bool { CommandLine.arguments.contains("--unzen") }
+    static var enterZen: Bool { CommandLine.arguments.contains("--enter-zen") }
     static var publishPopover: Bool { CommandLine.arguments.contains("--publish-popover") }
 
     /// Focus the Live Preview body before capturing, so its cursor is in
@@ -219,6 +225,12 @@ enum Snapshot {
                 layout.hoveredControl = .button(layout.actions(kind)[k])
             }
             body.needsDisplay = true
+        }
+
+        // `--hover-lights`: in zen, the pointer by the traffic lights.
+        if args.contains("--hover-lights") {
+            window.contentView?.superview?.descendants(of: ZenTrackingView.self).first?.pointAtLights()
+            try? await Task.sleep(for: .milliseconds(500))
         }
 
         // `--view-image` opens the note's first picture in the viewer and

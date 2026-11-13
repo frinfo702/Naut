@@ -132,10 +132,16 @@ private struct DividerHandle: View {
     @State private var hovering = false
 
     var body: some View {
+        let grabbed = hovering || start != nil
         Capsule()
-            .fill(Theme.fgDim.opacity(hovering || start != nil ? 0.7 : 0))
+            .fill(Theme.fgDim.opacity(grabbed ? 0.7 : 0))
             .frame(width: divider.vertical ? Metrics.gripLength : 2, height: divider.vertical ? 2 : Metrics.gripLength)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                // Zen has no panel edges: a hairline, faded at its ends,
+                // keeps one page from running into the next.
+                if store.zen, !grabbed { Hairline(vertical: divider.vertical) }
+            }
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
             .modifier(ResizeCursor(vertical: divider.vertical))
@@ -150,6 +156,25 @@ private struct DividerHandle: View {
                     }
                     .onEnded { _ in start = nil }
             )
+    }
+}
+
+/// The line between two pages in zen.
+private struct Hairline: View {
+    /// Between stacked panes, so lying across.
+    let vertical: Bool
+
+    var body: some View {
+        let fade = Gradient(stops: [
+            .init(color: Theme.line.opacity(0), location: 0),
+            .init(color: Theme.line, location: 0.2),
+            .init(color: Theme.line, location: 0.8),
+            .init(color: Theme.line.opacity(0), location: 1),
+        ])
+        LinearGradient(gradient: fade, startPoint: vertical ? .leading : .top, endPoint: vertical ? .trailing : .bottom)
+            .frame(width: vertical ? nil : 1, height: vertical ? 1 : nil)
+            .padding(vertical ? .horizontal : .vertical, Metrics.panelHeaderHeight)
+            .allowsHitTesting(false)
     }
 }
 
@@ -240,7 +265,9 @@ struct NotePane: View {
         .opacity(focused ? 1 : Metrics.unfocusedPaneOpacity)
         .animation(.easeOut(duration: Metrics.pressDuration), value: focused)
         // A floating pane is over other text, which mustn't show through.
-        .panel(floating ? .solid : store.windowBackground)
+        // In zen the page lies on the window, edgeless, unless it floats
+        // over another.
+        .panel(floating ? .solid : store.windowBackground, bare: store.zen && !floating)
         .shadow(color: .black.opacity(floating ? 0.35 : 0), radius: Metrics.floatShadow, y: Metrics.floatShadow / 2)
         // A click on the header or an empty pane; a click in the text
         // focuses through the editor taking the keyboard.
@@ -282,6 +309,10 @@ struct NotePane: View {
                 .layoutPriority(1)
             }
         }
+        // In zen the header is only room above the page, so the text
+        // stays where it was; a floating pane still drags by it.
+        .opacity(store.zen ? 0 : 1)
+        .allowsHitTesting(!store.zen)
         .font(.system(size: 13))
         .padding(.leading, 18)
         .padding(.trailing, 10)
@@ -342,6 +373,15 @@ struct NotePane: View {
             if store.windowBackground == .solid {
                 LinearGradient(colors: [Theme.bg, Theme.bg.opacity(0)], startPoint: .top, endPoint: .bottom)
                     .frame(height: Metrics.scrollFade)
+                    .allowsHitTesting(false)
+            }
+        }
+        // In zen no panel edge closes the page at the bottom either: the
+        // text runs out into the window rather than into a cut.
+        .overlay(alignment: .bottom) {
+            if store.zen, !floating, store.windowBackground == .solid {
+                LinearGradient(colors: [Theme.bg.opacity(0), Theme.bg], startPoint: .top, endPoint: .bottom)
+                    .frame(height: Metrics.scrollFade * 2)
                     .allowsHitTesting(false)
             }
         }

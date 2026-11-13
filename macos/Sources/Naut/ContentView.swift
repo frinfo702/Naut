@@ -21,20 +21,25 @@ struct ContentView: View {
         // including in Live Preview, where no preview style is built.
         let _ = store.palette(for: colorScheme == .dark)
 
+        let sidebarShown = store.showSidebar && !store.zen
         ZStack {
             HStack(spacing: Metrics.panelGap) {
-                if store.showSidebar, store.sidebarSide == .left { sidebar }
+                if sidebarShown, store.sidebarSide == .left { sidebar }
                 Panes(scrollTarget: $scrollTarget, modes: $modes) { openSettings() }
-                if store.showSidebar, store.sidebarSide == .right { sidebar }
+                if sidebarShown, store.sidebarSide == .right { sidebar }
             }
             .padding([.horizontal, .bottom], Metrics.panelGap)
+            // The title bar's room is the page's too.
+            .ignoresSafeArea(.container, edges: store.zen ? .top : [])
 
             if palette != nil {
                 CommandPalette(scope: $palette, scrollTarget: $scrollTarget) { openSettings() }
                     .transition(.opacity)
             }
         }
-        .background { WindowBackdrop(background: store.windowBackground).ignoresSafeArea() }
+        .background { WindowBackdrop(background: store.windowBackground, zen: store.zen).ignoresSafeArea() }
+        .background { ZenWindow(zen: store.zen).ignoresSafeArea() }
+        .toolbar(store.zen ? .hidden : .visible, for: .windowToolbar)
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 HStack(spacing: 16) {
@@ -117,6 +122,10 @@ struct ContentView: View {
             if Snapshot.isDollarTest { await Snapshot.runDollarTest(store: store) }
             if Snapshot.isSplitTest { await Snapshot.runSplitTest(store: store) }
             #endif
+            if Snapshot.unzen || Snapshot.enterZen {
+                try? await Task.sleep(for: .seconds(1))
+                store.toggleZen()
+            }
             if let path = Snapshot.path {
                 if Snapshot.settingsPane != nil { openSettings() }
                 await Snapshot.capture(to: path)

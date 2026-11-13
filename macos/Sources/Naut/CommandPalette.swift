@@ -126,11 +126,20 @@ struct CommandPalette: View {
                 action: .run { store.toggleFavorite(note.id) }
             ))
         }
+        // Zen has no sidebar to show or hide.
+        if !store.zen {
+            list.append(Command(
+                title: store.showSidebar ? "Hide sidebar" : "Show sidebar",
+                keyword: "sidebar", symbol: store.sidebarSide == .left ? "sidebar.left" : "sidebar.right",
+                shortcut: "⌃⌘S",
+                action: .run { store.toggleSidebar() }
+            ))
+        }
         list.append(Command(
-            title: store.showSidebar ? "Hide sidebar" : "Show sidebar",
-            keyword: "sidebar", symbol: store.sidebarSide == .left ? "sidebar.left" : "sidebar.right",
-            shortcut: "⌃⌘S",
-            action: .run { store.toggleSidebar() }
+            title: store.zen ? "Leave zen mode" : "Enter zen mode",
+            keyword: "zen focus distraction free", symbol: "leaf",
+            shortcut: "⌃⌘Z",
+            action: .run { store.toggleZen() }
         ))
         list.append(Command(
             title: "Move sidebar to the \(store.sidebarSide == .left ? "right" : "left")",

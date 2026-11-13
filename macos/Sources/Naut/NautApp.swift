@@ -56,6 +56,9 @@ struct NautApp: App {
                 Divider()
                 Button(store.showSidebar ? "Hide Sidebar" : "Show Sidebar") { store.toggleSidebar() }
                     .keyboardShortcut("s", modifiers: [.control, .command])
+                    .disabled(store.zen)
+                Button(store.zen ? "Leave Zen Mode" : "Enter Zen Mode") { store.toggleZen() }
+                    .keyboardShortcut("z", modifiers: [.control, .command])
             }
         }
 

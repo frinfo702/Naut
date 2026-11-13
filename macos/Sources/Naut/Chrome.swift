@@ -9,6 +9,8 @@ import SwiftUI
 /// seen through it.
 struct WindowBackdrop: View {
     let background: Store.WindowBackground
+    /// In zen there are no panels to raise: the window is one page.
+    var zen = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -18,7 +20,7 @@ struct WindowBackdrop: View {
             // frame around them sits a step deeper so they read as raised.
             ZStack {
                 Theme.bg
-                Color.black.opacity(colorScheme == .dark ? 0.3 : 0.05)
+                Color.black.opacity(zen ? 0 : colorScheme == .dark ? 0.3 : 0.05)
             }
         case .glass:
             ZStack {
@@ -44,16 +46,18 @@ private struct BehindWindowBlur: NSViewRepresentable {
 extension View {
     /// A floating panel: the theme's background, a hairline edge, round
     /// corners. In Glass it lets some of the desktop through too.
-    func panel(_ background: Store.WindowBackground) -> some View {
+    /// `bare` keeps only the clip: the page lies on the window itself, as
+    /// in zen, and the edge and its shadow fade out.
+    func panel(_ background: Store.WindowBackground, bare: Bool = false) -> some View {
         let shape = RoundedRectangle(cornerRadius: Metrics.panelRadius, style: .continuous)
         return self
-            .background(Theme.bg.opacity(background == .glass ? 0.8 : 1), in: shape)
+            .background(bare ? .clear : Theme.bg.opacity(background == .glass ? 0.8 : 1), in: shape)
             .clipShape(shape)
             // Lit from above, like the Settings groups: the edge carries the
             // depth in dark themes, where a shadow can't be seen.
-            .overlay(shape.strokeBorder(Theme.edge, lineWidth: 1))
+            .overlay(shape.strokeBorder(Theme.edge, lineWidth: 1).opacity(bare ? 0 : 1))
             // A translucent panel would show its own shadow through itself.
-            .shadow(color: .black.opacity(background == .glass ? 0 : 0.05), radius: 5, y: 2)
+            .shadow(color: .black.opacity(bare || background == .glass ? 0 : 0.05), radius: 5, y: 2)
     }
 
     /// A fill under the pointer. It appears at once: hovering happens too
@@ -93,6 +97,16 @@ extension Store {
         withAnimation(.snappy(duration: Metrics.toggleDuration)) { showSidebar.toggle() }
     }
 
+    /// Into zen or out of it, at once. It is a key press: motion would only
+    /// make the page wait, and animating the layout would rewrap the text
+    /// on every frame.
+    func toggleZen() {
+        // The lights back first: the title bar lays the returning toolbar
+        // out around them only if they are there to be seen.
+        if zen { ZenTrackingView.restoreLights() }
+        zen.toggle()
+    }
+
     private static var watchingSwipe = false
 
     /// A two-finger swipe anywhere in the window pulls the sidebar out
@@ -106,7 +120,7 @@ extension Store {
         var travel = CGSize.zero
         var fired = false
         NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-            guard self.swipeSidebar, event.hasPreciseScrollingDeltas, event.momentumPhase == [] else { return event }
+            guard self.swipeSidebar, !self.zen, event.hasPreciseScrollingDeltas, event.momentumPhase == [] else { return event }
             if event.phase.contains(.began) { travel = .zero; fired = false }
             guard event.phase.contains(.changed), !fired else { return event }
             // Where the fingers went, whatever the natural-scrolling setting.
@@ -119,6 +133,108 @@ extension Store {
             let away = self.sidebarSide == .left ? travel.width > 0 : travel.width < 0
             if away != self.showSidebar { self.toggleSidebar() }
             return event
+        }
+    }
+}
+
+/// The window's own controls, which SwiftUI doesn't reach: in zen the
+/// traffic lights fade away, and come back only while the pointer is
+/// near their corner.
+struct ZenWindow: NSViewRepresentable {
+    let zen: Bool
+
+    func makeNSView(context: Context) -> ZenTrackingView { ZenTrackingView() }
+
+    func updateNSView(_ view: ZenTrackingView, context: Context) {
+        view.zen = zen
+    }
+}
+
+/// Spread over the whole window, title bar included, to follow the
+/// pointer. A tracking area reports to its owner whatever is drawn over
+/// it, so the notes above take every click as before.
+final class ZenTrackingView: NSView {
+    var zen = false {
+        didSet {
+            guard zen != oldValue else { return }
+            near = false
+            // Later: a new view is not in its window yet.
+            DispatchQueue.main.async { self.showLights(!self.zen, animated: false) }
+        }
+    }
+
+    /// The pointer is around the lights.
+    private var near = false
+
+    /// How far around the lights the pointer brings them back.
+    private static let reach: CGFloat = 28
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self
+        ))
+    }
+
+    override func mouseMoved(with event: NSEvent) { follow(event) }
+    override func mouseEntered(with event: NSEvent) { follow(event) }
+    override func mouseExited(with event: NSEvent) { setNear(false) }
+
+    private func follow(_ event: NSEvent) {
+        guard zen, let corner = lightsFrame else { return }
+        setNear(corner.insetBy(dx: -Self.reach, dy: -Self.reach).contains(event.locationInWindow))
+    }
+
+    /// Snapshot harness: as if the pointer had come to the lights.
+    func pointAtLights() {
+        guard lightsFrame != nil else { return }
+        setNear(true)
+    }
+
+    private func setNear(_ value: Bool) {
+        guard zen, value != near else { return }
+        near = value
+        showLights(value)
+    }
+
+    /// The three lights, in the window's space.
+    private var lightsFrame: NSRect? {
+        guard let window else { return nil }
+        return [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+            .compactMap { kind in
+                window.standardWindowButton(kind).flatMap { $0.superview?.convert($0.frame, to: nil) }
+            }
+            .reduce(nil) { union, frame in union?.union(frame) ?? frame }
+    }
+
+    /// Every window's lights at full strength, at once.
+    static func restoreLights() {
+        for window in NSApp.windows {
+            for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+                window.standardWindowButton(kind)?.alphaValue = 1
+            }
+        }
+    }
+
+    /// Faded, not disabled: the toolbar lays its items out as if disabled
+    /// lights weren't there, over them once back. Hidden, they can't be
+    /// clicked by accident: the pointer near them shows them first.
+    /// Animated only for the pointer; going into zen is instant like the
+    /// rest of the window.
+    private func showLights(_ show: Bool, animated: Bool = true) {
+        guard let window else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            // Quick to come when looked for, a little slower to go.
+            context.duration = animated ? show ? 0.12 : 0.2 : 0
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
+            for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+                window.standardWindowButton(kind)?.animator().alphaValue = show ? 1 : 0
+            }
         }
     }
 }

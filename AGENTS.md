@@ -12,13 +12,17 @@ A file for [guiding coding agents](https://agents.md/).
   - Prefer to run targeted tests with `-Dtest-filter` because the full
     test suite is slow to run.
 - **Test filter (Zig)**: `zig build test -Dtest-filter=<test name>`
-- **Snapshot (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --snapshot out.png [--note Name] [--light] [--publish-popover] [--focus-editor [--caret N | --select A,B]] [--split same|empty|picker]`
+- **Snapshot (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --snapshot out.png [--note Name] [--light] [--publish-popover] [--focus-editor [--caret N | --select A,B]] [--split same|empty|picker] [--zen | --unzen | --enter-zen [--hover-lights]]`
   - Renders the window, including the web preview and toolbar, to a PNG
     and quits. `--publish-popover` captures the publish popover instead.
     `--focus-editor` focuses the editor body first, so its cursor and
     selection are in the picture; `--caret N` puts the caret at display
     position N, and `--select A,B` selects that display range.
     `--split` splits right first, the new pane showing that.
+    `--zen` opens the window in zen mode; `--unzen` leaves it again
+    before the capture, to check the title bar comes back whole;
+    `--enter-zen` opens as usual and goes into zen before the capture,
+    and `--hover-lights` then brings the pointer to the traffic lights.
     `--hover-block N [--hover-button K]` shows the Nth block's chrome
     (handle, button bar, a picture's resize handles) as if the pointer
     were on it, and the name of its Kth button.
