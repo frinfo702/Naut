@@ -268,6 +268,34 @@ enum EditorTest {
         }
         press("d")
         if editor.source != "a\nb" { failures.append("helix: d on a block gave \(editor.source.debugDescription)") }
+        // j and k between two blocks that touch make a line for the cursor,
+        // gone again once it leaves the line empty.
+        let touching = "$$\nx\n$$\n```\nc\n```"
+        let gapped = "$$\nx\n$$\n\n```\nc\n```"
+        model.text = touching
+        editor.load(touching)
+        body.setSelectedRange(NSRange(location: 0, length: 0))
+        press("j")
+        if editor.source != gapped || body.selectedRange() != NSRange(location: 2, length: 0) {
+            failures.append("helix: j off an equation onto code gave \(editor.source.debugDescription) at \(body.selectedRange())")
+        }
+        press("j")
+        if editor.source != touching || body.selectedRange() != NSRange(location: 2, length: 0) {
+            failures.append("helix: j off the line gave \(editor.source.debugDescription) at \(body.selectedRange())")
+        }
+        press("k")
+        if editor.source != gapped || body.selectedRange() != NSRange(location: 2, length: 0) {
+            failures.append("helix: k off code onto an equation gave \(editor.source.debugDescription) at \(body.selectedRange())")
+        }
+        press("k")
+        if editor.source != touching || body.selectedRange() != NSRange(location: 0, length: 0) {
+            failures.append("helix: k off the line gave \(editor.source.debugDescription) at \(body.selectedRange())")
+        }
+        press("j")
+        press("i")
+        body.insertText("y", replacementRange: body.selectedRange())
+        press("\u{1b}", keyCode: 53)
+        if editor.source != "$$\nx\n$$\ny\n```\nc\n```" { failures.append("helix: typing on the line gave \(editor.source.debugDescription)") }
         // Move by display line: j and k step through a wrapped line, as
         // gj and gk do, and leave it for the next source line at its end.
         model.keymap = .vim

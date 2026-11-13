@@ -27,6 +27,9 @@ protocol ModalTarget: AnyObject {
     func modalDisplayRow(at position: Int) -> NSRange?
     func modalDisplayLineTarget(from position: Int, delta: Int, allowLineEnd: Bool, goal: inout CGFloat?) -> Int?
     func modalModeChanged(_ mode: ModalMode)
+    /// Down (or up) off a block onto another that touches it: make an
+    /// empty line between them for the cursor. False if there is none.
+    func modalOpenGap(below: Bool) -> Bool
 }
 
 /// Vim and Helix keys, turned into motions and edits of `ModalTarget`.
@@ -559,11 +562,15 @@ final class ModalEngine {
         case "j", "down":
             linewiseSelection = false
             collapseHelix(toEnd: false)
-            if let p = helixVerticalTarget(delta: takeCount()) { setCaret(p) }
+            let n = takeCount()
+            if n == 1, target?.modalOpenGap(below: true) == true { break }
+            if let p = helixVerticalTarget(delta: n) { setCaret(p) }
         case "k", "up":
             linewiseSelection = false
             collapseHelix(toEnd: false)
-            if let p = helixVerticalTarget(delta: -takeCount()) { setCaret(p) }
+            let n = takeCount()
+            if n == 1, target?.modalOpenGap(below: false) == true { break }
+            if let p = helixVerticalTarget(delta: -n) { setCaret(p) }
         case "return":
             linewiseSelection = false
             collapseHelix(toEnd: false)

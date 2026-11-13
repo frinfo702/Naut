@@ -539,6 +539,10 @@ struct LiveEditor: NSViewRepresentable {
             guard let view, let layout, let storage = view.textStorage, storage.length > 0 else { return nil }
             if let at = selectedBlock, let i = projection.attachments[at] { return projection.elements[i] }
             let p = view.selectedRange()
+            // Vim's and Helix's normal modes sit on a block, not select it.
+            if p.length == 0, let i = projection.attachments[p.location], projection.elements[i].kind.isBlockAtom {
+                return projection.elements[i]
+            }
             guard p.length == 0,
                   let code = layout.state.code.first(where: { p.location >= $0.lines.location && p.location < NSMaxRange($0.lines) })
             else { return nil }
@@ -1646,6 +1650,10 @@ extension LiveEditor.Coordinator: ModalTarget {
 
     func modalRedo() {
         history.redo()
+    }
+
+    func modalOpenGap(below: Bool) -> Bool {
+        openGap(above: !below)
     }
 
     func modalScrollToVisible() {
