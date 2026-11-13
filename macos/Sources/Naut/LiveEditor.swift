@@ -283,6 +283,12 @@ struct LiveEditor: NSViewRepresentable {
         /// the typing-attribute fix below is needed on entering the extra
         /// line, not once per keystroke typed there.
         private var wasAtEnd = false
+        /// The source position of an empty line made for the caret between
+        /// two blocks that touch, as in Linear: nothing can be typed between
+        /// an equation and the code block right below it otherwise. It goes
+        /// again once the caret leaves it empty; typing there keeps it.
+        private var gap: Int?
+        private var closingGap = false
 
         /// The title as the store has it.
         private(set) var title = ""
@@ -330,6 +336,7 @@ struct LiveEditor: NSViewRepresentable {
             source = text
             pending = nil
             lastTyping = nil
+            gap = nil
             history.removeAllActions()
             modal.reset()
             render(select: NSRange(location: 0, length: 0))
@@ -338,6 +345,7 @@ struct LiveEditor: NSViewRepresentable {
         /// Replace part of the source, as one undoable edit, and show it.
         /// `before` is the selection to restore on undo, if not the current.
         private func replace(_ range: NSRange, with string: String, select: NSRange, typing: Bool = false, before: NSRange? = nil) {
+            gap = nil
             remember(typing: typing, selection: before ?? view?.selectedRange() ?? NSRange(location: 0, length: 0))
             source = (source as NSString).replacingCharacters(in: range, with: string)
             text = source
@@ -364,6 +372,7 @@ struct LiveEditor: NSViewRepresentable {
                 MainActor.assumeIsolated { target.restore(current, selection: currentSelection) }
             }
             lastTyping = nil
+            gap = nil
             source = old
             text = old
             render(select: selection)
@@ -521,6 +530,67 @@ struct LiveEditor: NSViewRepresentable {
                 replace(NSRange(location: end, length: 0), with: "\n", select: NSRange(location: end + 1, length: 0))
             }
             view.scrollRangeToVisible(view.selectedRange())
+        }
+
+        /// The block the caret is in or on, if it is at that block's top
+        /// (`above`) or bottom edge: a selected equation, table or picture,
+        /// or the first or last line of a code block.
+        private func blockAtEdge(above: Bool) -> LiveMarkdown.Element? {
+            guard let view, let layout, let storage = view.textStorage, storage.length > 0 else { return nil }
+            if let at = selectedBlock, let i = projection.attachments[at] { return projection.elements[i] }
+            let p = view.selectedRange()
+            guard p.length == 0,
+                  let code = layout.state.code.first(where: { p.location >= $0.lines.location && p.location < NSMaxRange($0.lines) })
+            else { return nil }
+            func top(_ i: Int) -> CGFloat {
+                layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: min(i, storage.length - 1)), effectiveRange: nil).minY
+            }
+            let edge = above ? code.lines.location : NSMaxRange(code.lines) - 1
+            let here = top(p.location)
+            guard above ? here <= top(edge) : here >= top(edge) else { return nil }
+            return projection.elements[code.element]
+        }
+
+        /// Up or down off a block onto another that touches it: make an
+        /// empty line between them and put the caret there. Not undoable,
+        /// and not kept unless typed into (`closeGap`).
+        private func openGap(above: Bool) -> Bool {
+            guard let view, gap == nil, let block = blockAtEdge(above: above) else { return false }
+            func isBlock(_ e: LiveMarkdown.Element) -> Bool {
+                if case .codeBlock = e.kind { return true }
+                return e.kind.isBlockAtom
+            }
+            let at = above ? block.scope.location : NSMaxRange(block.scope)
+            guard at > 0, at < (source as NSString).length,
+                  (source as NSString).character(at: at - 1) == 0x0A,
+                  projection.elements.contains(where: { isBlock($0) && (above ? NSMaxRange($0.scope) == at : $0.scope.location == at) })
+            else { return false }
+            source = (source as NSString).replacingCharacters(in: NSRange(location: at, length: 0), with: "\n")
+            text = source
+            lastTyping = nil
+            render(selectSource: NSRange(location: at, length: 0))
+            gap = at
+            view.scrollRangeToVisible(view.selectedRange())
+            return true
+        }
+
+        /// Take the gap away once the caret has left it, still empty, and
+        /// keep the selection on what it was on. True if it did.
+        private func closeGap() -> Bool {
+            guard let view, let at = gap, !closingGap, !applying, pending == nil, !view.hasMarkedText() else { return false }
+            let line = projection.display(at: at)
+            let s = view.selectedRange()
+            guard s != NSRange(location: line, length: 0) else { return false }
+            gap = nil
+            guard at < (source as NSString).length, (source as NSString).character(at: at) == 0x0A else { return false }
+            closingGap = true
+            defer { closingGap = false }
+            source = (source as NSString).replacingCharacters(in: NSRange(location: at, length: 1), with: "")
+            text = source
+            func shift(_ i: Int) -> Int { i > line ? i - 1 : i }
+            let start = shift(s.location)
+            render(select: NSRange(location: start, length: shift(NSMaxRange(s)) - start))
+            return true
         }
 
         /// ⌘A in a code block selects its code; again, the note.
@@ -724,6 +794,9 @@ struct LiveEditor: NSViewRepresentable {
                 guard let at = selectedBlock else { return false }
                 leave(at, forward: false)
                 return true
+            case #selector(NSResponder.moveUp(_:)) where openGap(above: true),
+                 #selector(NSResponder.moveDown(_:)) where openGap(above: false):
+                return true
             case #selector(NSResponder.moveDown(_:)):
                 // Down from a block that ends the note makes the line below.
                 guard let at = selectedBlock, at + 1 == projection.display.length else { return false }
@@ -797,6 +870,7 @@ struct LiveEditor: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ note: Notification) {
             guard let view else { return }
+            if closeGap() { return }
             // Moved somewhere else: where it is in the source is the
             // display's to say again.
             if let at = caretSource, view.selectedRange() != NSRange(location: projection.display(at: at), length: 0) { caretSource = nil }

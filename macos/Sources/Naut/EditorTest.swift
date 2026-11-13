@@ -85,6 +85,16 @@ enum EditorTest {
         ("typing replaces a selected block", "a\n«\(picture)»\nb", [.type("z")], "a\nz‸\nb"),
         ("backspace deletes a selected block", "a\n«\(picture)»\nb", [.backspace], "a\n‸b"),
         ("between two blocks", "«\(picture)»\n\(picture)", [.right], "\(picture)\n«\(picture)»"),
+        // Between two blocks that touch, up or down makes a line for the
+        // caret, gone again if left empty.
+        ("up from code under an equation", "$$\nx\n$$\n```\n‸c\n```", [.up], "$$\nx\n$$\n‸\n```\nc\n```"),
+        ("typing keeps the line", "$$\nx\n$$\n```\n‸c\n```", [.up, .type("y")], "$$\nx\n$$\ny‸\n```\nc\n```"),
+        ("down from the line takes it away", "$$\nx\n$$\n```\n‸c\n```", [.up, .down], "$$\nx\n$$\n```\n‸c\n```"),
+        ("up from the line takes it away", "$$\nx\n$$\n```\n‸c\n```", [.up, .up], "«$$\nx\n$$»\n```\nc\n```"),
+        ("down from an equation over code", "«$$\nx\n$$»\n```\nc\n```", [.down], "$$\nx\n$$\n‸\n```\nc\n```"),
+        ("down from code over a picture", "```\na\n‸b\n```\n\(picture)", [.down], "```\na\nb\n```\n‸\n\(picture)"),
+        ("up from a picture under a picture", "\(picture)\n«\(picture)»", [.up], "\(picture)\n‸\n\(picture)"),
+        ("up inside code stays in it", "$$\nx\n$$\n```\na\n‸b\n```", [.up], "$$\nx\n$$\n```\n‸a\nb\n```"),
 
         // Tab.
         ("tab nests an item", "- a\n- ‸b", [.tab], "- a\n  - ‸b"),
