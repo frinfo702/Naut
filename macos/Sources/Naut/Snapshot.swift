@@ -58,6 +58,12 @@ enum Snapshot {
     /// to scroll, ending in a `$$` block.
     static var isMathScrollTest: Bool { CommandLine.arguments.contains("--math-scroll-test") }
 
+    /// `Naut --code-scroll-test --note Name`: with the caret on the last
+    /// line of a code block that ends the note, scrolled to the bottom,
+    /// type spaces and fail if the page moves. It edits the note: use a
+    /// scratch one long enough to scroll, ending in a fenced code block.
+    static var isCodeScrollTest: Bool { CommandLine.arguments.contains("--code-scroll-test") }
+
     /// `Naut --dollar-test --note Name`: type a second `$` after a line's
     /// lone `$`, and fail unless that makes a closed equation, open for
     /// editing, without taking the text below into it. It edits the note:
@@ -75,7 +81,7 @@ enum Snapshot {
     /// Any of the harnesses above. They open notes too, and must not change
     /// the user's tabs, favorites or recent notes.
     static var isHarness: Bool {
-        path != nil || EditorTest.isEnabled || isTabEditTest || isCaretTest || isModalTest || isTitleSwitchTest || isMathEditTest || isMathScrollTest || isDollarTest || isSplitTest
+        path != nil || EditorTest.isEnabled || isTabEditTest || isCaretTest || isModalTest || isTitleSwitchTest || isMathEditTest || isMathScrollTest || isCodeScrollTest || isDollarTest || isSplitTest
     }
 
     /// `Naut --snapshot out.png --publish-popover [--note Name]` captures
@@ -632,6 +638,42 @@ enum Snapshot {
         seen.y.append(scroll.contentView.bounds.origin.y)
         guard seen.y.allSatisfy({ abs($0 - settled) < 1 }) else {
             fail("math scroll test: the page moved while typing: \(settled) → \(seen.y)")
+        }
+        exit(0)
+    }
+
+    @MainActor static func runCodeScrollTest(store _: Store) async {
+        try? await Task.sleep(for: settle)
+        NSApp.activate(ignoringOtherApps: true)
+        guard let body = NSApp.windows.lazy.compactMap({ $0.contentView?.descendants(of: LiveTextView.self).first }).first,
+              let window = body.window, let scroll = body.enclosingScrollView
+        else { fail("code scroll test: no live editor") }
+        window.makeKeyAndOrderFront(nil)
+        guard window.makeFirstResponder(body) else { fail("code scroll test: body did not take focus") }
+        // The end of the code's last line: the display ends in it.
+        let end = (body.string as NSString).length
+        body.setSelectedRange(NSRange(location: max(0, end - 1), length: 0))
+        body.scrollRangeToVisible(body.selectedRange())
+        if let document = scroll.documentView {
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, document.frame.height - scroll.contentView.bounds.height)))
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
+        try? await Task.sleep(for: .seconds(1))
+        let settled = scroll.contentView.bounds.origin.y
+        final class Seen { var y: [CGFloat] = [] }
+        let seen = Seen()
+        scroll.contentView.postsBoundsChangedNotifications = true
+        let observer = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: nil) { n in
+            seen.y.append((n.object as! NSView).bounds.origin.y)
+        }
+        for _ in 0..<6 {
+            body.insertText(" ", replacementRange: body.selectedRange())
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        NotificationCenter.default.removeObserver(observer)
+        seen.y.append(scroll.contentView.bounds.origin.y)
+        guard seen.y.allSatisfy({ abs($0 - settled) < 1 }) else {
+            fail("code scroll test: the page moved while typing: \(settled) → \(seen.y)")
         }
         exit(0)
     }

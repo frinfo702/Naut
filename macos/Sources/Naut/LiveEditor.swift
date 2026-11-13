@@ -780,13 +780,19 @@ struct LiveEditor: NSViewRepresentable {
         /// or a heading's. So once the typing attributes are set (after the
         /// selection changes, not while they are being decided, when the
         /// old ones are still in force), lay the last paragraph out again.
+        ///
+        /// Only with the caret on that line: elsewhere its attributes don't
+        /// show, and the last paragraph may be the very line being typed
+        /// into. Laid out again on every key, a code block that ended the
+        /// note shrank the text for a moment and the page shook.
         private func relayoutEnd() {
-            guard let layout, let storage = view?.textStorage, storage.length > 0,
+            guard let layout, let view, let storage = view.textStorage, storage.length > 0,
+                  view.selectedRange() == NSRange(location: storage.length, length: 0),
                   (storage.string as NSString).character(at: storage.length - 1) == 0x0A
             else { return }
             let last = (storage.string as NSString).paragraphRange(for: NSRange(location: storage.length - 1, length: 0))
             layout.invalidateLayout(forCharacterRange: last, actualCharacterRange: nil)
-            view?.needsDisplay = true
+            view.needsDisplay = true
         }
 
         func textViewDidChangeSelection(_ note: Notification) {
@@ -1995,6 +2001,9 @@ final class LiveDocumentView: NSView {
     let title: NSTextField
     /// Between the title and the first line.
     static let titleGap: CGFloat = 20
+    /// How far past the last line the page scrolls, as a share of the
+    /// window's height.
+    static let overscroll: CGFloat = 0.4
 
     override var isFlipped: Bool { true }
 
@@ -2008,6 +2017,22 @@ final class LiveDocumentView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// The room below the text is the text's: a click there puts the
+    /// caret at the end, as a click below the last line of a short note.
+    private var belowText: NSRect {
+        NSRect(x: 0, y: text.frame.maxY, width: bounds.width, height: max(0, bounds.maxY - text.frame.maxY))
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard belowText.contains(convert(event.locationInWindow, from: nil)) else { return super.mouseDown(with: event) }
+        window?.makeFirstResponder(text)
+        text.mouseDown(with: event)
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(belowText, cursor: .iBeam)
+    }
 
     override func resizeSubviews(withOldSize old: NSSize) {
         super.resizeSubviews(withOldSize: old)
@@ -2028,7 +2053,10 @@ final class LiveDocumentView: NSView {
         if title.frame != titleFrame { title.frame = titleFrame }
 
         let clip = enclosingScrollView?.contentView.bounds.height ?? 0
-        let bottom = Metrics.editorInset * 2 - Self.titleGap
+        // Room past the last line, so the end of a note can be scrolled up
+        // off the bottom edge rather than typed against it. A short note
+        // still fills the window and doesn't scroll.
+        let bottom = max(Metrics.editorInset * 2 - Self.titleGap, (clip * Self.overscroll).rounded())
         text.minSize = NSSize(width: 0, height: max(0, clip - titleFrame.maxY - bottom))
         if text.frame.origin != NSPoint(x: 0, y: titleFrame.maxY) { text.setFrameOrigin(NSPoint(x: 0, y: titleFrame.maxY)) }
         if text.frame.width != bounds.width { text.setFrameSize(NSSize(width: bounds.width, height: max(text.frame.height, text.minSize.height))) }

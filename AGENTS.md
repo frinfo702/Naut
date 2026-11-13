@@ -48,6 +48,11 @@ A file for [guiding coding agents](https://agents.md/).
   - Opens the note's `$$` block at the bottom of the window, types spaces,
     and fails if the page moves at any moment. Use a scratch note long
     enough to scroll that ends in a `$$` block.
+- **Code scroll regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --code-scroll-test --note Name`
+  - With the caret on the last line of a code block that ends the note,
+    scrolled to the bottom, types spaces and fails if the page moves at
+    any moment. Use a scratch note long enough to scroll that ends in a
+    fenced code block.
 - **Dollar regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --dollar-test --note Name`
   - Types a second `$` after a line's lone `$`, and fails unless that
     makes a closed, empty equation, open for editing, above the text that
