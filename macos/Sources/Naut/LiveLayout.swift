@@ -271,6 +271,10 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
     /// The font text typed at the end of the note will have, kept by the
     /// editor. The empty line after a final newline is that tall.
     var endFont: NSFont?
+    /// The indent of a line started at the end of the note, kept by the
+    /// editor: an empty list item there has no character of its own to
+    /// carry one, and the last character's is the line above's.
+    var endIndent: CGFloat?
 
     /// Body text's CSS line-height, from Settings.
     var lineHeight: Double = Store.Density.compact.lineHeight
@@ -487,9 +491,10 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
     /// A list item's marker: in the room its indent leaves before the
     /// text, centred on the text's x-height.
     func markerRect(_ item: State.Item) -> NSRect? {
-        guard let used = usedRect(at: item.location), let container = textContainers.first else { return nil }
-        let font = self.font(at: item.location)
-        let indent = paragraphStyle(at: item.location)?.firstLineHeadIndent ?? LiveStyle.listInset
+        guard let used = usedRect(at: item.location), let container = textContainers.first, let storage = textStorage else { return nil }
+        let atEnd = item.location >= storage.length
+        let font = atEnd ? endFont ?? self.font(at: item.location) : self.font(at: item.location)
+        let indent = (atEnd ? endIndent : paragraphStyle(at: item.location)?.firstLineHeadIndent) ?? LiveStyle.listInset
         let middle = baseline(at: item.location, used: used, font: font) - font.xHeight / 2
         let side = Self.boxSide(font)
         let right = container.lineFragmentPadding + indent - 8
@@ -542,9 +547,40 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
 
     static func boxSide(_ font: NSFont) -> CGFloat { (font.capHeight + 5).rounded() }
 
+    /// Display positions of a projection, moved past `range` of it having
+    /// become `length` long. A position at the stretch's start stays: text
+    /// put there (an item's first word, say) comes after it.
+    struct Shift {
+        let range: NSRange
+        let length: Int
+
+        func callAsFunction(_ i: Int) -> Int {
+            i > range.location && i >= NSMaxRange(range) ? i + length - range.length : i
+        }
+
+        func callAsFunction(_ r: NSRange) -> NSRange {
+            let start = self(r.location)
+            return NSRange(location: start, length: max(0, self(NSMaxRange(r)) - start))
+        }
+    }
+
 }
 
 extension LiveLayout.State {
+    /// The same, for the display with `range` of it now `length` long:
+    /// what follows moves with it. An input method's text is in the
+    /// display before it is in the source, and so before a projection
+    /// says where things are.
+    func adjusted(replacing range: NSRange, length: Int) -> Self {
+        let move = LiveLayout.Shift(range: range, length: length)
+        var s = self
+        s.code = code.map { var c = $0; c.lines = move(c.lines); return c }
+        s.inlineCode = inlineCode.map(move.callAsFunction)
+        s.quotes = quotes.map(move.callAsFunction)
+        s.items = items.map { var item = $0; item.location = move(item.location); return item }
+        return s
+    }
+
     /// What to draw for projection `p`.
     init(_ p: LiveProjection) {
         for (i, e) in p.elements.enumerated() {

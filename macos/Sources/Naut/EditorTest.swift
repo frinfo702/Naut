@@ -221,6 +221,30 @@ enum EditorTest {
                 failures.append("\(name): \(before.debugDescription) → \(got.debugDescription), not \(wanted.debugDescription)")
             }
         }
+        // A list's bullets stay on their items: an empty one ending the
+        // note, and every one while an input method composes elsewhere,
+        // its text in the display before it is in the source.
+        let none = NSRange(location: NSNotFound, length: 0)
+        for (name, before, typed) in [("new item", "a\n‸", "- "), ("composing above a list", "‸x\n\n- one\n- two", "")] {
+            let start = parse(before)
+            model.text = start.text
+            editor.load(start.text)
+            body.setSelectedRange(LiveProjection(start.text).displayRange(start.selection))
+            if !typed.isEmpty { for c in typed { body.insertText(String(c), replacementRange: none) } }
+            for marked in ["", "に", "にほ"] {
+                if !marked.isEmpty { body.setMarkedText(marked, selectedRange: NSRange(location: (marked as NSString).length, length: 0), replacementRange: none) }
+                let layout = body.layoutManager as! LiveLayout
+                let text = body.string as NSString
+                for item in layout.state.items {
+                    let rect = layout.markerRect(item) ?? .zero
+                    let line = item.location >= text.length ? layout.extraLineFragmentRect : layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: item.location), effectiveRange: nil)
+                    if item.location > 0 && text.character(at: item.location - 1) != 0x0A || rect.maxX <= 0 || !(line.minY...line.maxY).contains(rect.midY) {
+                        failures.append("bullets, \(name) with \(marked.debugDescription) marked: the item at \(item.location) of \(text.debugDescription) draws at \(rect)")
+                    }
+                }
+            }
+            body.unmarkText()
+        }
         // A display equation is edited inside its block; Esc carries on
         // below it.
         let math = "a\n$$\nx\n$$\nb"

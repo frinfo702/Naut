@@ -459,17 +459,7 @@ struct LiveEditor: NSViewRepresentable {
                 i = end
             }
             storage.endEditing()
-            layout.state = LiveLayout.State(projection)
-            layout.blocks = IndexSet(projection.attachments.filter { projection.elements[$0.value].kind.isBlockAtom }.keys)
-            layout.atoms = projection.atoms.compactMap { atom in
-                guard atom.isBlock, let at = projection.attachment(of: atom.element) else { return nil }
-                let kind: LiveLayout.Chrome.Kind = switch projection.elements[atom.element].kind {
-                case .mathBlock: .math
-                case .table: .table
-                default: .image
-                }
-                return (at, atom.element, kind)
-            }
+            placeChrome()
             layout.selection = view.selectedRange()
             // The old note's blocks are gone, and so are their controls.
             if let h = layout.hovered, layout.kind(of: h) == nil { layout.hovered = nil }
@@ -479,6 +469,27 @@ struct LiveEditor: NSViewRepresentable {
             updateEndFont()
             updateTypingAttributes()
             positionMath()
+        }
+
+        /// Tell the layout where the projection's lists, quotes, code and
+        /// blocks are in the display; while text the source doesn't have
+        /// yet is in it (`pending`), moved past that text.
+        private func placeChrome() {
+            guard let layout else { return }
+            let move = pending.map { LiveLayout.Shift(range: $0.range, length: $0.length) }
+            let state = LiveLayout.State(projection)
+            layout.state = pending.map { state.adjusted(replacing: $0.range, length: $0.length) } ?? state
+            let blocks = projection.attachments.filter { projection.elements[$0.value].kind.isBlockAtom }.keys
+            layout.blocks = IndexSet(blocks.map { move?($0) ?? $0 })
+            layout.atoms = projection.atoms.compactMap { atom in
+                guard atom.isBlock, let at = projection.attachment(of: atom.element) else { return nil }
+                let kind: LiveLayout.Chrome.Kind = switch projection.elements[atom.element].kind {
+                case .mathBlock: .math
+                case .table: .table
+                default: .image
+                }
+                return (move?(at) ?? at, atom.element, kind)
+            }
         }
 
         private var widthSettle: DispatchWorkItem?
@@ -752,17 +763,20 @@ struct LiveEditor: NSViewRepresentable {
         /// result is still one stretch of the original display.
         private func hold(_ r: NSRange, _ s: String, selection: NSRange) {
             let n = (s as NSString).length
-            guard let p = pending else {
+            if let p = pending {
+                // `r` is in the display as it is now; the stretch so far is
+                // [p.range.location, p.range.location + p.length) of it, and
+                // what follows it is shifted by its growth.
+                let growth = p.length - p.range.length
+                let start = min(r.location, p.range.location)
+                let end = max(NSMaxRange(r), p.range.location + p.length)
+                pending = (NSRange(location: start, length: end - growth - start), end - start - r.length + n, p.selection, p.preferring)
+            } else {
                 pending = (r, n, selection, caretSource)
-                return
             }
-            // `r` is in the display as it is now; the stretch so far is
-            // [p.range.location, p.range.location + p.length) of it, and
-            // what follows it is shifted by its growth.
-            let growth = p.length - p.range.length
-            let start = min(r.location, p.range.location)
-            let end = max(NSMaxRange(r), p.range.location + p.length)
-            pending = (NSRange(location: start, length: end - growth - start), end - start - r.length + n, p.selection, p.preferring)
+            // An input method composing: what follows its text has moved,
+            // and the bullets and bars drawn there have to move with it.
+            placeChrome()
         }
 
         func textDidChange(_ note: Notification) {
@@ -887,7 +901,9 @@ struct LiveEditor: NSViewRepresentable {
         private func updateEndFont() {
             guard let layout, let storage = view?.textStorage else { return }
             let end = NSRange(location: projection.display.length, length: 0)
-            let font = typingAttributes(at: end)?[.font] as? NSFont
+            let typing = typingAttributes(at: end)
+            let font = typing?[.font] as? NSFont
+            layout.endIndent = (typing?[.paragraphStyle] as? NSParagraphStyle)?.firstLineHeadIndent
             guard font != layout.endFont else { return }
             layout.endFont = font
             guard storage.length > 0 else { return }
