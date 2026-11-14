@@ -532,6 +532,7 @@ final class Store {
     var density = Density(rawValue: UserDefaults.standard.string(forKey: "density") ?? "") ?? .compact {
         didSet { UserDefaults.standard.set(density.rawValue, forKey: "density") }
     }
+
     var sourceNSFont: NSFont {
         Self.font(sourceFont, size: sourceSize, fallback: .monospacedSystemFont(ofSize: sourceSize, weight: .regular))
     }
@@ -721,8 +722,7 @@ final class Store {
 
     /// Set once provisioning succeeds.
     var site: Cloudflare.Site? = UserDefaults.standard.data(forKey: "site")
-        .flatMap { try? JSONDecoder().decode(Cloudflare.Site.self, from: $0) }
-    {
+        .flatMap { try? JSONDecoder().decode(Cloudflare.Site.self, from: $0) } {
         didSet { UserDefaults.standard.set(try? JSONEncoder().encode(site), forKey: "site") }
     }
 
@@ -878,38 +878,38 @@ final class Store {
     // MARK: -
 
     static let welcome = """
-        # Welcome to Naut
+    # Welcome to Naut
 
-        Notes are Markdown files in `~/Documents/Naut`. Edit on the left, read on the right.
+    Notes are Markdown files in `~/Documents/Naut`. Edit on the left, read on the right.
 
-        ## Math
+    ## Math
 
-        Inline $e^{i\\pi} + 1 = 0$, or on its own line:
+    Inline $e^{i\\pi} + 1 = 0$, or on its own line:
 
-        $$
-        \\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}
-        $$
+    $$
+    \\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}
+    $$
 
-        ## Code
+    ## Code
 
-        ```zig
-        const std = @import("std");
-        pub fn main() void {
-            std.debug.print("hello\\n", .{});
-        }
-        ```
+    ```zig
+    const std = @import("std");
+    pub fn main() void {
+        std.debug.print("hello\\n", .{});
+    }
+    ```
 
-        ## Publishing
+    ## Publishing
 
-        | Action | Shortcut |
-        | --- | --- |
-        | New note | `⌘N` |
-        | Search | `⌘K` |
-        | Toggle sidebar | `⌃⌘S` |
+    | Action | Shortcut |
+    | --- | --- |
+    | New note | `⌘N` |
+    | Search | `⌘K` |
+    | Toggle sidebar | `⌃⌘S` |
 
-        - [x] Write a note
-        - [ ] Publish it with the globe button
-        """
+    - [x] Write a note
+    - [ ] Publish it with the globe button
+    """
 }
 
 /// The Cloudflare API token. Application Support rather than the login
@@ -973,9 +973,9 @@ enum TokenStore {
         ]
         var out: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &out)
-        if status == errSecSuccess, let data = out as? Data {
-            let token = String(decoding: data, as: UTF8.self)
-            if !token.isEmpty { imported(token) }
+        if status == errSecSuccess, let data = out as? Data,
+           let token = String(bytes: data, encoding: .utf8), !token.isEmpty {
+            imported(token)
         }
         return status
     }

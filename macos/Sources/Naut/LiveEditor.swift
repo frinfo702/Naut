@@ -1336,7 +1336,7 @@ struct LiveEditor: NSViewRepresentable {
                 let action = MenuAction { [weak self] in
                     guard let self, let view = self.view else { return }
                     self.view?.window?.makeFirstResponder(view)
-                    self.perform(self.editing.change(change, table: element, selection: view.selectedRange()))
+                    perform(editing.change(change, table: element, selection: view.selectedRange()))
                 }
                 let item = NSMenuItem(title: title, action: #selector(MenuAction.fire), keyEquivalent: "")
                 item.target = action
@@ -1449,7 +1449,7 @@ struct LiveEditor: NSViewRepresentable {
         func blockKey(_ event: NSEvent) -> Bool {
             guard !keymap.isModal || modal.mode == .insert, let at = selectedBlock,
                   let i = projection.attachments[at], case .image = projection.elements[i].kind,
-                  event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+                  event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
                   event.charactersIgnoringModifiers == " "
             else { return false }
             showFullScreen(i)
@@ -1558,8 +1558,8 @@ struct LiveEditor: NSViewRepresentable {
             Task { [weak self] in
                 do {
                     let link = try await saveImage(data, ext)
-                    guard let self, let view = self.view else { return }
-                    self.perform(self.editing.insertBlock("![](\(link))", over: view.selectedRange()))
+                    guard let self, let view else { return }
+                    perform(editing.insertBlock("![](\(link))", over: view.selectedRange()))
                 } catch {
                     NSSound.beep()
                 }
@@ -2125,7 +2125,7 @@ extension LiveEditor.Coordinator: ModalTarget {
         }
         goal = x
 
-        for _ in 0..<abs(delta) {
+        for _ in 0 ..< abs(delta) {
             if delta > 0 {
                 guard !inExtra else { break }
                 let next = NSMaxRange(range)
@@ -2258,6 +2258,7 @@ final class LiveTextView: CursorTextView {
         if selectAllInBlock?() == true { return }
         super.selectAll(sender)
     }
+
     /// Formatting shortcuts; true if handled.
     var key: ((NSEvent) -> Bool)?
     /// The Markdown behind a display range, for copying.
@@ -2527,7 +2528,7 @@ final class LiveDocumentView: NSView {
     /// Responsive scrolling takes a gesture's scroll events off the main
     /// thread after the first, so the app never sees the rest of a swipe
     /// over the note and the sidebar's swipe can't fire there.
-    override class var isCompatibleWithResponsiveScrolling: Bool { false }
+    override static var isCompatibleWithResponsiveScrolling: Bool { false }
 
     let text: LiveTextView
     let title: NSTextField
@@ -2601,7 +2602,6 @@ extension NSAppearance {
     var isDark: Bool { bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
 }
 
-
 /// A scroll view whose scroller is always the thin one that floats over
 /// the text and hides at rest, even with a mouse attached. The legacy
 /// scroller cuts a gutter down the panel's rounded edge. An override,
@@ -2609,6 +2609,6 @@ extension NSAppearance {
 final class OverlayScrollView: NSScrollView {
     override var scrollerStyle: NSScroller.Style {
         get { .overlay }
-        set { super.scrollerStyle = .overlay }
+        set { super.scrollerStyle = .overlay } // swiftlint:disable:this unused_setter_value
     }
 }

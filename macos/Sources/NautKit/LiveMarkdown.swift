@@ -100,7 +100,7 @@ public enum LiveMarkdown {
                 while j < lines.count, text.substring(with: lines[j].line).contains("|") { j += 1 }
                 let scope = union(enclosing, lines[j - 1].enclosing)
                 let rows = union(line, lines[j - 1].line)
-                let body = ([i] + Array(i + 2..<j)).map { cells(in: lines[$0].line, text) }
+                let body = ([i] + Array(i + 2 ..< j)).map { cells(in: lines[$0].line, text) }
                 out.append(Element(kind: .table, range: rows, markers: [lines[i + 1].line], content: rows, scope: scope, cells: body))
                 // Bold, code and links inside cells.
                 for row in body { for cell in row { out += spans(in: cell, of: source, scope: scope) } }
@@ -228,7 +228,7 @@ public enum LiveMarkdown {
     /// editor that means everything below turns to code while ``` is
     /// being typed.
     private static func closing(_ fence: String, after i: Int, in lines: [(line: NSRange, enclosing: NSRange)], _ text: NSString) -> Int? {
-        (i + 1..<lines.count).first { text.substring(with: lines[$0].line).trimmingCharacters(in: .whitespaces).hasPrefix(fence) }
+        (i + 1 ..< lines.count).first { text.substring(with: lines[$0].line).trimmingCharacters(in: .whitespaces).hasPrefix(fence) }
     }
 
     private static func fence(_ trimmed: String) -> String? {
@@ -240,7 +240,7 @@ public enum LiveMarkdown {
     public static func imageWidth(_ label: String) -> (alt: String, width: Int?) {
         guard let bar = label.lastIndex(of: "|") else { return (label, nil) }
         let px = label[label.index(after: bar)...]
-        guard (1...5).contains(px.count), px.allSatisfy({ $0.isASCII && $0.isNumber }), let n = Int(px) else { return (label, nil) }
+        guard (1 ... 5).contains(px.count), px.allSatisfy({ $0.isASCII && $0.isNumber }), let n = Int(px) else { return (label, nil) }
         return (String(label[..<bar]), n)
     }
 
@@ -282,9 +282,9 @@ public enum LiveMarkdown {
     ]
 }
 
-extension LiveMarkdown.Element.Kind {
+public extension LiveMarkdown.Element.Kind {
     /// Drawn as one attachment on a line of its own.
-    public var isBlockAtom: Bool {
+    var isBlockAtom: Bool {
         switch self {
         case .mathBlock, .image, .rule: true
         default: false
@@ -292,7 +292,7 @@ extension LiveMarkdown.Element.Kind {
     }
 
     /// Inline formatting with markers on both sides, within one line.
-    public var isSpan: Bool {
+    var isSpan: Bool {
         switch self {
         case .strong, .emphasis, .strikethrough, .code, .link: true
         default: false

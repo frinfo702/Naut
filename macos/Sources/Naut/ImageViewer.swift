@@ -169,7 +169,8 @@ final class ImageViewer: NSWindow, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        NotificationCenter.default.removeObserver(self)
+        // The window outlives this close; stop hearing about it now.
+        NotificationCenter.default.removeObserver(self) // swiftlint:disable:this notification_center_detachment
         if Self.current === self { Self.current = nil }
         let onClose = onClose
         self.onClose = {}

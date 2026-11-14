@@ -614,7 +614,7 @@ public struct LiveEditing {
         }
         var rest: [unichar] = []
         var first: Int?
-        for i in range.location..<NSMaxRange(range) {
+        for i in range.location ..< NSMaxRange(range) {
             if kept.contains(i) { rest.append(source.character(at: i)) } else if first == nil { first = i }
         }
         guard let first else { return Edit.none }
@@ -682,7 +682,7 @@ public struct LiveEditing {
         var r = here?.row ?? t.cells.count - 1
         var c = here?.col ?? t.cells[r].count - 1
         let columns = t.cells.map(\.count).max() ?? 1
-        var rows = t.cells.map { row in (0..<columns).map { $0 < row.count ? source.substring(with: row[$0]) : "" } }
+        var rows = t.cells.map { row in (0 ..< columns).map { $0 < row.count ? source.substring(with: row[$0]) : "" } }
         var aligns = source.substring(with: t.markers[0]).split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         aligns += Array(repeating: "---", count: max(0, columns - aligns.count))
         aligns = Array(aligns.prefix(columns))

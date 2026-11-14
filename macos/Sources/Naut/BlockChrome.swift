@@ -182,8 +182,8 @@ extension LiveLayout {
         }
         // Six dots, two by three, as Notion's handle.
         NSColor(token: over ? .fg : .fgDim).setFill()
-        for col in 0..<2 {
-            for row in 0..<3 {
+        for col in 0 ..< 2 {
+            for row in 0 ..< 3 {
                 let c = NSPoint(x: r.midX + (CGFloat(col) - 0.5) * 6, y: r.midY + CGFloat(row - 1) * 5.5)
                 NSBezierPath(ovalIn: NSRect(x: c.x - 1.4, y: c.y - 1.4, width: 2.8, height: 2.8)).fill()
             }
@@ -212,7 +212,7 @@ extension LiveLayout {
     private func drawBar(_ element: Int, kind: Chrome.Kind, over: Chrome.Control?, at origin: NSPoint) {
         let buttons = buttons(element)
         guard let first = buttons.first?.1, let last = buttons.last?.1 else { return }
-        let bar = NSUnionRect(first, last).insetBy(dx: -2, dy: -2).offsetBy(dx: origin.x, dy: origin.y)
+        let bar = first.union(last).insetBy(dx: -2, dy: -2).offsetBy(dx: origin.x, dy: origin.y)
         let path = NSBezierPath(roundedRect: bar, xRadius: bar.height / 2, yRadius: bar.height / 2)
         NSGraphicsContext.saveGraphicsState()
         let shadow = NSShadow()

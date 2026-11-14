@@ -110,7 +110,7 @@ struct ContentView: View {
                 store.splitContent = content
                 store.split(.right)
             }
-            #if DEBUG
+#if DEBUG
             if EditorTest.isEnabled { await EditorTest.run() }
             if Snapshot.isCaretTest { await Snapshot.runCaretTest() }
             if Snapshot.isModalTest { await Snapshot.runModalTest() }
@@ -121,7 +121,7 @@ struct ContentView: View {
             if Snapshot.isEndScrollTest { await Snapshot.runEndScrollTest() }
             if Snapshot.isDollarTest { await Snapshot.runDollarTest(store: store) }
             if Snapshot.isSplitTest { await Snapshot.runSplitTest(store: store) }
-            #endif
+#endif
             if Snapshot.unzen || Snapshot.enterZen {
                 try? await Task.sleep(for: .seconds(1))
                 store.toggleZen()

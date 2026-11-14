@@ -1,5 +1,5 @@
-import NautKit
 import Foundation
+import NautKit
 import Testing
 
 @Test func rendersMarkdownThroughLibnaut() {
@@ -138,7 +138,7 @@ private func caret(_ i: Int) -> NSRange { NSRange(location: i, length: 0) }
 @Test(arguments: notes)
 func liveTypingLandsAtTheCaret(note: String) throws {
     let before = LiveProjection(note)
-    for p in 0...before.display.length {
+    for p in 0 ... before.display.length {
         let edit = LiveEditing(before).type("ж", over: caret(p))
         let (text, selection) = try #require(apply(edit, to: note))
         let after = LiveProjection(text)
@@ -157,7 +157,7 @@ func liveTypingLandsAtTheCaret(note: String) throws {
 @Test(arguments: notes)
 func liveDeletingTakesTheCharacter(note: String) throws {
     let before = LiveProjection(note)
-    for i in 0..<before.display.length {
+    for i in 0 ..< before.display.length {
         let c = before.display.character(at: i)
         guard c != 0x0A, c != LiveProjection.attachmentCharacter else { continue }
         let edit = LiveEditing(before).delete(NSRange(location: i, length: 1), selection: caret(i + 1))
@@ -172,7 +172,7 @@ func liveDeletingTakesTheCharacter(note: String) throws {
 @Test(arguments: notes)
 func liveMappingRoundTrips(note: String) {
     let p = LiveProjection(note)
-    for i in 0...p.display.length {
+    for i in 0 ... p.display.length {
         #expect(p.display(at: p.insertion(at: i).position) == i, "\(note.debugDescription) at \(i)")
     }
 }
@@ -384,11 +384,11 @@ private func typedAtEnd(_ text: String, _ s: String) -> (text: String, selection
     #expect(LiveMarkdown.parse("> a\n>\n> b").filter { $0.kind == .quote }.count == 3)
 }
 
-@Test func liveTableCellsAreText() {
+@Test func liveTableCellsAreText() throws {
     let note = "x\n| a | b |\n|:--|--:|\n|  | **d** |\ny"
     let p = LiveProjection(note)
     #expect(p.display == "x\na\nb\n\nd\ny")
-    let table = try! #require(p.elements.first { $0.kind == .table })
+    let table = try #require(p.elements.first { $0.kind == .table })
     #expect(table.cells.map { $0.map { (note as NSString).substring(with: $0) } } == [["a", "b"], ["", "**d**"]])
     let e = LiveEditing(p)
     func edited(_ edit: LiveEditing.Edit) -> String? { apply(edit, to: note)?.text }
@@ -479,12 +479,12 @@ private func typedAtEnd(_ text: String, _ s: String) -> (text: String, selection
     #expect(e.check(caret(4)) == .none)
 }
 
-@Test func liveWrapsAndUnwrapsCode() {
+@Test func liveWrapsAndUnwrapsCode() throws {
     let e = LiveEditing(text: "a\nlet x\nb")
     #expect(apply(e.codeBlock(source: NSRange(location: 2, length: 5)), to: "a\nlet x\nb")?.text == "a\n```\nlet x\n```\nb")
     let code = "a\n```\nlet x\n```\nb"
     #expect(apply(LiveEditing(text: code).codeBlock(source: caret(7)), to: code)?.text == "a\nlet x\nb")
-    let empty = try! #require(apply(LiveEditing(text: "a\n").codeBlock(source: caret(2)), to: "a\n"))
+    let empty = try #require(apply(LiveEditing(text: "a\n").codeBlock(source: caret(2)), to: "a\n"))
     #expect(empty.text == "a\n```\n\n```")
     #expect(empty.selection == caret(6))
 }

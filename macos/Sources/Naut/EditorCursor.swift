@@ -189,15 +189,19 @@ class CursorTextView: NSTextView {
     var cursorShape: CursorShape = .match {
         didSet { updateCursor() }
     }
+
     var cursorBlink: CursorBlink = .normal {
         didSet { updateCursor() }
     }
+
     var keymap: EditorKeymap = .normal {
         didSet { updateCursor() }
     }
+
     var modalMode: ModalMode = .normal {
         didSet { updateCursor() }
     }
+
     /// Modal keys; true if handled. Esc in insert mode and every normal
     /// mode key come through here before the text view sees them.
     var modalKey: ((NSEvent) -> Bool)?
@@ -262,7 +266,7 @@ class CursorTextView: NSTextView {
             q = p - 1
         }
         guard string.character(at: q) != 0x0A, string.character(at: q) != LiveProjection.attachmentCharacter else { return rect }
-        let font = self.font(at: q)
+        let font = font(at: q)
         let height = ceil(font.ascender - font.descender)
         guard rect.height > height + 4 else { return rect }
         let glyph = layout.glyphIndexForCharacter(at: q)

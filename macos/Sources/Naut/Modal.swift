@@ -374,7 +374,7 @@ final class ModalEngine {
             // dl is x, not "delete to where l would stop": the character
             // under the caret is included, even at the end of a line.
             var end = caret
-            for _ in 0..<n {
+            for _ in 0 ..< n {
                 guard let c = ModalText.characterRange(text, at: end) else { break }
                 end = NSMaxRange(c)
             }
@@ -384,7 +384,7 @@ final class ModalEngine {
             return (ModalText.linewiseRange(text, from: current.location, lines: n + 1), true)
         case "k", "up":
             var start = ModalText.lineRange(text, at: caret).location
-            for _ in 0..<n { start = ModalText.previousLineStart(text, from: start) }
+            for _ in 0 ..< n { start = ModalText.previousLineStart(text, from: start) }
             let end = NSMaxRange(ModalText.lineRange(text, at: caret))
             return (NSRange(location: start, length: max(0, end - start)), true)
         case "w", "W":
@@ -394,12 +394,12 @@ final class ModalEngine {
                 return (NSRange(location: caret, length: max(0, end - caret)), false)
             }
             var p = caret
-            for _ in 0..<n { p = ModalText.nextWordStart(text, from: p, word: word) }
+            for _ in 0 ..< n { p = ModalText.nextWordStart(text, from: p, word: word) }
             return (NSRange(location: caret, length: max(0, p - caret)), false)
         case "b", "B":
             let word: ModalText.Word = key == "B" ? .big : .small
             var p = caret
-            for _ in 0..<n { p = ModalText.previousWordStart(text, from: p, word: word) }
+            for _ in 0 ..< n { p = ModalText.previousWordStart(text, from: p, word: word) }
             return (NSRange(location: p, length: max(0, caret - p)), false)
         case "e", "E":
             let word: ModalText.Word = key == "E" ? .big : .small
@@ -699,7 +699,7 @@ final class ModalEngine {
         if forward {
             let start = current.length > 0 ? NSMaxRange(current) : current.location
             var end = start
-            for _ in 0..<count { end = ModalText.wordRunEnd(text, from: end, word: word) }
+            for _ in 0 ..< count { end = ModalText.wordRunEnd(text, from: end, word: word) }
             let anchor = current.length > 0
                 ? current.location
                 : ModalText.wordRunStart(text, from: start, word: word)
@@ -707,7 +707,7 @@ final class ModalEngine {
         } else {
             let end = current.length > 0 ? current.location : current.location
             var start = end
-            for _ in 0..<count { start = ModalText.previousWordStart(text, from: start, word: word) }
+            for _ in 0 ..< count { start = ModalText.previousWordStart(text, from: start, word: word) }
             setSelection(NSRange(location: start, length: max(0, end - start)))
         }
     }
@@ -717,7 +717,7 @@ final class ModalEngine {
         let current = selection
         let start = current.length > 0 ? NSMaxRange(current) : current.location
         var end = start
-        for _ in 0..<count { end = ModalText.wordRunEnd(text, from: end == start ? start : end, word: word) }
+        for _ in 0 ..< count { end = ModalText.wordRunEnd(text, from: end == start ? start : end, word: word) }
         let anchor = current.length > 0
             ? current.location
             : ModalText.wordRunStart(text, from: start, word: word)
@@ -808,15 +808,15 @@ final class ModalEngine {
             if let p = helixVerticalTarget(delta: -takeCount()) { helixHead = p; updateHelixSelection() }
         case "w", "W":
             let word: ModalText.Word = key == "W" ? .big : .small
-            for _ in 0..<takeCount() { helixHead = ModalText.wordRunEnd(text, from: helixHead, word: word) }
+            for _ in 0 ..< takeCount() { helixHead = ModalText.wordRunEnd(text, from: helixHead, word: word) }
             updateHelixSelection()
         case "b", "B":
             let word: ModalText.Word = key == "B" ? .big : .small
-            for _ in 0..<takeCount() { helixHead = ModalText.previousWordStart(text, from: helixHead, word: word) }
+            for _ in 0 ..< takeCount() { helixHead = ModalText.previousWordStart(text, from: helixHead, word: word) }
             updateHelixSelection()
         case "e", "E":
             let word: ModalText.Word = key == "E" ? .big : .small
-            for _ in 0..<takeCount() { helixHead = ModalText.wordRunEnd(text, from: helixHead, word: word) }
+            for _ in 0 ..< takeCount() { helixHead = ModalText.wordRunEnd(text, from: helixHead, word: word) }
             updateHelixSelection()
         case "0":
             helixHead = ModalText.lineRange(text, at: helixHead).location
@@ -956,7 +956,7 @@ final class ModalEngine {
             range = selection
         } else {
             var end = caret
-            for _ in 0..<n {
+            for _ in 0 ..< n {
                 guard let c = ModalText.characterRange(text, at: end) else { break }
                 end = max(end + 1, NSMaxRange(c))
                 if text.character(at: c.location) == 0x0A { break }
@@ -979,7 +979,7 @@ final class ModalEngine {
 
     private func deleteCharacters(count n: Int) {
         var end = caret
-        for _ in 0..<n {
+        for _ in 0 ..< n {
             guard let c = ModalText.characterRange(text, at: end) else { break }
             end = NSMaxRange(c)
         }
@@ -993,7 +993,7 @@ final class ModalEngine {
 
     private func deleteCharacters(before n: Int) {
         var start = caret
-        for _ in 0..<n {
+        for _ in 0 ..< n {
             guard start > 0 else { break }
             start = text.rangeOfComposedCharacterSequence(at: start - 1).location
         }
@@ -1082,17 +1082,17 @@ final class ModalEngine {
         case "w", "W":
             let word: ModalText.Word = key == "W" ? .big : .small
             var p = caret
-            for _ in 0..<n { p = ModalText.nextWordStart(text, from: p, word: word) }
+            for _ in 0 ..< n { p = ModalText.nextWordStart(text, from: p, word: word) }
             return p
         case "b", "B":
             let word: ModalText.Word = key == "B" ? .big : .small
             var p = caret
-            for _ in 0..<n { p = ModalText.previousWordStart(text, from: p, word: word) }
+            for _ in 0 ..< n { p = ModalText.previousWordStart(text, from: p, word: word) }
             return p
         case "e", "E":
             let word: ModalText.Word = key == "E" ? .big : .small
             var p = caret
-            for i in 0..<n {
+            for i in 0 ..< n {
                 p = ModalText.wordEnd(text, from: p, word: word)
                 if i < n - 1, p + 1 < text.length { p += 1 }
             }
@@ -1137,13 +1137,13 @@ final class ModalEngine {
 
     private func wordRunEnd(from p: Int, count n: Int, word: ModalText.Word) -> Int {
         var q = p
-        for _ in 0..<n { q = ModalText.wordRunEnd(text, from: q, word: word) }
+        for _ in 0 ..< n { q = ModalText.wordRunEnd(text, from: q, word: word) }
         return q
     }
 
     private func wordEndExclusive(from p: Int, count n: Int, word: ModalText.Word) -> Int {
         var q = p
-        for i in 0..<n {
+        for i in 0 ..< n {
             q = ModalText.wordEnd(text, from: q, word: word)
             if i < n - 1, q + 1 < text.length { q += 1 }
         }

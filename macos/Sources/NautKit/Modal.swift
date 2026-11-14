@@ -196,7 +196,7 @@ public enum ModalText {
     public static func linewiseRange(_ text: NSString, from start: Int, lines: Int) -> NSRange {
         let first = lineRange(text, at: start)
         var end = first
-        for _ in 1..<max(1, lines) {
+        for _ in 1 ..< max(1, lines) {
             let next = NSMaxRange(end)
             guard next < text.length else { break }
             end = lineRange(text, at: next)

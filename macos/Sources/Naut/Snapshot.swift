@@ -190,9 +190,9 @@ enum Snapshot {
         // SwiftUI names the Settings window's identifier after the scene.
         let isSettings = { (w: NSWindow) in w.identifier?.rawValue.contains("Settings") == true }
         guard var window = NSApp.windows.first(where: {
-            $0.isVisible && $0.contentView != nil && $0.identifier != LiveImages.windowID
-                && $0.identifier != ImageViewer.id && isSettings($0) == settings
-        }),
+                  $0.isVisible && $0.contentView != nil && $0.identifier != LiveImages.windowID
+                      && $0.identifier != ImageViewer.id && isSettings($0) == settings
+              }),
               var view = window.contentView?.superview ?? window.contentView
         else { fail("no window to capture") }
 
@@ -201,9 +201,9 @@ enum Snapshot {
             try? await Task.sleep(for: settle)
         }
 
-        #if DEBUG
+#if DEBUG
         if focusEditor { await focusEditorBody() }
-        #endif
+#endif
 
         // `--edit-math` opens the note's first display equation in place.
         if CommandLine.arguments.contains("--edit-math"),
@@ -306,7 +306,7 @@ enum Snapshot {
             $0.contentView?.descendants(of: CursorTextView.self).first
         }).first, let window = body.window else { return }
         window.makeKeyAndOrderFront(nil)
-        for _ in 0..<20 where !window.isKeyWindow {
+        for _ in 0 ..< 20 where !window.isKeyWindow {
             try? await Task.sleep(for: .milliseconds(50))
         }
         window.makeFirstResponder(body)
@@ -333,13 +333,13 @@ enum Snapshot {
         try? await Task.sleep(for: .milliseconds(100))
 
         guard let body = NSApp.windows.lazy.compactMap({
-            $0.contentView?.descendants(of: CursorTextView.self).first
-        }).first,
-            let window = body.window
+                  $0.contentView?.descendants(of: CursorTextView.self).first
+              }).first,
+              let window = body.window
         else { fail("modal test: no editor") }
         window.makeKeyAndOrderFront(nil)
 
-        for _ in 0..<20 where !window.isKeyWindow {
+        for _ in 0 ..< 20 where !window.isKeyWindow {
             try? await Task.sleep(for: .milliseconds(50))
         }
         guard window.isKeyWindow else { fail("modal test: window did not become key") }
@@ -473,14 +473,14 @@ enum Snapshot {
         try? await Task.sleep(for: .milliseconds(100))
 
         guard let body = NSApp.windows.lazy.compactMap({
-            $0.contentView?.descendants(of: LiveTextView.self).first
-        }).first,
-            let window = body.window,
-            let title = body.titleField
+                  $0.contentView?.descendants(of: LiveTextView.self).first
+              }).first,
+              let window = body.window,
+              let title = body.titleField
         else { fail("caret test: no live editor") }
 
         window.makeKeyAndOrderFront(nil)
-        for _ in 0..<20 where !window.isKeyWindow {
+        for _ in 0 ..< 20 where !window.isKeyWindow {
             try? await Task.sleep(for: .milliseconds(50))
         }
         guard window.isKeyWindow else { fail("caret test: window did not become key") }
@@ -507,7 +507,7 @@ enum Snapshot {
 
         // And it must come back when focus returns to the note.
         window.makeKeyAndOrderFront(nil)
-        for _ in 0..<20 where !window.isKeyWindow {
+        for _ in 0 ..< 20 where !window.isKeyWindow {
             try? await Task.sleep(for: .milliseconds(50))
         }
         guard window.makeFirstResponder(body), window.firstResponder === body else {
@@ -531,7 +531,7 @@ enum Snapshot {
         }).first, let window = body.window, let title = body.titleField
         else { fail("title switch test: no live editor") }
         window.makeKeyAndOrderFront(nil)
-        for _ in 0..<20 where !window.isKeyWindow {
+        for _ in 0 ..< 20 where !window.isKeyWindow {
             try? await Task.sleep(for: .milliseconds(50))
         }
 
@@ -600,7 +600,7 @@ enum Snapshot {
         // Two lines, so the block has to grow.
         editor.source.insertText("\\\\ y = 1", replacementRange: editor.source.selectedRange())
         // The binding reaches the store on its own schedule; wait for it.
-        for _ in 0..<40 where !store.text.contains("\\\\ y = 1") {
+        for _ in 0 ..< 40 where !store.text.contains("\\\\ y = 1") {
             try? await Task.sleep(for: .milliseconds(50))
         }
         guard store.text.contains("\\\\ y = 1") else { fail("math edit test: the note's source did not follow the edit") }
@@ -642,7 +642,7 @@ enum Snapshot {
         let observer = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: nil) { n in
             seen.y.append((n.object as! NSView).bounds.origin.y)
         }
-        for _ in 0..<6 {
+        for _ in 0 ..< 6 {
             editor.source.insertText(" ", replacementRange: editor.source.selectedRange())
             try? await Task.sleep(for: .milliseconds(300))
         }
@@ -692,7 +692,7 @@ enum Snapshot {
             }
             // Through the window, as a key typed: AppKit's own insertion is
             // laid out before the note is styled again.
-            for _ in 0..<4 {
+            for _ in 0 ..< 4 {
                 let space = NSEvent.keyEvent(
                     with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                     windowNumber: window.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ",
@@ -724,7 +724,7 @@ enum Snapshot {
         guard window.makeFirstResponder(body) else { fail("dollar test: body did not take focus") }
         body.setSelectedRange(NSRange(location: at, length: 0))
         body.insertText("$", replacementRange: body.selectedRange())
-        for _ in 0..<40 where body.descendants(of: MathBlockEditor.self).isEmpty {
+        for _ in 0 ..< 40 where body.descendants(of: MathBlockEditor.self).isEmpty {
             try? await Task.sleep(for: .milliseconds(50))
         }
         guard store.text.contains("$$\n\n$$\n" + below) else {
@@ -740,7 +740,7 @@ enum Snapshot {
               let content = window.contentView
         else { fail("split test: no live editor") }
         window.makeKeyAndOrderFront(nil)
-        for _ in 0..<20 where !window.isKeyWindow {
+        for _ in 0 ..< 20 where !window.isKeyWindow {
             try? await Task.sleep(for: .milliseconds(50))
         }
         window.setContentSize(size)
@@ -754,7 +754,7 @@ enum Snapshot {
         func step(_ name: String, panes: Int, _ change: () -> Void) async {
             let before = content.descendants(of: LiveTextView.self)
             change()
-            for _ in 0..<14 {
+            for _ in 0 ..< 14 {
                 try? await Task.sleep(for: .milliseconds(40))
                 guard let dir, let view = content.superview,
                       let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }

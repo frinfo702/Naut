@@ -11,7 +11,7 @@ struct LiveStyle {
     /// One colour object per token. A dynamic colour made anew each time
     /// never equals the last, and every run would look restyled. Only the
     /// main thread styles.
-    nonisolated(unsafe) private static var colors: [ThemeToken: NSColor] = [:]
+    private nonisolated(unsafe) static var colors: [ThemeToken: NSColor] = [:]
     static func color(_ token: ThemeToken) -> NSColor {
         if let c = colors[token] { return c }
         let c = NSColor(token: token)
@@ -148,7 +148,7 @@ struct LiveStyle {
         }
     }
 
-    nonisolated(unsafe) private static var tables: [String: [NSTextTableBlock]] = [:]
+    private nonisolated(unsafe) static var tables: [String: [NSTextTableBlock]] = [:]
 
     /// A table's cells, row by row.
     private func makeTable(columns: Int, rows: Int) -> [NSTextTableBlock] {
@@ -161,8 +161,8 @@ struct LiveStyle {
         table.setWidth(LiveLayout.blockMargin, type: .absoluteValueType, for: .margin, edge: .minY)
         table.setWidth(LiveLayout.blockMargin, type: .absoluteValueType, for: .margin, edge: .maxY)
         var blocks: [NSTextTableBlock] = []
-        for r in 0..<rows {
-            for c in 0..<columns {
+        for r in 0 ..< rows {
+            for c in 0 ..< columns {
                 let block = NSTextTableBlock(table: table, startingRow: r, rowSpan: 1, startingColumn: c, columnSpan: 1)
                 block.setWidth(1, type: .absoluteValueType, for: .border)
                 block.setBorderColor(Self.color(.line))
@@ -386,7 +386,7 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         in textContainer: NSTextContainer,
         forGlyphRange glyphs: NSRange
     ) -> Bool {
-        let extra = self.extra(at: characterIndexForGlyph(at: glyphs.location))
+        let extra = extra(at: characterIndexForGlyph(at: glyphs.location))
         guard let text = textExtent(characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)) else {
             rect.pointee.size.height += extra
             used.pointee.origin.y += extra / 2
@@ -423,7 +423,7 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         var ascent: CGFloat = 0, descent: CGFloat = 0
         storage.enumerateAttribute(.font, in: line) { value, run, _ in
             guard let font = value as? NSFont,
-                  (run.location..<NSMaxRange(run)).contains(where: {
+                  (run.location ..< NSMaxRange(run)).contains(where: {
                       let c = string.character(at: $0)
                       return c != LiveProjection.attachmentCharacter && c != 0x0A
                   })
@@ -693,7 +693,7 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
     func markerRect(_ item: State.Item) -> NSRect? {
         guard let used = usedRect(at: item.location), let container = textContainers.first, let storage = textStorage else { return nil }
         let atEnd = item.location >= storage.length
-        let font = atEnd ? endFont ?? self.font(at: item.location) : self.font(at: item.location)
+        let font = atEnd ? endFont ?? font(at: item.location) : font(at: item.location)
         let indent = (atEnd ? endIndent : paragraphStyle(at: item.location)?.firstLineHeadIndent) ?? LiveStyle.listInset
         let middle = baseline(at: item.location, used: used, font: font) - font.xHeight / 2
         let side = Self.boxSide(font)
@@ -778,7 +778,6 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
             return NSRange(location: start, length: max(0, self(NSMaxRange(r)) - start))
         }
     }
-
 }
 
 extension LiveLayout.State {

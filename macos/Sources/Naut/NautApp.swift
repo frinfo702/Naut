@@ -109,6 +109,7 @@ enum Theme {
             return ThemeSelection.palette(dark: dark).swatches[index].nsColor
         })
     }
+
     /// The lit edge: brightest on top, fading down the sides.
     static var edge: LinearGradient {
         LinearGradient(
@@ -121,6 +122,7 @@ enum Theme {
 
 enum Metrics {
     // MARK: - Window
+
     /// Space between the floating panels and around them, as in Rex.
     static let panelGap: CGFloat = 8
     /// Concentric with the window: its corner radius less the gap. Windows
@@ -142,6 +144,7 @@ enum Metrics {
     static let scrimOpacity: Double = 0.35
 
     // MARK: - Sidebar
+
     static let sidebarWidth: CGFloat = 260
     static let sidebarPadding: CGFloat = 14
     static let rowHeight: CGFloat = 30
@@ -159,9 +162,11 @@ enum Metrics {
     static let arriveRise: CGFloat = 18
 
     // MARK: - Search
+
     static let searchHeight: CGFloat = 34
 
     // MARK: - Editor
+
     static let editorFontSize: CGFloat = 13
     static let editorInset: CGFloat = 24
     /// Body text in the preview and live editor, as in page.css.
@@ -173,6 +178,7 @@ enum Metrics {
     static let measure: CGFloat = 760
 
     // MARK: - Animation
+
     static let pressDuration = 0.16 // long enough to see, short enough not to wait for
     static let toggleDuration = 0.2 // fast enough to feel instant, slow enough to track
     static let unfoldDuration = 0.22 // Rex's docs nav folds in about 0.2s

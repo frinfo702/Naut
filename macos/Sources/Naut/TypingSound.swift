@@ -12,6 +12,7 @@ final class TypingSound {
     var sound: KeySound = .off {
         didSet { if sound != oldValue { buffers = [:] } }
     }
+
     var volume: Float = 1
 
     private let engine = AVAudioEngine()
@@ -23,12 +24,12 @@ final class TypingSound {
     private let root = Bundle.main.resourceURL?.appendingPathComponent("KeySounds")
 
     func keyDown(_ event: NSEvent) {
-        guard !event.isARepeat, event.modifierFlags.intersection([.command, .control]).isEmpty else { return }
+        guard !event.isARepeat, event.modifierFlags.isDisjoint(with: [.command, .control]) else { return }
         play(sound.file(keyCode: event.keyCode, down: true))
     }
 
     func keyUp(_ event: NSEvent) {
-        guard event.modifierFlags.intersection([.command, .control]).isEmpty else { return }
+        guard event.modifierFlags.isDisjoint(with: [.command, .control]) else { return }
         play(sound.file(keyCode: event.keyCode, down: false))
     }
 
@@ -59,7 +60,7 @@ final class TypingSound {
 
     private func start() -> Bool {
         if players.isEmpty {
-            for _ in 0..<6 {
+            for _ in 0 ..< 6 {
                 let p = AVAudioPlayerNode()
                 engine.attach(p)
                 engine.connect(p, to: engine.mainMixerNode, format: format)

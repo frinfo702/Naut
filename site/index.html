@@ -4,11 +4,20 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Naut — Markdown notes for the Mac</title>
-    <meta name="description" content="Markdown notes on your Mac. One switch puts a note on the web." />
+    <meta
+      name="description"
+      content="Markdown notes on your Mac. One switch puts a note on the web."
+    />
     <meta name="theme-color" content="#000000" />
     <meta property="og:title" content="Naut" />
-    <meta property="og:description" content="Markdown notes on your Mac. One switch puts a note on the web." />
-    <meta property="og:image" content="https://frinfo702.github.io/Naut/images/blossom.jpg" />
+    <meta
+      property="og:description"
+      content="Markdown notes on your Mac. One switch puts a note on the web."
+    />
+    <meta
+      property="og:image"
+      content="https://frinfo702.github.io/Naut/images/blossom.jpg"
+    />
     <link rel="icon" href="images/icon.png" type="image/png" />
     <link rel="apple-touch-icon" href="images/icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -26,7 +35,9 @@
         --dim: rgba(244, 242, 238, 0.58);
         --faint: rgba(244, 242, 238, 0.36);
         --accent: #e8263d; /* the poppies in the field */
-        --sans: "Geist", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+        --sans:
+          "Geist", -apple-system, BlinkMacSystemFont, "Helvetica Neue",
+          sans-serif;
         --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
         --measure: 1120px;
         --gutter: clamp(16px, 4vw, 40px);
@@ -126,8 +137,16 @@
         position: absolute;
         inset: 0 0 0 40%;
         background: url("images/blossom.jpg") 50% 50% / cover no-repeat;
-        mask-image: radial-gradient(ellipse 60% 75% at 55% 50%, #000 35%, transparent 75%);
-        -webkit-mask-image: radial-gradient(ellipse 60% 75% at 55% 50%, #000 35%, transparent 75%);
+        mask-image: radial-gradient(
+          ellipse 60% 75% at 55% 50%,
+          #000 35%,
+          transparent 75%
+        );
+        -webkit-mask-image: radial-gradient(
+          ellipse 60% 75% at 55% 50%,
+          #000 35%,
+          transparent 75%
+        );
         animation: develop 2.4s cubic-bezier(0.2, 0.7, 0.2, 1) both;
       }
       @keyframes develop {
@@ -275,7 +294,11 @@
         position: absolute;
         inset: -80px 10% auto;
         height: 200px;
-        background: radial-gradient(closest-side, rgba(255, 255, 255, 0.08), transparent);
+        background: radial-gradient(
+          closest-side,
+          rgba(255, 255, 255, 0.08),
+          transparent
+        );
         pointer-events: none;
       }
 
@@ -317,8 +340,16 @@
         position: relative;
         aspect-ratio: 1456 / 816;
         background: center / cover no-repeat;
-        mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, #000 45%, transparent 78%);
-        -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, #000 45%, transparent 78%);
+        mask-image: radial-gradient(
+          ellipse 70% 70% at 50% 50%,
+          #000 45%,
+          transparent 78%
+        );
+        -webkit-mask-image: radial-gradient(
+          ellipse 70% 70% at 50% 50%,
+          #000 45%,
+          transparent 78%
+        );
       }
       .art.towers {
         background-image: url("images/towers.jpg");
@@ -483,19 +514,39 @@
     </nav>
 
     <header class="hero">
-      <div class="hero-art" role="img" aria-label="White blossoms drawn in halftone dots"></div>
+      <div
+        class="hero-art"
+        role="img"
+        aria-label="White blossoms drawn in halftone dots"
+      ></div>
       <div class="wrap">
         <h1>Notes, in plain Markdown.</h1>
         <p class="lede">
-          Naut is a quiet place to write on your Mac. Every note is a <code>.md</code> file you own, and one switch
-          puts it on the web, looking exactly as it does while you write.
+          Naut is a quiet place to write on your Mac. Every note is a
+          <code>.md</code> file you own, and one switch puts it on the web,
+          looking exactly as it does while you write.
         </p>
         <div class="actions">
-          <a class="button" href="https://github.com/frinfo702/Naut/releases/latest/download/Naut.dmg">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12m0 0-5-5m5 5 5-5M5 20h14" /></svg>
+          <a
+            class="button"
+            href="https://github.com/frinfo702/Naut/releases/latest/download/Naut.dmg"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 4v12m0 0-5-5m5 5 5-5M5 20h14" />
+            </svg>
             Download for Mac
           </a>
-          <span class="meta"><span data-version>Latest</span> · macOS 14+ · Apple silicon</span>
+          <span class="meta"
+            ><span data-version>Latest</span> · macOS 14+ · Apple silicon</span
+          >
         </div>
       </div>
     </header>
@@ -517,11 +568,16 @@
           <span class="label">01 — Files</span>
           <h2>Yours, as plain text.</h2>
           <p>
-            Notes live in <code>~/Documents/Naut</code> as ordinary Markdown files. Sync them, grep them, keep them in
-            git. No database, no account, nothing to export.
+            Notes live in <code>~/Documents/Naut</code> as ordinary Markdown
+            files. Sync them, grep them, keep them in git. No database, no
+            account, nothing to export.
           </p>
         </div>
-        <div class="art towers" role="img" aria-label="Towers at night, lit windows as dots"></div>
+        <div
+          class="art towers"
+          role="img"
+          aria-label="Towers at night, lit windows as dots"
+        ></div>
       </article>
 
       <article class="feature">
@@ -529,12 +585,17 @@
           <span class="label">02 — The page</span>
           <h2>Math and code, rendered as you type.</h2>
           <p>
-            Write on the page itself: headings, equations and code take their final shape while the caret is still in
-            them. TeX becomes MathML and code is highlighted when the note renders, so pages need no scripts and work
-            offline.
+            Write on the page itself: headings, equations and code take their
+            final shape while the caret is still in them. TeX becomes MathML and
+            code is highlighted when the note renders, so pages need no scripts
+            and work offline.
           </p>
         </div>
-        <div class="art colosseum" role="img" aria-label="The Colosseum in halftone"></div>
+        <div
+          class="art colosseum"
+          role="img"
+          aria-label="The Colosseum in halftone"
+        ></div>
       </article>
 
       <article class="feature">
@@ -542,22 +603,32 @@
           <span class="label">03 — Publishing</span>
           <h2>One switch puts it on the web.</h2>
           <p>
-            Publishing runs on your own Cloudflare account. Naut sets up a Worker and a KV namespace once; after that,
-            the globe button sends a note to <code>naut.&lt;you&gt;.workers.dev</code>. The page readers get is the
-            preview you saw.
+            Publishing runs on your own Cloudflare account. Naut sets up a
+            Worker and a KV namespace once; after that, the globe button sends a
+            note to <code>naut.&lt;you&gt;.workers.dev</code>. The page readers
+            get is the preview you saw.
           </p>
         </div>
-        <div class="art field" role="img" aria-label="A field of red and white flowers below a hill, in dots"></div>
+        <div
+          class="art field"
+          role="img"
+          aria-label="A field of red and white flowers below a hill, in dots"
+        ></div>
       </article>
 
       <div class="small-features">
         <div>
           <h3>Splits and panes</h3>
-          <p>Split right or down, float a pane, maximize one. Keep two notes side by side.</p>
+          <p>
+            Split right or down, float a pane, maximize one. Keep two notes side
+            by side.
+          </p>
         </div>
         <div>
           <h3>Vim and Helix keys</h3>
-          <p>Modal editing in the live page, with the cursor each mode asks for.</p>
+          <p>
+            Modal editing in the live page, with the cursor each mode asks for.
+          </p>
         </div>
         <div>
           <h3>Zen mode</h3>
@@ -573,17 +644,44 @@
         <div class="way">
           <h3>Download</h3>
           <p>Open the disk image and drag Naut to Applications.</p>
-          <a class="button" href="https://github.com/frinfo702/Naut/releases/latest/download/Naut.dmg">Naut.dmg</a>
+          <a
+            class="button"
+            href="https://github.com/frinfo702/Naut/releases/latest/download/Naut.dmg"
+            >Naut.dmg</a
+          >
         </div>
         <div class="way">
           <h3>Homebrew</h3>
           <p>Naut's repository is its own tap.</p>
           <div class="cmd">
-            <code>brew tap frinfo702/naut https://github.com/frinfo702/Naut
-brew install --cask naut</code>
+            <code
+              >brew tap frinfo702/naut https://github.com/frinfo702/Naut brew
+              install --cask naut</code
+            >
             <button class="copy" type="button" aria-label="Copy">
-              <svg class="idle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h8" /></svg>
-              <svg class="done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
+              <svg
+                class="idle"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="9" y="9" width="11" height="11" rx="2" />
+                <path d="M5 15V5a2 2 0 0 1 2-2h8" />
+              </svg>
+              <svg
+                class="done"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="m5 12 5 5 9-10" />
+              </svg>
             </button>
           </div>
         </div>
@@ -591,17 +689,42 @@ brew install --cask naut</code>
           <h3>From source</h3>
           <p>Needs Xcode; Zig comes from the Nix flake.</p>
           <div class="cmd">
-            <code>git clone https://github.com/frinfo702/Naut
-cd Naut && nix develop -c zig build run</code>
+            <code
+              >git clone https://github.com/frinfo702/Naut cd Naut && nix
+              develop -c zig build run</code
+            >
             <button class="copy" type="button" aria-label="Copy">
-              <svg class="idle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h8" /></svg>
-              <svg class="done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
+              <svg
+                class="idle"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="9" y="9" width="11" height="11" rx="2" />
+                <path d="M5 15V5a2 2 0 0 1 2-2h8" />
+              </svg>
+              <svg
+                class="done"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="m5 12 5 5 9-10" />
+              </svg>
             </button>
           </div>
         </div>
       </div>
       <p class="note">
-        Naut keeps itself current: <code>Naut → Check for Updates…</code> installs the newest release in place.
+        Naut keeps itself current:
+        <code>Naut → Check for Updates…</code> installs the newest release in
+        place.
       </p>
     </section>
 
@@ -635,7 +758,8 @@ cd Naut && nix develop -c zig build run</code>
       })
         .then((r) => (r.ok ? r.json() : Promise.reject()))
         .then((release) => {
-          for (const el of document.querySelectorAll("[data-version]")) el.textContent = release.tag_name;
+          for (const el of document.querySelectorAll("[data-version]"))
+            el.textContent = release.tag_name;
         })
         .catch(() => {});
     </script>

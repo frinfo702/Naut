@@ -45,7 +45,7 @@ public enum NoteSearch {
         let lead = min(12, width / 3)
         let start = text.index(first.lowerBound, offsetBy: -lead, limitedBy: line.lowerBound) ?? line.lowerBound
         let end = text.index(start, offsetBy: width, limitedBy: line.upperBound) ?? line.upperBound
-        var snippet = text[start..<end].trimmingCharacters(in: .whitespacesAndNewlines)
+        var snippet = text[start ..< end].trimmingCharacters(in: .whitespacesAndNewlines)
         if start == line.lowerBound {
             // Drop Markdown's line markers: "## ", "- ", "> ".
             snippet = String(snippet.drop { "#->* ".contains($0) })
@@ -58,10 +58,10 @@ public enum NoteSearch {
 
     static func occurrences(of query: String, in text: String) -> Int {
         var count = 0
-        var rest = text.startIndex..<text.endIndex
+        var rest = text.startIndex ..< text.endIndex
         while let found = text.range(of: query, options: options, range: rest) {
             count += 1
-            rest = found.upperBound..<text.endIndex
+            rest = found.upperBound ..< text.endIndex
         }
         return count
     }

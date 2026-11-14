@@ -36,7 +36,9 @@
   --measure: 760px;
   --nav-width: 300px;
 
-  --font: "Suisse Intl", -apple-system, BlinkMacSystemFont, "Inter", "Hiragino Sans", system-ui, sans-serif;
+  --font:
+    "Suisse Intl", -apple-system, BlinkMacSystemFont, "Inter", "Hiragino Sans",
+    system-ui, sans-serif;
   --mono: "SF Mono", ui-monospace, Menlo, monospace;
 }
 
@@ -61,9 +63,13 @@
   }
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
-html { -webkit-text-size-adjust: 100%; }
+html {
+  -webkit-text-size-adjust: 100%;
+}
 
 body {
   margin: 0;
@@ -100,54 +106,143 @@ nav.toc {
   line-height: 1.5;
 }
 
-@media (max-width: 1000px) { nav.toc { display: none; } }
+@media (max-width: 1000px) {
+  nav.toc {
+    display: none;
+  }
+}
 
-nav.toc a { color: var(--fg-dim); text-decoration: none; }
-nav.toc a:hover { color: var(--fg); }
-nav.toc .title { display: block; color: var(--fg); margin-bottom: 8px; }
+nav.toc a {
+  color: var(--fg-dim);
+  text-decoration: none;
+}
+nav.toc a:hover {
+  color: var(--fg);
+}
+nav.toc .title {
+  display: block;
+  color: var(--fg);
+  margin-bottom: 8px;
+}
 
 /* Tree connectors, drawn like the guides in a file tree. */
-nav.toc ul { list-style: none; margin: 0 0 0 8px; padding: 0; }
-nav.toc li { position: relative; margin: 0; padding: 4px 0 4px 26px; }
+nav.toc ul {
+  list-style: none;
+  margin: 0 0 0 8px;
+  padding: 0;
+}
+nav.toc li {
+  position: relative;
+  margin: 0;
+  padding: 4px 0 4px 26px;
+}
 nav.toc li::before {
-  content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
   border-left: 1px solid var(--guide);
 }
-nav.toc li:last-child::before { bottom: auto; height: 1.0em; }
+nav.toc li:last-child::before {
+  bottom: auto;
+  height: 1em;
+}
 nav.toc li::after {
-  content: ""; position: absolute; left: 0; top: 1.0em; width: 10px;
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 1em;
+  width: 10px;
   border-top: 1px solid var(--guide);
 }
 
 /* Type -------------------------------------------------------------- */
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   color: var(--fg);
   font-weight: 500;
   line-height: 1.25;
   letter-spacing: -0.01em;
   scroll-margin-top: 24px;
 }
-h1 { font-size: 2.6em; margin: 0 0 0.6em; letter-spacing: -0.02em; }
-h2 { font-size: 1.6em; margin: 2.2em 0 0.6em; }
-h3 { font-size: 1.25em; margin: 1.8em 0 0.5em; }
-h4, h5, h6 { font-size: 1em; margin: 1.6em 0 0.4em; }
-main > :first-child { margin-top: 0; }
+h1 {
+  font-size: 2.6em;
+  margin: 0 0 0.6em;
+  letter-spacing: -0.02em;
+}
+h2 {
+  font-size: 1.6em;
+  margin: 2.2em 0 0.6em;
+}
+h3 {
+  font-size: 1.25em;
+  margin: 1.8em 0 0.5em;
+}
+h4,
+h5,
+h6 {
+  font-size: 1em;
+  margin: 1.6em 0 0.4em;
+}
+main > :first-child {
+  margin-top: 0;
+}
 /* The note's name, above its Markdown, as a Notion page's title. */
-h1.page-title { font-size: 2.4em; font-weight: 600; margin: 0 0 0.8em; }
+h1.page-title {
+  font-size: 2.4em;
+  font-weight: 600;
+  margin: 0 0 0.8em;
+}
 
-p, ul, ol, blockquote, pre, .table, .math { margin: 0 0 1.1em; }
+p,
+ul,
+ol,
+blockquote,
+pre,
+.table,
+.math {
+  margin: 0 0 1.1em;
+}
 
-a { color: var(--fg); text-decoration: underline; text-decoration-color: var(--fg-dim); text-underline-offset: 4px; }
-a:hover { text-decoration-color: var(--fg); }
+a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: var(--fg-dim);
+  text-underline-offset: 4px;
+}
+a:hover {
+  text-decoration-color: var(--fg);
+}
 
-strong { color: var(--fg); font-weight: 600; }
+strong {
+  color: var(--fg);
+  font-weight: 600;
+}
 
-ul, ol { padding-left: 1.4em; }
-li { margin: 0.35em 0; }
-li::marker { color: var(--fg-dim); }
-li.task { list-style: none; margin-left: -1.4em; }
-li.task input { margin: 0 0.4em 0 0; accent-color: var(--syn-keyword); }
+ul,
+ol {
+  padding-left: 1.4em;
+}
+li {
+  margin: 0.35em 0;
+}
+li::marker {
+  color: var(--fg-dim);
+}
+li.task {
+  list-style: none;
+  margin-left: -1.4em;
+}
+li.task input {
+  margin: 0 0.4em 0 0;
+  accent-color: var(--syn-keyword);
+}
 
 blockquote {
   margin-left: 0;
@@ -156,9 +251,16 @@ blockquote {
   color: var(--fg-dim);
 }
 
-hr { border: 0; border-top: 1px solid var(--line); margin: 2.5em 0; }
+hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 2.5em 0;
+}
 
-img { max-width: 100%; border-radius: var(--radius-sm); }
+img {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+}
 
 /* Code -------------------------------------------------------------- */
 
@@ -173,7 +275,8 @@ code {
 /* A raised surface with a lit edge. The gradient border is painted as a
    border-box background under an opaque padding-box one, because
    border-image doesn't follow border-radius. */
-pre, .table {
+pre,
+.table {
   border: 1px solid transparent;
   background:
     linear-gradient(var(--surface), var(--surface)) padding-box,
@@ -188,25 +291,57 @@ pre {
   padding: 18px 22px;
   overflow-x: auto;
 }
-pre code { background: none; padding: 0; font-size: 0.9em; line-height: 1.8; color: var(--fg); }
+pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.9em;
+  line-height: 1.8;
+  color: var(--fg);
+}
 
 pre .copy {
-  position: absolute; top: 12px; right: 12px;
-  width: 28px; height: 28px;
-  display: grid; place-items: center;
-  border: 0; border-radius: var(--radius-sm);
-  background: transparent; color: var(--fg-dim);
-  cursor: pointer; opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    color 0.15s;
 }
-pre:hover .copy, pre .copy.done { opacity: 1; }
-pre .copy:hover { color: var(--fg); background: var(--surface-raised); }
+pre:hover .copy,
+pre .copy.done {
+  opacity: 1;
+}
+pre .copy:hover {
+  color: var(--fg);
+  background: var(--surface-raised);
+}
 
-.hl-kw { color: var(--syn-keyword); }
-.hl-str { color: var(--syn-string); }
-.hl-fn, .hl-var { color: var(--syn-attr); }
-.hl-num { color: var(--syn-number); }
-.hl-com { color: var(--syn-comment); }
+.hl-kw {
+  color: var(--syn-keyword);
+}
+.hl-str {
+  color: var(--syn-string);
+}
+.hl-fn,
+.hl-var {
+  color: var(--syn-attr);
+}
+.hl-num {
+  color: var(--syn-number);
+}
+.hl-com {
+  color: var(--syn-comment);
+}
 
 /* Tables ------------------------------------------------------------ */
 
@@ -214,10 +349,25 @@ pre .copy:hover { color: var(--fg); background: var(--surface-raised); }
   border-radius: var(--radius);
   overflow-x: auto;
 }
-table { width: 100%; border-collapse: collapse; font-size: 0.95em; }
-th, td { padding: 12px 24px; text-align: left; vertical-align: top; }
-th { color: var(--fg-dim); font-weight: 400; }
-tr + tr td, tbody tr:first-child td { border-top: 1px solid var(--line); }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+th,
+td {
+  padding: 12px 24px;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  color: var(--fg-dim);
+  font-weight: 400;
+}
+tr + tr td,
+tbody tr:first-child td {
+  border-top: 1px solid var(--line);
+}
 
 /* Math -------------------------------------------------------------- */
 
@@ -228,6 +378,18 @@ math {
   font-size: 1.1em;
   color: var(--fg);
 }
-div.math { overflow-x: auto; overflow-y: hidden; margin: 1.4em 0; }
-div.math math { margin: 0 auto; }
-merror { color: var(--syn-keyword); background: none; border: 0; font-family: var(--mono); font-size: 0.85em; }
+div.math {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 1.4em 0;
+}
+div.math math {
+  margin: 0 auto;
+}
+merror {
+  color: var(--syn-keyword);
+  background: none;
+  border: 0;
+  font-family: var(--mono);
+  font-size: 0.85em;
+}

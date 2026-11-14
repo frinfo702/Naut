@@ -51,21 +51,21 @@ indirect enum PaneNode: Equatable {
     /// Every pane, in reading order.
     var panes: [Pane] {
         switch self {
-        case .pane(let pane): [pane]
-        case .split(let split): split.children.flatMap(\.panes)
+        case let .pane(pane): [pane]
+        case let .split(split): split.children.flatMap(\.panes)
         }
     }
 
     private func isPane(_ id: Pane.ID) -> Bool {
-        if case .pane(let pane) = self { pane.id == id } else { false }
+        if case let .pane(pane) = self { pane.id == id } else { false }
     }
 
     mutating func mapPanes(_ note: (Pane) -> URL?) {
         switch self {
-        case .pane(var pane):
+        case var .pane(pane):
             pane.note = note(pane)
             self = .pane(pane)
-        case .split(var split):
+        case var .split(split):
             for i in split.children.indices { split.children[i].mapPanes(note) }
             self = .split(split)
         }
@@ -81,10 +81,10 @@ indirect enum PaneNode: Equatable {
 
     private mutating func insert(_ new: Pane, after id: Pane.ID, vertical: Bool, scaling: PaneScaling) {
         switch self {
-        case .pane(let pane):
+        case let .pane(pane):
             guard pane.id == id else { return }
             self = .split(PaneSplit(vertical: vertical, children: [self, .pane(new)], weights: [1, 1]))
-        case .split(var split):
+        case var .split(split):
             if split.vertical == vertical, let i = split.children.firstIndex(where: { $0.isPane(id) }) {
                 split.weights[i] /= 2
                 split.children.insert(.pane(new), at: i + 1)
@@ -101,7 +101,7 @@ indirect enum PaneNode: Equatable {
 
     /// Even shares in every split, as if no divider had been dragged.
     private mutating func evenOut() {
-        guard case .split(var split) = self else { return }
+        guard case var .split(split) = self else { return }
         split.weights = split.weights.map { _ in 1 }
         split.resized = false
         for i in split.children.indices { split.children[i].evenOut() }
@@ -112,7 +112,7 @@ indirect enum PaneNode: Equatable {
     /// or its space goes to the pane before it, or after if it was first.
     /// A split left with one child is that child.
     mutating func remove(_ id: Pane.ID, scaling: PaneScaling) {
-        guard case .split(var split) = self else { return }
+        guard case var .split(split) = self else { return }
         if let i = split.children.firstIndex(where: { $0.isPane(id) }) {
             split.children.remove(at: i)
             let weight = split.weights.remove(at: i)
@@ -129,7 +129,7 @@ indirect enum PaneNode: Equatable {
     /// after it the rest of what the two had. Neither goes below its
     /// least; where the two are already too small for that, nothing moves.
     mutating func resize(_ divider: Divider, to weight: CGFloat) {
-        guard case .split(var split) = self else { return }
+        guard case var .split(split) = self else { return }
         let (index, next) = (divider.index, divider.next)
         if split.id == divider.split, split.weights.indices.contains(index), split.weights.indices.contains(next) {
             let pair = split.weights[index] + split.weights[next]
@@ -150,7 +150,7 @@ indirect enum PaneNode: Equatable {
     private func least(vertical: Bool, gap: CGFloat, pane: CGSize) -> CGFloat {
         switch self {
         case .pane: return vertical ? pane.height : pane.width
-        case .split(let split):
+        case let .split(split):
             let each = split.children.map { $0.least(vertical: vertical, gap: gap, pane: pane) }
             return split.vertical == vertical
                 ? each.reduce(0, +) + gap * CGFloat(each.count - 1)
@@ -206,11 +206,11 @@ indirect enum PaneNode: Equatable {
         _ panes: inout [Placed], _ dividers: inout [Divider]
     ) {
         switch self {
-        case .pane(let pane):
+        case let .pane(pane):
             if !floating.contains(pane.id) {
                 panes.append(Placed(pane: pane, frame: rect, vertical: vertical, first: first))
             }
-        case .split(let split):
+        case let .split(split):
             let shown = split.children.indices.filter { !split.children[$0].panes.allSatisfy { floating.contains($0.id) } }
             guard !shown.isEmpty else { return }
             let length = split.vertical ? rect.height : rect.width

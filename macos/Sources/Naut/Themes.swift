@@ -7,8 +7,8 @@ import SwiftUI
 /// drawing; that is normally main-actor work, but not guaranteed.
 enum ThemeSelection {
     private static let lock = NSLock()
-    nonisolated(unsafe) private static var light = ThemePalette.nautLight
-    nonisolated(unsafe) private static var dark = ThemePalette.nautDark
+    private nonisolated(unsafe) static var light = ThemePalette.nautLight
+    private nonisolated(unsafe) static var dark = ThemePalette.nautDark
 
     static func palette(dark: Bool) -> ThemePalette {
         lock.lock()
@@ -56,15 +56,8 @@ extension NSColor {
     }
 }
 
-private struct ThemeRevisionKey: EnvironmentKey {
-    static let defaultValue = 0
-}
-
 extension EnvironmentValues {
     /// Bumped when the theme changes. Views that draw the chrome read it,
     /// so they repaint even when none of their own inputs changed.
-    var themeRevision: Int {
-        get { self[ThemeRevisionKey.self] }
-        set { self[ThemeRevisionKey.self] = newValue }
-    }
+    @Entry var themeRevision: Int = 0
 }

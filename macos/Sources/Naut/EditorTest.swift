@@ -310,7 +310,7 @@ enum EditorTest {
                 case let .command(selector): body.doCommand(by: selector)
                 case let .compose(marked, text):
                     let none = NSRange(location: NSNotFound, length: 0)
-                    for end in 1...marked.count {
+                    for end in 1 ... marked.count {
                         let part = String(marked.prefix(end))
                         body.setMarkedText(part, selectedRange: NSRange(location: (part as NSString).length, length: 0), replacementRange: none)
                     }
@@ -321,7 +321,8 @@ enum EditorTest {
                     let event = NSEvent.keyEvent(
                         with: .keyDown, location: .zero, modifierFlags: shift ? [.command, .shift] : [.command],
                         timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
-                        characters: c, charactersIgnoringModifiers: c, isARepeat: false, keyCode: keyCode)
+                        characters: c, charactersIgnoringModifiers: c, isARepeat: false, keyCode: keyCode
+                    )
                     if let event { _ = body.performKeyEquivalent(with: event) }
                 }
             }
@@ -349,7 +350,7 @@ enum EditorTest {
                 for item in layout.state.items {
                     let rect = layout.markerRect(item) ?? .zero
                     let line = item.location >= text.length ? layout.endLine?.rect ?? .zero : layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: item.location), effectiveRange: nil)
-                    if item.location > 0 && text.character(at: item.location - 1) != 0x0A || rect.maxX <= 0 || !(line.minY...line.maxY).contains(rect.midY) {
+                    if item.location > 0 && text.character(at: item.location - 1) != 0x0A || rect.maxX <= 0 || !(line.minY ... line.maxY).contains(rect.midY) {
                         failures.append("bullets, \(name) with \(marked.debugDescription) marked: the item at \(item.location) of \(text.debugDescription) draws at \(rect)")
                     }
                 }
@@ -393,7 +394,7 @@ enum EditorTest {
             model.text = "a $E=mc^2$ b"
             editor.load("a $E=mc^2$ b")
             let key = LiveImages.Key(markdown: "$E=mc^2$", width: nil, size: layout.font(at: 0).pointSize, dark: body.effectiveAppearance.isDark)
-            for _ in 0..<100 where LiveImages.shared.depth(key) == nil {
+            for _ in 0 ..< 100 where LiveImages.shared.depth(key) == nil {
                 try? await Task.sleep(for: .milliseconds(30))
             }
             try? await Task.sleep(for: .milliseconds(100))
@@ -429,7 +430,7 @@ enum EditorTest {
             model.text = start.text
             editor.load(start.text)
             body.setSelectedRange(LiveProjection(start.text).displayRange(start.selection))
-            for _ in 0..<100 where layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).height < plain.line + 8 {
+            for _ in 0 ..< 100 where layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).height < plain.line + 8 {
                 try? await Task.sleep(for: .milliseconds(30))
             }
             let math = composed()
@@ -597,7 +598,7 @@ enum EditorTest {
             editor.load(sample)
             body.layoutManager?.ensureLayout(for: body.textContainer!)
             body.setSelectedRange(NSRange(location: 30, length: 0))
-            for _ in 0..<presses { press("j") }
+            for _ in 0 ..< presses { press("j") }
             let p = body.selectedRange().location
             if abs(column(p) - column(30)) > 16 || rows(p) <= rows(30) {
                 failures.append("display lines: \(presses) j from 30 went to \(p), x \(column(p)), not x \(column(30))")
@@ -663,7 +664,7 @@ enum EditorTest {
             body.setSelectedRange(r)
             if name == "table" || name == "cell" { body.scrollRangeToVisible(r) }
             if r.length == 1 { body.scrollRangeToVisible(NSRange(location: r.location, length: min(4, (body.string as NSString).length - r.location))) }
-                        try? await Task.sleep(for: .milliseconds(200))
+            try? await Task.sleep(for: .milliseconds(200))
             guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
             view.cacheDisplay(in: view.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?.write(to: dir.appending(path: "\(name).png"))

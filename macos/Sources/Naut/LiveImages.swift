@@ -95,33 +95,33 @@ final class LiveImages: NSObject, WKNavigationDelegate {
         // prefers-color-scheme follows the view's appearance.
         web.appearance = NSAppearance(named: key.dark ? .darkAqua : .aqua)
         let script = """
-            document.documentElement.style.background = "transparent";
-            document.body.style.cssText = "margin:0;padding:0;background:transparent;font-size:" + size + "px";
-            const main = document.querySelector("main");
-            main.style.maxWidth = "none";
-            main.innerHTML = '<div id="m" style="display:' + (width ? 'block;width:' + width + 'px;padding:2px 0' : 'inline-block;padding:2px 1px') + '">' + html + '</div>';
-            main.querySelectorAll("p, div.math, math, div.table").forEach(e => e.style.margin = "0");
-            const math = main.querySelector("math, .math, .katex, mjx-container");
-            // Inline, the picture is the formula alone, a pixel around it
-            // for what a glyph draws past its box: its paragraph's line
-            // box has that line's leading above and below, and a line
-            // with the picture in it stood taller, and lower, by as much.
-            let r = document.getElementById("m").getBoundingClientRect();
-            if (!width && math) {
-                const f = math.getBoundingClientRect();
-                const left = Math.floor(f.left) - 1, top = Math.floor(f.top) - 1;
-                r = new DOMRect(left, top, Math.ceil(f.right) + 1 - left, Math.ceil(f.bottom) + 1 - top);
-            }
-            // The baseline: an empty inline-block's bottom sits on it. Put
-            // after the formula only while measured, so the snapshot is
-            // without it.
-            const probe = document.createElement("span");
-            probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
-            if (math) math.after(probe); else document.getElementById("m").append(probe);
-            const baseline = probe.getBoundingClientRect().bottom;
-            probe.remove();
-            return [r.left, r.top, r.width, r.height, r.bottom - baseline];
-            """
+        document.documentElement.style.background = "transparent";
+        document.body.style.cssText = "margin:0;padding:0;background:transparent;font-size:" + size + "px";
+        const main = document.querySelector("main");
+        main.style.maxWidth = "none";
+        main.innerHTML = '<div id="m" style="display:' + (width ? 'block;width:' + width + 'px;padding:2px 0' : 'inline-block;padding:2px 1px') + '">' + html + '</div>';
+        main.querySelectorAll("p, div.math, math, div.table").forEach(e => e.style.margin = "0");
+        const math = main.querySelector("math, .math, .katex, mjx-container");
+        // Inline, the picture is the formula alone, a pixel around it
+        // for what a glyph draws past its box: its paragraph's line
+        // box has that line's leading above and below, and a line
+        // with the picture in it stood taller, and lower, by as much.
+        let r = document.getElementById("m").getBoundingClientRect();
+        if (!width && math) {
+            const f = math.getBoundingClientRect();
+            const left = Math.floor(f.left) - 1, top = Math.floor(f.top) - 1;
+            r = new DOMRect(left, top, Math.ceil(f.right) + 1 - left, Math.ceil(f.bottom) + 1 - top);
+        }
+        // The baseline: an empty inline-block's bottom sits on it. Put
+        // after the formula only while measured, so the snapshot is
+        // without it.
+        const probe = document.createElement("span");
+        probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+        if (math) math.after(probe); else document.getElementById("m").append(probe);
+        const baseline = probe.getBoundingClientRect().bottom;
+        probe.remove();
+        return [r.left, r.top, r.width, r.height, r.bottom - baseline];
+        """
         guard let r = try? await web.callAsyncJavaScript(script, arguments: ["html": html, "size": key.size, "width": key.width ?? 0], contentWorld: .page) as? [Double],
               r.count == 5, r[2] > 0, r[3] > 0
         else { return nil }

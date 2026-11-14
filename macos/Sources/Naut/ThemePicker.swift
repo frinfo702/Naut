@@ -119,6 +119,7 @@ private struct ThemeCard: View {
 
 enum ThemePickerMetrics {
     // MARK: - Sizing
+
     static let cardMinWidth: CGFloat = 96
     static let previewHeight: CGFloat = 70
     static let cardRadius: CGFloat = 9
@@ -129,6 +130,7 @@ enum ThemePickerMetrics {
     static let captionGap: CGFloat = 10
 
     // MARK: - Animation
+
     static let selectionDuration = 0.15 // fast enough to feel like a direct choice
     static let hoverDuration = 0.12
 }

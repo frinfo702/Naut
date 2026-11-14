@@ -5,4 +5,4 @@
 --ifdef outdent
 --disable wrapIfStatementBodies,wrapPropertyBodies,wrapLoopBodies,wrapFunctionBodies
 --disable wrapIfExpressionBodies,conditionalAssignment
---disable unusedArguments,noForceUnwrapInTests,initCoderUnavailable,docComments
+--disable unusedArguments,noForceUnwrapInTests,initCoderUnavailable,docComments,wrapMultilineStatementBraces

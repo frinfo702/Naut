@@ -60,7 +60,6 @@ extension LiveProjection {
     private func contains(_ outer: NSRange, _ inner: NSRange) -> Bool {
         inner.length > 0 && outer.location <= inner.location && NSMaxRange(outer) >= NSMaxRange(inner)
     }
-
 }
 
 public extension String {

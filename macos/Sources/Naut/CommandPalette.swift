@@ -271,7 +271,7 @@ struct CommandPalette: View {
         }
     }
 
-    @ViewBuilder private func rowView(_ row: Row, selected: Bool) -> some View {
+    private func rowView(_ row: Row, selected: Bool) -> some View {
         Group {
             switch row.kind {
             case let .command(command):
@@ -697,11 +697,11 @@ private struct Peek: View {
 private func highlighted(_ text: String, _ query: String) -> AttributedString {
     var out = AttributedString(text)
     guard !query.isEmpty else { return out }
-    var rest = out.startIndex..<out.endIndex
+    var rest = out.startIndex ..< out.endIndex
     while let found = out[rest].range(of: query, options: [.caseInsensitive, .widthInsensitive]) {
         out[found].foregroundColor = Theme.cursor
         out[found].inlinePresentationIntent = .stronglyEmphasized
-        rest = found.upperBound..<out.endIndex
+        rest = found.upperBound ..< out.endIndex
     }
     return out
 }

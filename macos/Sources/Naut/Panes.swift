@@ -561,7 +561,7 @@ private struct NotePicker: View {
         }
     }
 
-    @ViewBuilder private var field: some View {
+    private var field: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass").foregroundStyle(Theme.fgDim)
             if searching {

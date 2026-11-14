@@ -76,7 +76,7 @@ public enum Highlight {
         var b = 0, u = 0
         for scalar in code.unicodeScalars {
             let n = UTF8.width(scalar)
-            for k in 0..<n { utf16[b + k] = u }
+            for k in 0 ..< n { utf16[b + k] = u }
             b += n
             u += UTF16.width(scalar)
         }
@@ -174,5 +174,6 @@ private func withBytes<R>(_ string: String, _ body: (UnsafePointer<CChar>?, Int)
 private func take(_ s: naut_string_s) -> String {
     defer { naut_string_free(s) }
     guard let ptr = s.ptr, s.len > 0 else { return "" }
-    return String(decoding: UnsafeRawBufferPointer(start: ptr, count: s.len), as: UTF8.self)
+    // Lossy on purpose: a bad byte shouldn't drop the whole string.
+    return String(decoding: UnsafeRawBufferPointer(start: ptr, count: s.len), as: UTF8.self) // swiftlint:disable:this optional_data_string_conversion
 }

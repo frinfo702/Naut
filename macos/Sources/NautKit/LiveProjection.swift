@@ -78,17 +78,17 @@ public struct LiveProjection {
                 // block's lines in the display, nothing above or below.
                 for m in e.markers {
                     let end = NSMaxRange(m) < source.length && source.character(at: NSMaxRange(m)) == 0x0A ? NSMaxRange(m) + 1 : NSMaxRange(m)
-                    block.insert(integersIn: m.location..<end)
-                    fences.insert(integersIn: m.location..<end)
+                    block.insert(integersIn: m.location ..< end)
+                    fences.insert(integersIn: m.location ..< end)
                 }
             case .table:
                 // Before the first cell, block syntax (typing at the table's
                 // start goes into the cell); after the last, like a closing
                 // marker (typing at its end stays in it).
-                let cells = e.cells.flatMap { $0 }
+                let cells = e.cells.flatMap(\.self)
                 guard let first = cells.first, let last = cells.last else { break }
-                block.insert(integersIn: e.range.location..<first.location)
-                inline.insert(integersIn: NSMaxRange(last)..<NSMaxRange(e.range))
+                block.insert(integersIn: e.range.location ..< first.location)
+                inline.insert(integersIn: NSMaxRange(last) ..< NSMaxRange(e.range))
                 for (a, b) in zip(cells, cells.dropFirst()) {
                     breaks.append(NSRange(location: NSMaxRange(a), length: b.location - NSMaxRange(a)))
                 }
@@ -134,10 +134,10 @@ public struct LiveProjection {
         self.display = NSString(characters: display, length: display.count)
         self.units = units
         self.attachments = attachments
-        self.blockSyntax = block
+        blockSyntax = block
         self.fences = fences
         self.atoms = atoms
-        self.cellBreaks = breaks
+        cellBreaks = breaks
     }
 
     // MARK: - Mapping
