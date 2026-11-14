@@ -25,6 +25,9 @@ struct NautApp: App {
         }
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { Updater.shared.checkForUpdates() }
+            }
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") { undoManager()?.undo() }
                     .keyboardShortcut("z")
