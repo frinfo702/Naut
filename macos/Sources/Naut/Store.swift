@@ -580,7 +580,9 @@ final class Store {
         focus = panes[0].id
         reload()
         if notes.isEmpty { newNote(named: "Welcome", text: Self.welcome) }
-        selection = tabs.first ?? notes.first?.id
+        // The note last opened is the one on screen at quit: the window
+        // comes back to it, not to the first tab.
+        selection = recent.first { tabs.contains($0) } ?? tabs.first ?? notes.first?.id
         TypingSound.shared.sound = typingSound
         TypingSound.shared.volume = Float(typingVolume)
         ready = true
