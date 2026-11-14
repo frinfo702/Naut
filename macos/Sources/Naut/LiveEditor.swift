@@ -660,6 +660,31 @@ struct LiveEditor: NSViewRepresentable {
             return true
         }
 
+        /// Up or Down from a table cell's first or last line goes to the
+        /// cell above or below it. True if the caret went there.
+        private func moveInTable(_ p: Int, down: Bool) -> Bool {
+            guard let view, let layout, let storage = view.textStorage, storage.length > 0,
+                  let table = layout.state.tables.first(where: { $0.lines.location <= p && p <= NSMaxRange($0.lines) }) else { return false }
+            // A cell whose text wraps is walked line by line first.
+            let cell = (storage.string as NSString).paragraphRange(for: NSRange(location: p, length: 0))
+            func line(_ i: Int) -> CGFloat {
+                layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: min(i, storage.length - 1)), effectiveRange: nil).minY
+            }
+            guard line(p) == line(down ? max(cell.location, NSMaxRange(cell) - 1) : cell.location) else { return false }
+            if let to = editing.vertical(from: p, preferring: caretSource, down: down) {
+                place(NSRange(location: to, length: 0))
+            } else if down, NSMaxRange(table.lines) >= projection.display.length, (source as NSString).hasSuffix("\n") == false {
+                // Down from the last row of a table that ends the note
+                // makes the line below, as from any block.
+                let end = (source as NSString).length
+                replace(NSRange(location: end, length: 0), with: "\n", select: NSRange(location: end + 1, length: 0))
+            } else {
+                return false
+            }
+            view.scrollRangeToVisible(view.selectedRange())
+            return true
+        }
+
         /// Whether display range `r` has some of a table in it.
         private func reachesTable(_ r: NSRange) -> Bool {
             layout?.state.tables.contains { NSIntersectionRange($0.lines, r).length > 0 } ?? false
@@ -901,6 +926,9 @@ struct LiveEditor: NSViewRepresentable {
                 return true
             case #selector(NSResponder.moveUp(_:)) where openGap(above: true),
                  #selector(NSResponder.moveDown(_:)) where openGap(above: false):
+                return true
+            case #selector(NSResponder.moveUp(_:)) where selection.length == 0 && moveInTable(selection.location, down: false),
+                 #selector(NSResponder.moveDown(_:)) where selection.length == 0 && moveInTable(selection.location, down: true):
                 return true
             case #selector(NSResponder.moveDown(_:)):
                 // Down from a block that ends the note makes the line below.

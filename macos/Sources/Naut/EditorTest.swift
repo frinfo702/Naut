@@ -134,6 +134,15 @@ enum EditorTest {
         ("tab indents code", "```\n‸x\n```", [.tab], "```\n    ‸x\n```"),
 
         // ⌘A.
+        ("down in a table keeps the column", "x\n\n| ‸a | b | c |\n| - | - | - |\n| d | e | f |\n| g | h | i |\n\ny", [.down, .type("1"), .down, .type("2")],
+         "x\n\n| a | b | c |\n| - | - | - |\n| 1d | e | f |\n| g2‸ | h | i |\n\ny"),
+        ("up in a table keeps the column", "| a | b | c |\n| - | - | - |\n| d | e | f |\n| g | h‸ | i |", [.up, .type("1"), .up, .type("2")],
+         "| a | b2‸ | c |\n| - | - | - |\n| d | e1 | f |\n| g | h | i |"),
+        ("down through empty cells keeps the column", "| a | ‸ |  |\n| - | - | - |\n|  |  |  |\n|  |  |  |", [.down, .down, .type("x")],
+         "| a |  |  |\n| - | - | - |\n|  |  |  |\n|  | x‸ |  |"),
+        ("down from a table's last row leaves it", "| a | b |\n| - | - |\n| c‸ | d |\n\ny", [.down, .type("x")], "| a | b |\n| - | - |\n| c | d |\nx‸\ny"),
+        ("down from the last row of a table ending the note makes a line", "| a | b |\n| - | - |\n| c | d‸ |", [.down, .type("x")], "| a | b |\n| - | - |\n| c | d |\nx‸"),
+        ("up from a table's first row leaves it", "x\n\n| a | b‸ |\n| - | - |\n| c | d |", [.up, .type("z")], "x\nz‸\n| a | b |\n| - | - |\n| c | d |"),
         ("select all in a table selects the table", "x\n\n| a | b‸ |\n| - | - |\n| c | d |\n\ny", [.selectAll], "x\n\n| «a | b |\n| - | - |\n| c | d» |\n\ny"),
         ("select all in a table, delete takes it whole", "x\n\n| a | b‸ |\n| - | - |\n| c | d |\n\ny", [.selectAll, .backspace], "x\n\n‸\n\ny"),
         ("select all twice in a table selects the note", "| a | b‸ |\n| - | - |\n| c | d |\ny", [.selectAll, .selectAll], "| «a | b |\n| - | - |\n| c | d |\ny»"),

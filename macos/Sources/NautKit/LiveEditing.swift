@@ -647,6 +647,27 @@ public struct LiveEditing {
         return .replace(caret(end), with: "\n" + row + (end == source.length ? "\n" : ""), selection: caret(end + 3 + 3 * col))
     }
 
+    /// Where the caret at display `p` in a table cell goes with the Down
+    /// arrow (`down`) or Up: as far into the cell below or above, the
+    /// same column; from its last or first row, to the line below or above
+    /// the table. Nil outside a table, and where the note has no such line.
+    ///
+    /// The cells of a row are paragraphs side by side, which the text view
+    /// steps through as lines: Down went to the row's last cell.
+    public func vertical(from p: Int, preferring: Int? = nil, down: Bool) -> Int? {
+        guard let c = cell(at: projection.insertion(at: p, preferring: preferring).position) else { return nil }
+        let row = c.row + (down ? 1 : -1)
+        guard c.table.cells.indices.contains(row) else {
+            let all = projection.displayRange(c.table.range)
+            if down { return NSMaxRange(all) < projection.display.length ? NSMaxRange(all) + 1 : nil }
+            return all.location > 0 ? all.location - 1 : nil
+        }
+        guard c.col < c.table.cells[row].count else { return nil }
+        let from = projection.displayRange(c.range)
+        let to = projection.displayRange(c.table.cells[row][c.col])
+        return to.location + min(max(0, p - from.location), to.length)
+    }
+
     /// What the table menu does to a table.
     public enum TableChange: Sendable { case addRow, addColumn, deleteRow, deleteColumn, deleteTable }
 
