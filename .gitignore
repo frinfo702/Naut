@@ -4,3 +4,4 @@ zig-out/
 macos/.build/
 macos/CNaut.xcframework/
 .DS_Store
+dist/

@@ -1,0 +1,88 @@
+name: Release
+
+# Run from the Actions tab: pick which part of vX.Y.Z to raise. Builds
+# Naut.app, packs it into Naut.dmg and publishes both as a GitHub release.
+# The app's Check for Updates and the Homebrew cask (Casks/naut.rb) both
+# read the latest release, so nothing else needs bumping.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to raise
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # The Xcode the app is developed with; see ci.yml.
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, and the commit count for CFBundleVersion
+
+      - name: Next version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)
+          IFS=. read -r major minor patch <<EOF
+          ${last#v}
+          EOF
+          major=${major:-0} minor=${minor:-0} patch=${patch:-0}
+          case "$BUMP" in
+            major) major=$((major + 1)) minor=0 patch=0 ;;
+            minor) minor=$((minor + 1)) patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+          echo "${last:-none} -> v$major.$minor.$patch"
+          echo "version=$major.$minor.$patch" >>"$GITHUB_OUTPUT"
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Build
+        run: nix develop .#ci --command zig build -Doptimize=fast
+
+      # Only when the Developer ID secrets are set; otherwise package.sh
+      # signs ad hoc.
+      - name: Import signing certificate
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        if: env.CERTIFICATE != ''
+        run: |
+          keychain=$RUNNER_TEMP/signing.keychain-db
+          password=$(uuidgen)
+          echo "$CERTIFICATE" | base64 --decode >"$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity=$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ { print $2; exit }')
+          echo "SIGN_IDENTITY=$identity" >>"$GITHUB_ENV"
+
+      - name: Package
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+        run: macos/package.sh "${{ steps.version.outputs.version }}"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "v$VERSION" dist/Naut.dmg dist/Naut.dmg.sha256 \
+            --target "$GITHUB_SHA" --title "Naut $VERSION" --generate-notes
