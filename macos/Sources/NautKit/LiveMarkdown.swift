@@ -20,11 +20,15 @@ public enum LiveMarkdown {
             case mathBlock(tex: String)
             /// A fenced code block; `markers` are its two fence lines.
             case codeBlock(language: String)
-            /// A GFM table; `range` is all its rows.
+            /// A GFM table; `range` is all its rows, `markers` its delimiter
+            /// row, and `cells` the text of each cell, row by row (the
+            /// delimiter row left out). It is edited in place, cell by cell.
             case table
             /// An image alone on its line: `![alt](url)`, or
             /// `![alt|320](url)` shown 320 points wide.
             case image(url: String, width: Int?)
+            /// A thematic break, `---` or `___`, drawn as a line.
+            case rule
             case quote
             /// `markers` is the bullet or number.
             case listItem
@@ -40,6 +44,9 @@ public enum LiveMarkdown {
         /// The caret anywhere in here means the element is being edited:
         /// its lines, newlines included.
         public var scope: NSRange
+        /// A table's cells, row by row: each one's text without the spaces
+        /// around it. An empty cell is empty at the middle of its spaces.
+        public var cells: [[NSRange]] = []
     }
 
     public static func parse(_ source: String) -> [Element] {
@@ -93,7 +100,10 @@ public enum LiveMarkdown {
                 while j < lines.count, text.substring(with: lines[j].line).contains("|") { j += 1 }
                 let scope = union(enclosing, lines[j - 1].enclosing)
                 let rows = union(line, lines[j - 1].line)
-                out.append(Element(kind: .table, range: rows, markers: [], content: rows, scope: scope))
+                let body = ([i] + Array(i + 2..<j)).map { cells(in: lines[$0].line, text) }
+                out.append(Element(kind: .table, range: rows, markers: [lines[i + 1].line], content: rows, scope: scope, cells: body))
+                // Bold, code and links inside cells.
+                for row in body { for cell in row { out += spans(in: cell, of: source, scope: scope) } }
                 i = j
                 continue
             }
@@ -106,13 +116,22 @@ public enum LiveMarkdown {
                 continue
             }
 
+            // Only `---`, which makes one as it is typed, as in Linear: `___`
+            // and `***` make one with a Space after (`LiveEditing`), and
+            // `***` is how `***bold italic***` starts.
+            if rule.firstMatch(in: source, range: line) != nil {
+                out.append(Element(kind: .rule, range: line, markers: [line], content: NSRange(location: NSMaxRange(line), length: 0), scope: enclosing))
+                i += 1
+                continue
+            }
+
             var inline = line
             if let m = heading.firstMatch(in: source, range: line) {
                 let marker = m.range
                 let content = NSRange(location: NSMaxRange(marker), length: NSMaxRange(line) - NSMaxRange(marker))
                 out.append(Element(kind: .heading(level: m.range(at: 1).length), range: line, markers: [marker], content: content, scope: enclosing))
                 inline = content
-            } else if let m = quote.firstMatch(in: source, range: line) {
+            } else if let m = quote.firstMatch(in: source, range: line) ?? continuedQuote(line, after: out, text) {
                 let content = NSRange(location: NSMaxRange(m.range), length: NSMaxRange(line) - NSMaxRange(m.range))
                 out.append(Element(kind: .quote, range: line, markers: [m.range], content: content, scope: enclosing))
                 inline = content
@@ -169,6 +188,41 @@ public enum LiveMarkdown {
         return out
     }
 
+    /// A `>` alone on the line after a quote line: an empty line of the
+    /// same quote. Anywhere else a quote starts with `> `, as in Linear,
+    /// so `>` alone is text until Space follows it.
+    private static func continuedQuote(_ line: NSRange, after out: [Element], _ text: NSString) -> NSTextCheckingResult? {
+        guard text.substring(with: line).trimmingCharacters(in: .whitespaces) == ">",
+              out.contains(where: { $0.kind == .quote && NSMaxRange($0.range) == line.location - 1 })
+        else { return nil }
+        return quoteAlone.firstMatch(in: text as String, range: line)
+    }
+
+    /// The cells of table row `line`: between its unescaped pipes, the
+    /// outer ones optional, as GFM reads them.
+    private static func cells(in line: NSRange, _ text: NSString) -> [NSRange] {
+        var pipes: [Int] = []
+        var i = line.location
+        while i < NSMaxRange(line) {
+            let c = text.character(at: i)
+            if c == 0x5C { i += 2; continue } // \|
+            if c == 0x7C { pipes.append(i) }
+            i += 1
+        }
+        let bounds = [line.location - 1] + pipes + [NSMaxRange(line)]
+        var segments = zip(bounds, bounds.dropFirst()).map { NSRange(location: $0 + 1, length: $1 - $0 - 1) }
+        func blank(_ r: NSRange) -> Bool { text.substring(with: r).trimmingCharacters(in: .whitespaces).isEmpty }
+        if !pipes.isEmpty, segments.count > 1, blank(segments[0]) { segments.removeFirst() }
+        if !pipes.isEmpty, segments.count > 1, blank(segments[segments.count - 1]) { segments.removeLast() }
+        return segments.map { s in
+            var r = s
+            while r.length > 0, [0x20, 0x09].contains(text.character(at: r.location)) { r = NSRange(location: r.location + 1, length: r.length - 1) }
+            while r.length > 0, [0x20, 0x09].contains(text.character(at: NSMaxRange(r) - 1)) { r.length -= 1 }
+            if r.length == 0 { return NSRange(location: s.location + min(1, s.length), length: 0) }
+            return r
+        }
+    }
+
     /// The line closing a fence opened on line `i`. Without one the fence
     /// is text: libnaut would run it to the end of the note, but in an
     /// editor that means everything below turns to code while ``` is
@@ -192,9 +246,13 @@ public enum LiveMarkdown {
 
     private static func union(_ a: NSRange, _ b: NSRange) -> NSRange { NSUnionRange(a, b) }
 
+    /// Three or more `-` or `_`, spaces between allowed, as libnaut's `isRule`.
+    static let rule = try! NSRegularExpression(pattern: "^[ \\t]*(?:-[ \\t]*){3,}$")
+
     // Block prefixes, each matched at the start of a line.
     private static let heading = try! NSRegularExpression(pattern: "^(#{1,6})[ \\t]+")
-    private static let quote = try! NSRegularExpression(pattern: "^[ \\t]*>[ \\t]?")
+    private static let quote = try! NSRegularExpression(pattern: "^[ \\t]*>[ \\t]")
+    private static let quoteAlone = try! NSRegularExpression(pattern: "^[ \\t]*>")
     private static let list = try! NSRegularExpression(pattern: "^[ \\t]*([-*+]|\\d+[.)])[ \\t]+")
 
     /// `| :-- | --: |`: only dashes and colons between pipes.
@@ -228,7 +286,7 @@ extension LiveMarkdown.Element.Kind {
     /// Drawn as one attachment on a line of its own.
     public var isBlockAtom: Bool {
         switch self {
-        case .mathBlock, .table, .image: true
+        case .mathBlock, .image, .rule: true
         default: false
         }
     }

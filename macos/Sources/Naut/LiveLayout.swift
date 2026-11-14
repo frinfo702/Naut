@@ -90,7 +90,10 @@ struct LiveStyle {
             for (r, c) in Highlight.spans(text, language: language) {
                 s.addAttribute(.foregroundColor, value: Self.color(c), range: NSRange(location: content.location + r.location, length: r.length))
             }
-        case .mathBlock, .table, .image:
+        case .table:
+            let ordinal = p.elements[..<index].count { if case .table = $0.kind { true } else { false } }
+            styleTable(e, ordinal: ordinal, of: p, in: s)
+        case .mathBlock, .image, .rule:
             guard let at = p.attachment(of: index), let a = attachment(index) else { return }
             s.addAttribute(.attachment, value: a, range: NSRange(location: at, length: 1))
             let style = NSMutableParagraphStyle()
@@ -119,6 +122,60 @@ struct LiveStyle {
                 s.addAttributes([.foregroundColor: dim, .strikethroughStyle: NSUnderlineStyle.single.rawValue], range: content)
             }
         }
+    }
+
+    /// A table's cells, a paragraph each, laid out as a grid: TextKit's
+    /// text table, its columns equal, the header row raised and bold.
+    private func styleTable(_ e: LiveMarkdown.Element, ordinal: Int, of p: LiveProjection, in s: NSMutableAttributedString) {
+        let columns = max(1, e.cells.map(\.count).max() ?? 1)
+        // The same table and cells from one styling to the next, so a
+        // keystroke doesn't make every cell look restyled and laid out again.
+        let key = "\(ordinal)|\(columns)|\(e.cells.count)"
+        if Self.tables.count > 64 { Self.tables.removeAll() }
+        let blocks = Self.tables[key] ?? makeTable(columns: columns, rows: e.cells.count)
+        Self.tables[key] = blocks
+        for (r, row) in e.cells.enumerated() {
+            for (c, cell) in row.enumerated() where c < columns {
+                let style = NSMutableParagraphStyle()
+                style.textBlocks = [blocks[r * columns + c]]
+                let paragraph = p.display.paragraphRange(for: NSRange(location: p.display(at: cell.location), length: 0))
+                s.addAttribute(.paragraphStyle, value: style, range: paragraph)
+                if r == 0 {
+                    s.addAttribute(.foregroundColor, value: Self.color(.fg), range: paragraph)
+                    convert(paragraph, in: s) { weighted($0, .semibold, size: $0.pointSize) }
+                }
+            }
+        }
+    }
+
+    nonisolated(unsafe) private static var tables: [String: [NSTextTableBlock]] = [:]
+
+    /// A table's cells, row by row.
+    private func makeTable(columns: Int, rows: Int) -> [NSTextTableBlock] {
+        let table = NSTextTable()
+        table.numberOfColumns = columns
+        table.layoutAlgorithm = .fixedLayoutAlgorithm
+        table.collapsesBorders = true
+        table.hidesEmptyCells = false
+        table.setContentWidth(100, type: .percentageValueType)
+        table.setWidth(LiveLayout.blockMargin, type: .absoluteValueType, for: .margin, edge: .minY)
+        table.setWidth(LiveLayout.blockMargin, type: .absoluteValueType, for: .margin, edge: .maxY)
+        var blocks: [NSTextTableBlock] = []
+        for r in 0..<rows {
+            for c in 0..<columns {
+                let block = NSTextTableBlock(table: table, startingRow: r, rowSpan: 1, startingColumn: c, columnSpan: 1)
+                block.setWidth(1, type: .absoluteValueType, for: .border)
+                block.setBorderColor(Self.color(.line))
+                block.setWidth(6, type: .absoluteValueType, for: .padding, edge: .minY)
+                block.setWidth(6, type: .absoluteValueType, for: .padding, edge: .maxY)
+                block.setWidth(10, type: .absoluteValueType, for: .padding, edge: .minX)
+                block.setWidth(10, type: .absoluteValueType, for: .padding, edge: .maxX)
+                block.setValue(100 / CGFloat(columns), type: .percentageValueType, for: .width)
+                if r == 0 { block.backgroundColor = Self.color(.surface) }
+                blocks.append(block)
+            }
+        }
+        return blocks
     }
 
     /// Where a list item's text starts: room for its marker, and a step in
@@ -242,9 +299,26 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
             var element: Int
         }
 
+        struct Table {
+            /// The display paragraphs of its cells.
+            var lines: NSRange
+            var element: Int
+        }
+
+        struct Quote {
+            var lines: NSRange
+            /// Whether its last line is an empty one ending the note: that
+            /// line has no character, so its bar goes on the extra line
+            /// fragment. Not just "its lines reach the end": `> xx` and
+            /// an empty line after it reach it too, and the bar ran on
+            /// down into the empty line that had left the quote.
+            var endsEmpty: Bool
+        }
+
         var code: [Code] = []
+        var tables: [Table] = []
         var inlineCode: [NSRange] = []
-        var quotes: [NSRange] = []
+        var quotes: [Quote] = []
         var items: [Item] = []
     }
 
@@ -339,6 +413,32 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         super.setExtraLineFragmentRect(rect, usedRect: used, textContainer: container)
     }
 
+    /// A quote's bar, in container coordinates: down its lines, and the
+    /// empty line ending the note if that is one of them. Such a line has
+    /// no character: it is the extra one after the last newline, as an
+    /// empty list item's is, and its bar goes there.
+    func quoteBar(_ q: State.Quote) -> NSRect? {
+        guard let container = textContainers.first else { return nil }
+        let end = q.endsEmpty ? endLine?.rect : nil
+        var top: CGFloat, bottom: CGFloat
+        if q.lines.length > 0, let (t, b) = verticalExtent(of: q.lines) { (top, bottom) = (t, b) } else if let end { (top, bottom) = (end.minY, end.maxY) } else { return nil }
+        if let end { bottom = max(bottom, end.maxY) }
+        return NSRect(x: container.lineFragmentPadding, y: top + 4, width: 2, height: bottom - top - 8)
+    }
+
+    /// The line after the last character, where text typed at the end
+    /// goes: the extra line fragment. An empty note has none (TextKit
+    /// leaves it zero), so a note that is only `- ` or `> ` had nowhere to
+    /// draw its bullet or bar: there, the first line as it will be.
+    var endLine: (rect: NSRect, used: NSRect)? {
+        if extraLineFragmentRect.height > 0 { return (extraLineFragmentRect, extraLineFragmentUsedRect) }
+        guard textStorage?.length == 0, let font = endFont, let container = textContainers.first else { return nil }
+        let text = defaultLineHeight(for: font)
+        let extra = extra(for: font)
+        let rect = NSRect(x: 0, y: 0, width: container.size.width, height: text + extra)
+        return (rect, NSRect(x: 0, y: extra / 2, width: 0, height: text))
+    }
+
     /// The space a line-height adds to the font's own line, for the font
     /// at character `i`. From the font rather than the line's height, so
     /// a tall picture doesn't get a tall gap.
@@ -388,9 +488,11 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         }
 
         NSColor(token: .line).setFill()
-        for quote in state.quotes where NSIntersectionRange(quote, visible).length > 0 {
-            guard let (top, bottom) = verticalExtent(of: quote) else { continue }
-            NSRect(x: origin.x + container.lineFragmentPadding, y: origin.y + top + 4, width: 2, height: bottom - top - 8).fill()
+        let length = textStorage?.length ?? 0
+        for q in state.quotes {
+            let ending = q.endsEmpty && NSMaxRange(visible) >= length
+            guard NSIntersectionRange(q.lines, visible).length > 0 || ending, let bar = quoteBar(q) else { continue }
+            bar.offsetBy(dx: origin.x, dy: origin.y).fill()
         }
 
         let composing = firstTextView?.hasMarkedText() == true
@@ -471,7 +573,7 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
     /// character, the empty line after a final newline.
     private func usedRect(at i: Int) -> NSRect? {
         guard let storage = textStorage else { return nil }
-        if i >= storage.length, extraLineFragmentRect.height > 0 { return extraLineFragmentUsedRect }
+        if i >= storage.length, let end = endLine { return end.used }
         guard storage.length > 0 else { return nil }
         return lineFragmentUsedRect(forGlyphAt: glyphIndexForCharacter(at: min(i, storage.length - 1)), effectiveRange: nil)
     }
@@ -516,6 +618,21 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
     func mathRect(at character: Int) -> NSRect? {
         guard let container = textContainers.first, let storage = textStorage, character < storage.length else { return nil }
         return boundingRect(forGlyphRange: glyphRange(forCharacterRange: NSRange(location: character, length: 1), actualCharacterRange: nil), in: container)
+    }
+
+    /// A table's box: its cells' lines, with their padding and borders,
+    /// across the text's width as the table is.
+    func tableRect(_ lines: NSRange) -> NSRect? {
+        guard let container = textContainers.first, let storage = textStorage, storage.length > 0 else { return nil }
+        let chars = NSIntersectionRange(lines, NSRange(location: 0, length: storage.length))
+        guard chars.length > 0 else { return nil }
+        var box = NSRect.null
+        enumerateLineFragments(forGlyphRange: glyphRange(forCharacterRange: chars, actualCharacterRange: nil)) { rect, _, _, _, _ in
+            box = box.union(rect)
+        }
+        guard !box.isNull else { return nil }
+        let pad = container.lineFragmentPadding
+        return NSRect(x: pad, y: box.minY - 7, width: container.size.width - 2 * pad, height: box.height + 14)
     }
 
     func codeBlockRect(_ lines: NSRange) -> NSRect? {
@@ -575,8 +692,9 @@ extension LiveLayout.State {
         let move = LiveLayout.Shift(range: range, length: length)
         var s = self
         s.code = code.map { var c = $0; c.lines = move(c.lines); return c }
+        s.tables = tables.map { var t = $0; t.lines = move(t.lines); return t }
         s.inlineCode = inlineCode.map(move.callAsFunction)
-        s.quotes = quotes.map(move.callAsFunction)
+        s.quotes = quotes.map { var q = $0; q.lines = move(q.lines); return q }
         s.items = items.map { var item = $0; item.location = move(item.location); return item }
         return s
     }
@@ -587,10 +705,15 @@ extension LiveLayout.State {
             switch e.kind {
             case let .codeBlock(language):
                 code.append(.init(lines: p.displayLines(e.content), language: language, element: i))
+            case .table:
+                tables.append(.init(lines: p.displayLines(e.range), element: i))
             case .code:
                 inlineCode.append(p.displayRange(e.range))
             case .quote:
-                quotes.append(p.displayLines(e.range))
+                var lineStart = 0
+                p.source.getLineStart(&lineStart, end: nil, contentsEnd: nil, for: NSRange(location: NSMaxRange(e.range), length: 0))
+                let endsEmpty = NSMaxRange(e.range) == p.source.length && p.display(at: lineStart) == p.display.length
+                quotes.append(.init(lines: p.displayLines(e.range), endsEmpty: endsEmpty))
             case .listItem:
                 let marker = p.source.substring(with: e.markers[0])
                 let kind: Marker = LiveProjection.isTask(p.source, e.content)

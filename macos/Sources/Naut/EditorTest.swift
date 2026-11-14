@@ -23,6 +23,9 @@ enum EditorTest {
         /// An input method composing `marked`, then committing `text`.
         case compose(String, String)
         case selectAll, undo
+        /// A key with ⌘ (and `shift`), by virtual key code, as the
+        /// keyboard sends it before the menus see it.
+        case shortcut(String, keyCode: UInt16, shift: Bool)
 
         static let backspace = Key.command(#selector(NSResponder.deleteBackward(_:)))
         static let delete = Key.command(#selector(NSResponder.deleteForward(_:)))
@@ -48,6 +51,30 @@ enum EditorTest {
         ("return after an ended list stays out of it", "4. a\n5. ‸", [.enter, .enter], "4. a\n\n‸"),
         ("return splits a line", "ab‸cd", [.enter], "ab\n‸cd"),
         ("``` return makes a code block", "```‸", [.enter], "```\n‸\n```"),
+        ("brackets make a checklist", "‸", [.type("["), .type("]"), .type(" "), .type("a")], "- [ ] a‸"),
+        ("dashes make a divider", "a\n‸", [.type("-"), .type("-"), .type("-"), .type("b")], "a\n---\nb‸"),
+        ("underscores and Space make a divider", "a\n‸", [.type("_"), .type("_"), .type("_"), .type(" "), .type("b")], "a\n---\nb‸"),
+        ("> alone is text", "‸", [.type(">"), .type("a")], ">a‸"),
+        ("> and Space make a quote", "‸", [.type(">"), .type(" "), .type("a")], "> a‸"),
+        ("> and Space below a quote, one space", "> q\n‸", [.type(">"), .type(" "), .type("a")], "> q\n> a‸"),
+        ("|-- makes a table, typed into", "‸", [.type("|"), .type("-"), .type("-"), .type("a")],
+         "| a‸ |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\n"),
+        ("typing in a cell", "| a‸ | b |\n| - | - |", [.type("x")], "| ax‸ | b |\n| - | - |"),
+        ("tab goes to the next cell", "| a‸ | b |\n| - | - |", [.tab], "| a | «b» |\n| - | - |"),
+        ("tab past the last cell adds a row", "| a | b‸ |\n| - | - |", [.tab, .type("c")], "| a | b |\n| - | - |\n| c‸ |  |\n"),
+        ("return goes to the cell below", "| a‸ | b |\n| - | - |\n| c | d |", [.enter], "| a | b |\n| - | - |\n| «c» | d |"),
+        ("return below a table makes an empty line, not a row", "| a | b |\n| - | - |\n‸", [.enter, .type("x")], "| a | b |\n| - | - |\n\nx‸"),
+        ("> and Space on the last line shows as a quote", "a\n‸", [.type(">"), .type(" ")], "a\n> ‸"),
+        ("backspace at a cell's start keeps the table", "| a | ‸b |\n| - | - |", [.backspace], "| a | ‸b |\n| - | - |"),
+
+        // Linear's shortcuts.
+        ("⇧⌘8 makes a list", "a‸\nb", [.shortcut("8", keyCode: 0x1C, shift: true)], "- a‸\nb"),
+        ("⇧⌘8 again ends it", "- a‸", [.shortcut("8", keyCode: 0x1C, shift: true)], "a‸"),
+        ("⇧⌘9 numbers the lines", "«a\nb»", [.shortcut("9", keyCode: 0x19, shift: true)], "1. «a\n2. b»"),
+        ("⇧⌘7 makes a checklist", "a‸", [.shortcut("7", keyCode: 0x1A, shift: true)], "- [ ] a‸"),
+        ("⌘Return checks it", "- [ ] a‸", [.shortcut("\r", keyCode: 0x24, shift: false)], "- [x] a‸"),
+        ("⇧⌘S strikes through", "«a»", [.shortcut("s", keyCode: 0x01, shift: true)], "~~«a»~~"),
+        ("⇧⌘\\ makes a code block", "a\n‸", [.shortcut("\\", keyCode: 0x2A, shift: true), .type("x")], "a\n```\nx‸\n```"),
         ("typing in a code block", "```\n‸\n```", [.type("x"), .enter, .type("y")], "```\nx\ny‸\n```"),
 
         // Backspace.
@@ -121,7 +148,7 @@ enum EditorTest {
         ("undo a block's deletion", "a\n«\(picture)»\nb", [.backspace, .undo], "a\n«\(picture)»\nb"),
     ]
 
-    private final class Model: ObservableObject {
+    final class Model: ObservableObject {
         @Published var text = ""
         @Published var keymap = EditorKeymap.normal
         @Published var displayLines = false
@@ -180,6 +207,56 @@ enum EditorTest {
         return (closed as NSString).replacingCharacters(in: NSRange(location: s.location, length: 0), with: "«")
     }
 
+    /// `--editor-test --play note keys out.png`: the note (`‸` the caret),
+    /// then the keys typed, `⏎` Return, `⇥` Tab, `⌫` Backspace; prints the
+    /// Markdown and saves the window, to see a case before writing it.
+    static func play(_ note: String, keys: String, shot: String, model: Model, editor: LiveEditor.Coordinator, body: LiveTextView) async -> Never {
+        let start = parse(note.replacingOccurrences(of: "\\n", with: "\n"))
+        model.text = start.text
+        editor.load(start.text)
+        body.setSelectedRange(LiveProjection(start.text).displayRange(start.selection))
+        try? await Task.sleep(for: .milliseconds(300))
+        for c in keys {
+            switch c {
+            case "⏎": body.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+            case "⇥": body.doCommand(by: #selector(NSResponder.insertTab(_:)))
+            case "⌫": body.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+            default: body.insertText(String(c), replacementRange: NSRange(location: NSNotFound, length: 0))
+            }
+            try? await Task.sleep(for: .milliseconds(30))
+        }
+        try? await Task.sleep(for: .milliseconds(500))
+        body.testShowInsertionIndicator()
+        print("play: \(mark(editor.source, body.selectedRange()).debugDescription)")
+        if let view = body.window?.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(filePath: shot))
+        }
+        exit(0)
+    }
+
+    /// `--editor-test --bench note.md`: the time from a key to the page
+    /// drawn again, typing into the middle of that note.
+    static func bench(_ path: String, model: Model, editor: LiveEditor.Coordinator, body: LiveTextView) -> Never {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { fail(["bench: can't read \(path)"]) }
+        model.text = text
+        editor.load(text)
+        body.layoutManager?.ensureLayout(for: body.textContainer!)
+        let middle = (body.string as NSString).paragraphRange(for: NSRange(location: body.string.utf16.count / 2, length: 0))
+        body.setSelectedRange(NSRange(location: NSMaxRange(middle) - 1, length: 0))
+        var times: [Double] = []
+        for c in "the quick brown fox jumps over the lazy dog " {
+            let start = DispatchTime.now().uptimeNanoseconds
+            body.insertText(String(c), replacementRange: NSRange(location: NSNotFound, length: 0))
+            body.layoutManager?.ensureLayout(for: body.textContainer!)
+            body.displayIfNeeded()
+            times.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6)
+        }
+        times.sort()
+        print(String(format: "bench: %d keys, median %.1f ms, p90 %.1f ms, max %.1f ms", times.count, times[times.count / 2], times[times.count * 9 / 10], times.last!))
+        exit(0)
+    }
+
     static func run() async {
         let model = Model()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
@@ -189,6 +266,12 @@ enum EditorTest {
         guard let body = window.contentView?.firstDescendant(LiveTextView.self),
               let editor = body.delegate as? LiveEditor.Coordinator
         else { fail(["no live editor"]) }
+        if let i = CommandLine.arguments.firstIndex(of: "--play"), i + 3 < CommandLine.arguments.count {
+            await play(CommandLine.arguments[i + 1], keys: CommandLine.arguments[i + 2], shot: CommandLine.arguments[i + 3], model: model, editor: editor, body: body)
+        }
+        if let i = CommandLine.arguments.firstIndex(of: "--bench"), i + 1 < CommandLine.arguments.count {
+            bench(CommandLine.arguments[i + 1], model: model, editor: editor, body: body)
+        }
         window.makeFirstResponder(body)
 
         var failures: [String] = []
@@ -212,6 +295,12 @@ enum EditorTest {
                     body.insertText(text, replacementRange: none)
                 case .selectAll: body.selectAll(nil)
                 case .undo: body.history?.undo()
+                case let .shortcut(c, keyCode, shift):
+                    let event = NSEvent.keyEvent(
+                        with: .keyDown, location: .zero, modifierFlags: shift ? [.command, .shift] : [.command],
+                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                        characters: c, charactersIgnoringModifiers: c, isARepeat: false, keyCode: keyCode)
+                    if let event { _ = body.performKeyEquivalent(with: event) }
                 }
             }
             let want = parse(after)
@@ -225,7 +314,7 @@ enum EditorTest {
         // note, and every one while an input method composes elsewhere,
         // its text in the display before it is in the source.
         let none = NSRange(location: NSNotFound, length: 0)
-        for (name, before, typed) in [("new item", "a\n‸", "- "), ("composing above a list", "‸x\n\n- one\n- two", "")] {
+        for (name, before, typed) in [("new item", "a\n‸", "- "), ("empty note", "‸", "- "), ("empty note, a task", "‸", "[] "), ("composing above a list", "‸x\n\n- one\n- two", "")] {
             let start = parse(before)
             model.text = start.text
             editor.load(start.text)
@@ -237,13 +326,32 @@ enum EditorTest {
                 let text = body.string as NSString
                 for item in layout.state.items {
                     let rect = layout.markerRect(item) ?? .zero
-                    let line = item.location >= text.length ? layout.extraLineFragmentRect : layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: item.location), effectiveRange: nil)
+                    let line = item.location >= text.length ? layout.endLine?.rect ?? .zero : layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: item.location), effectiveRange: nil)
                     if item.location > 0 && text.character(at: item.location - 1) != 0x0A || rect.maxX <= 0 || !(line.minY...line.maxY).contains(rect.midY) {
                         failures.append("bullets, \(name) with \(marked.debugDescription) marked: the item at \(item.location) of \(text.debugDescription) draws at \(rect)")
                     }
                 }
             }
             body.unmarkText()
+        }
+        // A quote's bar is on its lines and no others: an empty one
+        // ending the note has one; the empty line left after it doesn't.
+        for (name, before, keys, lines) in [
+            ("> and Space in an empty note", "‸", "> ", 1), ("> and Space below a line", "a\n‸", "> ", 1),
+            ("Return twice leaves the quote", "> xx‸", "\r\r", 1), ("Return once stays in it", "> xx‸", "\r", 2),
+        ] {
+            let start = parse(before)
+            model.text = start.text
+            editor.load(start.text)
+            body.setSelectedRange(LiveProjection(start.text).displayRange(start.selection))
+            for c in keys { if c == "\r" { body.doCommand(by: #selector(NSResponder.insertNewline(_:))) } else { body.insertText(String(c), replacementRange: none) } }
+            let layout = body.layoutManager as! LiveLayout
+            let height = layout.endLine?.rect.height ?? 0
+            let bars = layout.state.quotes.compactMap(layout.quoteBar)
+            let covered = bars.reduce(0) { $0 + $1.height + 8 }
+            if bars.isEmpty || abs(covered - CGFloat(lines) * height) > height / 2 {
+                failures.append("quote bar, \(name): \(editor.source.debugDescription) draws \(bars) for \(lines) line(s) of \(height)")
+            }
         }
         // A display equation is edited inside its block; Esc carries on
         // below it.
@@ -429,8 +537,7 @@ enum EditorTest {
         for (name, r) in shots {
             body.setSelectedRange(r)
             if r.length == 1 { body.scrollRangeToVisible(NSRange(location: r.location, length: min(4, (body.string as NSString).length - r.location))) }
-            body.testShowInsertionIndicator()
-            try? await Task.sleep(for: .milliseconds(200))
+                        try? await Task.sleep(for: .milliseconds(200))
             guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
             view.cacheDisplay(in: view.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?.write(to: dir.appending(path: "\(name).png"))

@@ -19,13 +19,13 @@ extension LiveProjection {
 
         for (i, e) in elements.enumerated() {
             switch e.kind {
-            case .heading, .quote, .listItem:
+            case .heading, .quote, .listItem, .table:
                 guard let visible = visibleRange(of: i), contains(display, visible) else { continue }
                 range = NSUnionRange(range, e.range)
             case .codeBlock:
                 guard let visible = visibleRange(of: i), NSIntersectionRange(display, visible).length > 0 else { continue }
                 range = NSUnionRange(range, e.range)
-            case .mathBlock, .table, .image:
+            case .mathBlock, .image, .rule:
                 guard let at = attachment(of: i), NSIntersectionRange(display, NSRange(location: at, length: 1)).length > 0 else { continue }
                 range = NSUnionRange(range, e.range)
             case .strong, .emphasis, .strikethrough, .code, .link, .math:
@@ -49,7 +49,10 @@ extension LiveProjection {
         case .heading, .quote, .listItem, .strong, .emphasis, .strikethrough, .code, .link, .codeBlock:
             let r = displayRange(e.content)
             return r.length > 0 ? r : nil
-        case .math, .mathBlock, .table, .image:
+        case .table:
+            let r = displayRange(e.range)
+            return r.length > 0 ? r : nil
+        case .math, .mathBlock, .image, .rule:
             return nil
         }
     }

@@ -19,7 +19,10 @@ import Foundation
 ///   the editor draws bullets, numbers, boxes and quote bars itself.
 /// - Code fences are left out, each with its newline.
 /// - Inline markers (`**`, `*`, `~~`, `` ` ``, `[`, `](url)`) are left out.
-/// - Math blocks, tables, pictures and inline math are one U+FFFC each,
+/// - A table's cells are a paragraph each, edited in place: the pipes and
+///   spaces between two cells (and the delimiter row) are one newline in
+///   the display, and the editor lays the paragraphs out as a grid.
+/// - Math blocks, pictures and inline math are one U+FFFC each,
 ///   which the editor draws as an attachment: atomic, by construction.
 ///
 /// Positions and ranges are UTF-16 (NSString), as AppKit's are.
@@ -42,6 +45,9 @@ public struct LiveProjection {
     /// Constructs drawn as one attachment: their source range (for a
     /// block, its lines without the newline after the last) and element.
     public let atoms: [(range: NSRange, element: Int, isBlock: Bool)]
+    /// What separates two table cells, each shown as one newline: from
+    /// one cell's text to the next one's. In source order.
+    public let cellBreaks: [NSRange]
 
     public static let attachmentCharacter: unichar = 0xFFFC
 
@@ -58,6 +64,7 @@ public struct LiveProjection {
         var block = IndexSet()
         var fences = IndexSet()
         var atoms: [(range: NSRange, element: Int, isBlock: Bool)] = []
+        var breaks: [NSRange] = []
         for (i, e) in elements.enumerated() {
             switch e.kind {
             case .heading, .quote:
@@ -74,7 +81,18 @@ public struct LiveProjection {
                     block.insert(integersIn: m.location..<end)
                     fences.insert(integersIn: m.location..<end)
                 }
-            case .mathBlock, .table, .image:
+            case .table:
+                // Before the first cell, block syntax (typing at the table's
+                // start goes into the cell); after the last, like a closing
+                // marker (typing at its end stays in it).
+                let cells = e.cells.flatMap { $0 }
+                guard let first = cells.first, let last = cells.last else { break }
+                block.insert(integersIn: e.range.location..<first.location)
+                inline.insert(integersIn: NSMaxRange(last)..<NSMaxRange(e.range))
+                for (a, b) in zip(cells, cells.dropFirst()) {
+                    breaks.append(NSRange(location: NSMaxRange(a), length: b.location - NSMaxRange(a)))
+                }
+            case .mathBlock, .image, .rule:
                 atoms.append((Self.trimmed(e.scope, in: source), i, true))
             case .math:
                 atoms.append((e.range, i, false))
@@ -88,8 +106,16 @@ public struct LiveProjection {
         display.reserveCapacity(source.length)
         units.reserveCapacity(source.length)
         var next = 0
+        var nextBreak = 0
         var i = 0
         while i < source.length {
+            if nextBreak < breaks.count, breaks[nextBreak].location == i {
+                display.append(0x0A)
+                units.append(breaks[nextBreak])
+                i = NSMaxRange(breaks[nextBreak])
+                nextBreak += 1
+                continue
+            }
             if next < atoms.count, atoms[next].range.location == i {
                 attachments[display.count] = atoms[next].element
                 display.append(Self.attachmentCharacter)
@@ -111,6 +137,7 @@ public struct LiveProjection {
         self.blockSyntax = block
         self.fences = fences
         self.atoms = atoms
+        self.cellBreaks = breaks
     }
 
     // MARK: - Mapping

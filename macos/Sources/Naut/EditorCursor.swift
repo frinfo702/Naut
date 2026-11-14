@@ -241,8 +241,35 @@ class CursorTextView: NSTextView {
 
     override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
         // Our cursor owns the look and the blink.
-        insertionRect = rect
+        insertionRect = textHeight(rect)
         updateCursor()
+    }
+
+    /// While set, the cursor stays where it is: the text is being changed
+    /// in steps, and only the last selection is where it goes.
+    var holdsCursor = false
+
+    /// AppKit's caret is as tall as its line, and a line with inline math
+    /// or a picture in it is taller than its text. The text's height, on
+    /// its baseline.
+    private func textHeight(_ rect: NSRect) -> NSRect {
+        guard let layout = layoutManager, let storage = textStorage, storage.length > 0 else { return rect }
+        let p = selectedRange().location
+        // The caret's text: the character it follows on its line, else the one it precedes.
+        let string = storage.string as NSString
+        var q = min(p, storage.length - 1)
+        if p > 0, p == storage.length || string.character(at: p) == 0x0A || string.character(at: q) == LiveProjection.attachmentCharacter {
+            q = p - 1
+        }
+        guard string.character(at: q) != 0x0A, string.character(at: q) != LiveProjection.attachmentCharacter else { return rect }
+        let font = self.font(at: q)
+        let height = ceil(font.ascender - font.descender)
+        guard rect.height > height + 4 else { return rect }
+        let glyph = layout.glyphIndexForCharacter(at: q)
+        let line = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        guard line.height > 0 else { return rect }
+        let baseline = textContainerOrigin.y + line.minY + layout.location(forGlyphAt: glyph).y
+        return NSRect(x: rect.minX, y: baseline - ceil(font.ascender), width: rect.width, height: height)
     }
 
     override func setSelectedRange(_ range: NSRange) {
@@ -362,6 +389,7 @@ class CursorTextView: NSTextView {
     /// Refresh the frame and shape of the cursor after a selection, layout
     /// or settings change.
     func updateCursor() {
+        guard !holdsCursor else { return }
         if cursor.superview == nil {
             addSubview(cursor, positioned: .above, relativeTo: nil)
         }
@@ -423,7 +451,7 @@ class CursorTextView: NSTextView {
     /// `Snapshot.runCaretTest` to reproduce the title hand-off and by
     /// `--focus-editor` snapshots to put the cursor in the picture.
     func testShowInsertionIndicator() {
-        insertionRect = testCaretRect() ?? NSRect(x: 0, y: 0, width: 1, height: 20)
+        insertionRect = textHeight(testCaretRect() ?? NSRect(x: 0, y: 0, width: 1, height: 20))
         updateCursor()
     }
 

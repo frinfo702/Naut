@@ -111,6 +111,9 @@ private let notes = [
     "```\n\n```\n$$\nx\n$$\n| a |\n| - |\n![i](p.png)",
     "and*em* and a__b__c and ~~s~~",
     "> q\n\n```sh\nls $HOME\n```\n\n- [x] done",
+    "a\n---\nb\n\n___",
+    "x\n\n| a | **b** |\n| - | - |\n|  | 2 |\n\ny",
+    "> q\n>\n> r",
 ]
 
 private func apply(_ edit: LiveEditing.Edit, to text: String) -> (text: String, selection: NSRange)? {
@@ -333,6 +336,157 @@ func liveMappingRoundTrips(note: String) {
     // Display "say hi there"; "hi" is at 4 in the display.
     let b = LiveEditing(text: "say **hi** there")
     #expect(b.toggle(.strong, marker: "**", selection: NSRange(location: 4, length: 2)) == .replace(NSRange(location: 4, length: 6), with: "hi", selection: NSRange(location: 4, length: 2)))
+}
+
+// MARK: - Linear's shortcuts
+
+/// Typing `s` at the end of `text`, as the editor would, through the display.
+private func typedAtEnd(_ text: String, _ s: String) -> (text: String, selection: NSRange)? {
+    let e = LiveEditing(text: text)
+    return apply(e.type(s, over: caret(e.projection.display.length)), to: text)
+}
+
+@Test func liveDividerIsABlock() {
+    let p = LiveProjection("a\n---\nb\n- - -\n***")
+    #expect(p.elements.filter { $0.kind == .rule }.count == 2)
+    #expect(p.display == "a\n\u{FFFC}\nb\n\u{FFFC}\n***")
+    // The third dash makes it, and the caret goes below.
+    #expect(typedAtEnd("x\n--", "-")?.text == "x\n---\n")
+    #expect(typedAtEnd("x\n--", "-")?.selection == caret(6))
+    // `___` and `***` wait for Space, as in Linear.
+    #expect(typedAtEnd("__", "_")?.text == "___")
+    #expect(typedAtEnd("___", " ")?.text == "---\n")
+    #expect(typedAtEnd("a\n***", " ")?.text == "a\n---\n")
+    #expect(typedAtEnd("a\n***", " ")?.selection == caret(6))
+}
+
+@Test func liveBracketsMakeAChecklist() {
+    #expect(typedAtEnd("[]", " ")?.text == "- [ ] ")
+    #expect(typedAtEnd("a\n  []", " ")?.text == "a\n  - [ ] ")
+    // On a list item, its own marker stays.
+    #expect(typedAtEnd("1. []", " ")?.text == "1. [ ] ")
+    #expect(typedAtEnd("a []", " ")?.text == "a [] ")
+}
+
+@Test func livePipeDashesMakeATable() {
+    let t = typedAtEnd("a\n|-", "-")
+    #expect(t?.text == "a\n|  |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\n")
+    #expect(LiveProjection(t!.text).elements.contains { $0.kind == .table })
+    // The caret is in the first cell.
+    #expect(t?.selection == caret(4))
+}
+
+@Test func liveQuoteNeedsASpace() {
+    #expect(!LiveMarkdown.parse(">").contains { $0.kind == .quote })
+    #expect(!LiveMarkdown.parse(">a").contains { $0.kind == .quote })
+    #expect(LiveMarkdown.parse("> ").contains { $0.kind == .quote })
+    // An empty line inside a quote stays in it.
+    #expect(LiveMarkdown.parse("> a\n>\n> b").filter { $0.kind == .quote }.count == 3)
+}
+
+@Test func liveTableCellsAreText() {
+    let note = "x\n| a | b |\n|:--|--:|\n|  | **d** |\ny"
+    let p = LiveProjection(note)
+    #expect(p.display == "x\na\nb\n\nd\ny")
+    let table = try! #require(p.elements.first { $0.kind == .table })
+    #expect(table.cells.map { $0.map { (note as NSString).substring(with: $0) } } == [["a", "b"], ["", "**d**"]])
+    let e = LiveEditing(p)
+    func edited(_ edit: LiveEditing.Edit) -> String? { apply(edit, to: note)?.text }
+    // Typing in a cell, an empty one too.
+    #expect(edited(e.type("c", over: caret(6))) == "x\n| a | b |\n|:--|--:|\n| c | **d** |\ny")
+    #expect(edited(e.type("z", over: caret(3))) == "x\n| az | b |\n|:--|--:|\n|  | **d** |\ny")
+    // A pipe typed in a cell is escaped.
+    #expect(edited(e.type("|", over: caret(3))) == "x\n| a\\| | b |\n|:--|--:|\n|  | **d** |\ny")
+    // Backspace at a cell's start, and before the table, leave it whole.
+    #expect(e.delete(NSRange(location: 3, length: 1), selection: caret(4)) == LiveEditing.Edit.none)
+    #expect(e.delete(NSRange(location: 1, length: 1), selection: caret(2)) == LiveEditing.Edit.none)
+    // A selection across cells empties them.
+    #expect(edited(e.delete(NSRange(location: 2, length: 3), selection: NSRange(location: 2, length: 3))) == "x\n|  |  |\n|:--|--:|\n|  | **d** |\ny")
+    // All of it goes whole.
+    #expect(edited(e.delete(NSRange(location: 1, length: 7), selection: NSRange(location: 1, length: 7))) == "x\ny")
+}
+
+@Test func copyingATableGivesItsMarkdown() {
+    let note = "a\n| x | y |\n| - | - |\nb"
+    let p = LiveProjection(note)
+    #expect(p.copiedMarkdown(for: NSRange(location: 2, length: 3)) == "| x | y |\n| - | - |")
+    // Part of a cell is just that text.
+    #expect(p.copiedMarkdown(for: NSRange(location: 2, length: 1)) == "x")
+}
+
+@Test func liveTabAndReturnMoveThroughCells() {
+    let note = "| a | b |\n| - | - |\n| c | d |"
+    let e = LiveEditing(text: note)
+    // Display "a\nb\nc\nd".
+    #expect(e.indent(caret(1), outdent: false) == .select(NSRange(location: 2, length: 1)))
+    #expect(e.indent(caret(2), outdent: true) == .select(NSRange(location: 0, length: 1)))
+    #expect(e.newline(caret(1)) == .select(NSRange(location: 4, length: 1)))
+    // Past the last cell, a new row.
+    let tabbed = apply(e.indent(caret(7), outdent: false)!, to: note)
+    #expect(tabbed?.text == note + "\n|  |  |\n")
+    #expect(tabbed?.selection == caret((note as NSString).length + 3))
+    #expect(apply(e.newline(caret(7)), to: note)?.selection == caret((note as NSString).length + 6))
+}
+
+@Test func liveTableMenuChangesRowsAndColumns() {
+    let note = "| a | b |\n|:-|-:|\n| c | d |"
+    let e = LiveEditing(text: note)
+    func changed(_ c: LiveEditing.TableChange, at p: Int) -> String? { apply(e.change(c, table: 0, selection: caret(p)), to: note)?.text }
+    #expect(changed(.addRow, at: 0) == "| a | b |\n| :- | -: |\n|  |  |\n| c | d |\n")
+    #expect(changed(.addColumn, at: 0) == "| a |  | b |\n| :- | --- | -: |\n| c |  | d |\n")
+    #expect(changed(.deleteRow, at: 4) == "| a | b |\n| :- | -: |\n")
+    #expect(changed(.deleteColumn, at: 0) == "| b |\n| -: |\n| d |\n")
+    #expect(changed(.deleteTable, at: 0) == "")
+}
+
+@Test func liveMakesLinesIntoBlocks() {
+    func made(_ text: String, _ style: LiveEditing.LineStyle, _ r: NSRange, toggle: Bool = false) -> String? {
+        apply(LiveEditing(text: text).make(style, source: r, toggle: toggle), to: text)?.text
+    }
+    #expect(made("a\nb", .bullet, NSRange(location: 0, length: 3)) == "- a\n- b")
+    #expect(made("a\nb", .numbered, NSRange(location: 0, length: 3)) == "1. a\n2. b")
+    #expect(made("- a\n- b", .bullet, NSRange(location: 2, length: 5), toggle: true) == "a\nb")
+    #expect(made("- a\n- b", .task, NSRange(location: 2, length: 5), toggle: true) == "- [ ] a\n- [ ] b")
+    #expect(made("  - [x] a", .numbered, caret(8)) == "  1. a")
+    #expect(made("## a", .heading(1), caret(3)) == "# a")
+    #expect(made("> a", .heading(2), caret(2)) == "## a")
+    #expect(made("1. a\nb", .numbered, caret(5)) == "1. a\n2. b")
+    // Blank lines between stay blank.
+    #expect(made("a\n\nb", .quote, NSRange(location: 0, length: 4)) == "> a\n\n> b")
+    // The caret stays on its text.
+    let e = LiveEditing(text: "ab")
+    #expect(apply(e.make(.bullet, source: caret(1)), to: "ab")?.selection == caret(3))
+}
+
+@Test func liveChecksTasks() {
+    let note = "- [ ] a\n- [x] b\nc"
+    let e = LiveEditing(text: note)
+    // Display "a\nb\nc".
+    #expect(apply(e.check(caret(0)), to: note)?.text == "- [x] a\n- [x] b\nc")
+    #expect(apply(e.check(caret(2)), to: note)?.text == "- [ ] a\n- [ ] b\nc")
+    #expect(apply(e.check(NSRange(location: 0, length: 3)), to: note)?.text == "- [x] a\n- [x] b\nc")
+    #expect(e.check(caret(4)) == .none)
+}
+
+@Test func liveWrapsAndUnwrapsCode() {
+    let e = LiveEditing(text: "a\nlet x\nb")
+    #expect(apply(e.codeBlock(source: NSRange(location: 2, length: 5)), to: "a\nlet x\nb")?.text == "a\n```\nlet x\n```\nb")
+    let code = "a\n```\nlet x\n```\nb"
+    #expect(apply(LiveEditing(text: code).codeBlock(source: caret(7)), to: code)?.text == "a\nlet x\nb")
+    let empty = try! #require(apply(LiveEditing(text: "a\n").codeBlock(source: caret(2)), to: "a\n"))
+    #expect(empty.text == "a\n```\n\n```")
+    #expect(empty.selection == caret(6))
+}
+
+@Test func liveInsertsBlocks() {
+    func inserted(_ text: String, _ b: LiveEditing.Insert, _ p: Int) -> (text: String, selection: NSRange)? {
+        apply(LiveEditing(text: text).insert(b, source: p), to: text)
+    }
+    #expect(inserted("a\n", .divider, 2)?.text == "a\n---\n")
+    #expect(inserted("a\n\nb", .divider, 2)?.text == "a\n---\nb")
+    #expect(inserted("a", .divider, 1)?.text == "a\n---\n")
+    #expect(inserted("a\n", .equation, 2)?.text == "a\n$$\n\n$$")
+    #expect(inserted("a\n", .equation, 2)?.selection == caret(5))
 }
 
 // MARK: - Themes

@@ -9,10 +9,10 @@ import NautKit
 
 extension LiveLayout {
     enum Chrome {
-        enum Kind { case code, math, table, image }
+        enum Kind { case code, math, table, image, rule }
 
         enum Action: Equatable {
-            case copy, edit, language, fullScreen, open, delete
+            case copy, edit, language, fullScreen, open, delete, more
 
             var symbol: String {
                 switch self {
@@ -22,6 +22,7 @@ extension LiveLayout {
                 case .fullScreen: "arrow.up.left.and.arrow.down.right"
                 case .open: "arrow.up.right.square"
                 case .delete: "trash"
+                case .more: "ellipsis"
                 }
             }
         }
@@ -45,17 +46,19 @@ extension LiveLayout {
 
     func kind(of element: Int) -> Chrome.Kind? {
         if state.code.contains(where: { $0.element == element }) { return .code }
+        if state.tables.contains(where: { $0.element == element }) { return .table }
         return atoms.first { $0.element == element }?.kind
     }
 
     /// Every block, by element, in note order.
     var blockElements: [Int] {
-        (state.code.map(\.element) + atoms.map(\.element)).sorted()
+        (state.code.map(\.element) + state.tables.map(\.element) + atoms.map(\.element)).sorted()
     }
 
     /// A block's box, in container coordinates.
     func blockRect(_ element: Int) -> NSRect? {
         if let code = state.code.first(where: { $0.element == element }) { return codeBlockRect(code.lines) }
+        if let table = state.tables.first(where: { $0.element == element }) { return tableRect(table.lines) }
         guard let atom = atoms.first(where: { $0.element == element }) else { return nil }
         return mathRect(at: atom.at)
     }
@@ -79,8 +82,10 @@ extension LiveLayout {
     func actions(_ kind: Chrome.Kind) -> [Chrome.Action] {
         switch kind {
         case .code: [.language, .copy]
-        case .math, .table: [.copy, .edit]
+        case .math: [.copy, .edit]
+        case .table: [.copy, .more]
         case .image: [.copy, .fullScreen, .open, .delete]
+        case .rule: [.delete]
         }
     }
 
@@ -278,7 +283,8 @@ extension LiveLayout {
         case (.copy, .math): "Copy TeX"
         case (.copy, .table): "Copy Markdown"
         case (.copy, .image): "Copy image"
-        case (.edit, .table): "Edit table"
+        case (.copy, .rule): "Copy"
+        case (.more, _): "Rows and columns"
         case (.edit, _): "Edit equation"
         case (.language, _): "Language"
         case (.fullScreen, _): "Full screen"

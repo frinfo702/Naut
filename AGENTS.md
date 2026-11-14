@@ -40,6 +40,16 @@ A file for [guiding coding agents](https://agents.md/).
     note after, with `‸` for the caret and `«…»` for the selection. Add
     one for every editing bug. `--shots dir` also saves the window with
     each kind of block selected.
+- **Play keys (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --editor-test --play 'note\n‸' 'keys' out.png`
+  - Loads the note (`\n` a newline, `‸` the caret) into the test editor,
+    types the keys (`⏎` Return, `⇥` Tab, `⌫` Backspace), prints the
+    Markdown with the caret and saves the window. Reproduce a report with
+    it, then write the case into `EditorTest.cases`.
+- **Typing latency (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --editor-test --bench note.md`
+  - Types a sentence into the middle of that file's text (not opened as a
+    note, not changed on disk) and prints the median, p90 and max time
+    from a key to the page drawn again. Keep the median under a frame
+    (16 ms) for a note of a few hundred lines.
 - **Caret regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --caret-test`
   - Focuses the Live Preview body, moves focus to the title, and fails if
     the body caret survives the hand-off or does not return.

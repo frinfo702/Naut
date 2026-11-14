@@ -122,6 +122,7 @@ struct LiveEditor: NSViewRepresentable {
         view.viewFirstImage = { [weak c] in c?.viewFirstImage() }
         view.laidOut = { [weak c] in c?.positionMath() }
         view.pasteImage = { [weak c] in c?.pasteImage(from: $0) ?? false }
+        view.pasteLink = { [weak c] in c?.pasteLink(from: $0) ?? false }
         view.blockKey = { [weak c] in c?.blockKey($0) ?? false }
 
         let title = NSTextField(string: "")
@@ -405,6 +406,11 @@ struct LiveEditor: NSViewRepresentable {
         /// layout draws up to date, then select `select` (display).
         private func render(select: NSRange? = nil, selectSource: NSRange? = nil) {
             guard let view, let storage = view.textStorage else { return }
+            // Replacing the display moves the selection on its way to where
+            // it goes; the caret would glide there and back. It moves once,
+            // at the end.
+            view.holdsCursor = true
+            defer { view.holdsCursor = false; view.updateCursor() }
             projection = LiveProjection(source)
 
             // Only the stretch that changed, so the text view keeps its
@@ -418,9 +424,14 @@ struct LiveEditor: NSViewRepresentable {
                 while tail < old.length - head, tail < new.length - head,
                       old.character(at: old.length - 1 - tail) == new.character(at: new.length - 1 - tail) { tail += 1 }
                 applying = true
-                storage.replaceCharacters(in: NSRange(location: head, length: old.length - head - tail),
-                                          with: new.substring(with: NSRange(location: head, length: new.length - head - tail)))
+                // As body text, not with the attributes of the text before: a
+                // line after a table took its last cell's, and TextKit laid
+                // it out as part of the table until it was styled again.
+                let inserted = NSAttributedString(string: new.substring(with: NSRange(location: head, length: new.length - head - tail)),
+                                                  attributes: LiveStyle(font: font, mono: mono).body)
+                storage.replaceCharacters(in: NSRange(location: head, length: old.length - head - tail), with: inserted)
                 applying = false
+                changed = NSRange(location: head, length: inserted.length)
             }
             style()
 
@@ -455,11 +466,28 @@ struct LiveEditor: NSViewRepresentable {
                 let new = styled.attributes(at: i, effectiveRange: &a)
                 let old = storage.attributes(at: i, effectiveRange: &b)
                 let end = min(NSMaxRange(a), NSMaxRange(b))
-                if !(new as NSDictionary).isEqual(to: old) { storage.setAttributes(new, range: NSRange(location: i, length: end - i)) }
+                if !(new as NSDictionary).isEqual(to: old) {
+                    let r = NSRange(location: i, length: end - i)
+                    storage.setAttributes(new, range: r)
+                    changed = changed.map { NSUnionRange($0, r) } ?? r
+                }
                 i = end
             }
             storage.endEditing()
             placeChrome()
+            // TextKit lays a text table out as a whole, but invalidates only
+            // the paragraphs that changed: a cell or a row added left the
+            // rest laid out for the old grid, cells out of line. Lay a table
+            // that changed out again, with the line after it.
+            if let touched = changed {
+                for t in layout.state.tables {
+                    let r = NSRange(location: t.lines.location, length: min(storage.length, NSMaxRange(t.lines) + 1) - t.lines.location)
+                    guard NSIntersectionRange(NSRange(location: max(0, r.location - 1), length: r.length + 2), touched).length > 0
+                        || NSLocationInRange(touched.location, r) else { continue }
+                    layout.invalidateLayout(forCharacterRange: r, actualCharacterRange: nil)
+                }
+            }
+            changed = nil
             layout.selection = view.selectedRange()
             // The old note's blocks are gone, and so are their controls.
             if let h = layout.hovered, layout.kind(of: h) == nil { layout.hovered = nil }
@@ -485,7 +513,7 @@ struct LiveEditor: NSViewRepresentable {
                 guard atom.isBlock, let at = projection.attachment(of: atom.element) else { return nil }
                 let kind: LiveLayout.Chrome.Kind = switch projection.elements[atom.element].kind {
                 case .mathBlock: .math
-                case .table: .table
+                case .rule: .rule
                 default: .image
                 }
                 return (move?(at) ?? at, atom.element, kind)
@@ -493,6 +521,9 @@ struct LiveEditor: NSViewRepresentable {
         }
 
         private var widthSettle: DispatchWorkItem?
+        /// The display changed since the last styling: text replaced, or
+        /// attributes set. A table there is laid out again.
+        private var changed: NSRange?
 
         /// The width moves every frame while a pane splits, closes or the
         /// window is resized; restyling the whole note each time made those
@@ -670,11 +701,6 @@ struct LiveEditor: NSViewRepresentable {
             case let .mathBlock(tex):
                 content = tex
                 picture = tex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : rendered("$$\n\(tex)\n$$")
-            case .table:
-                // Laid out to the text's width, as on the page, so its edges
-                // line up with code blocks.
-                content = projection.source.substring(with: e.range)
-                picture = rendered(content, width: width.rounded(.down))
             case let .image(source, _):
                 content = source
                 let url = URL(string: source).flatMap { $0.scheme == nil ? nil : $0 }
@@ -683,6 +709,9 @@ struct LiveEditor: NSViewRepresentable {
             case let .math(tex):
                 content = tex
                 picture = rendered("$\(tex)$")
+            case .rule:
+                content = "---"
+                picture = nil
             default:
                 return nil
             }
@@ -708,9 +737,16 @@ struct LiveEditor: NSViewRepresentable {
                     let height = min(image.size.height, image.size.height * (box - 2 * MathBlockCell.padding) / max(image.size.width, 1))
                     cell = MathBlockCell(picture: image, size: NSSize(width: box, height: height + 2 * MathBlockCell.padding), element: i)
                 }
-            case .table:
-                let image = picture ?? Self.placeholder(content, font: small)
-                cell = LiveAttachmentCell(picture: image, size: fitted(image.size))
+            case .rule:
+                // page.css: hr { border-top: 1px solid var(--line) }, its
+                // margin made up by the block's paragraph spacing.
+                let size = NSSize(width: box, height: font.pointSize)
+                let line = NSImage(size: size, flipped: true) { r in
+                    NSColor(token: .line).setFill()
+                    NSRect(x: 0, y: (r.height / 2).rounded(.down), width: r.width, height: 1).fill()
+                    return true
+                }
+                cell = LiveAttachmentCell(picture: line, size: size)
             case let .image(_, set):
                 let image = picture ?? Self.placeholder("Image: \(content)", font: font)
                 // `![alt|320](…)` is 320 wide, as on the page; never wider
@@ -787,6 +823,7 @@ struct LiveEditor: NSViewRepresentable {
             let typed = view.string as NSString
             let s = typed.substring(with: NSRange(location: p.range.location, length: min(p.length, typed.length - p.range.location)))
             perform(editing.type(s, over: p.range, preferring: p.preferring), typing: true, selection: p.selection)
+            if s == "/" { DispatchQueue.main.async { [weak self] in self?.slashMenu() } }
         }
 
         private func perform(_ edit: LiveEditing.Edit, typing: Bool = false, selection: NSRange? = nil) {
@@ -858,9 +895,10 @@ struct LiveEditor: NSViewRepresentable {
         /// until a key was typed. An empty line has no character of its own,
         /// so TextKit lays it out, caret and all, with these.
         ///
-        /// ponytail: parses and styles the note once more per caret move.
-        /// Fine for notes of a few thousand lines; style only the paragraph
-        /// it lands in if long ones ever lag.
+        /// Worked out on the lines around the caret, not the note: it is
+        /// asked up to three times a key (the caret before and after the
+        /// edit, and the note's end), and parsing and styling the whole note
+        /// each time was most of the time a key took.
         private func typingAttributes(at selection: NSRange) -> [NSAttributedString.Key: Any]? {
             let key = TypingKey(source: source, selection: selection, preferring: caretSource, font: font, mono: mono)
             if let a = typingCache[key] { return a }
@@ -875,8 +913,29 @@ struct LiveEditor: NSViewRepresentable {
             guard selection.length == 0, NSMaxRange(selection) <= projection.display.length,
                   case let .replace(r, s, after) = editing.type("x", over: selection, preferring: caretSource)
             else { return nil }
-            let typed = LiveProjection((source as NSString).replacingCharacters(in: r, with: s))
-            let i = typed.display(at: after.location) - 1
+            // The lines the edit touches, a line of context either side, and
+            // all of any block they reach, so fences, tables and quotes read
+            // as they do in the whole note.
+            let text = source as NSString
+            var lo = r.location, hi = NSMaxRange(r)
+            func lineStart(_ p: Int) -> Int { text.lineRange(for: NSRange(location: min(p, text.length), length: 0)).location }
+            func lineEnd(_ p: Int) -> Int { NSMaxRange(text.lineRange(for: NSRange(location: min(p, text.length), length: 0))) }
+            lo = lineStart(lo)
+            if lo > 0 { lo = lineStart(lo - 1) }
+            hi = lineEnd(hi)
+            if hi < text.length { hi = lineEnd(hi) }
+            var grown = true
+            while grown {
+                grown = false
+                for e in projection.elements where e.scope.location < hi && NSMaxRange(e.scope) > lo {
+                    if e.scope.location < lo { lo = lineStart(e.scope.location); grown = true }
+                    if NSMaxRange(e.scope) > hi { hi = lineEnd(NSMaxRange(e.scope) - 1); grown = true }
+                }
+            }
+            let window = NSRange(location: lo, length: hi - lo)
+            let local = (text.substring(with: window) as NSString).replacingCharacters(in: NSRange(location: r.location - lo, length: r.length), with: s)
+            let typed = LiveProjection(local)
+            let i = typed.display(at: after.location - lo) - 1
             guard i >= 0, i < typed.display.length else { return nil }
             let storage = NSMutableAttributedString(string: typed.display as String)
             LiveStyle(font: font, mono: mono).style(typed, in: storage) { _ in nil }
@@ -960,14 +1019,176 @@ struct LiveEditor: NSViewRepresentable {
             guard let view, !view.hasMarkedText() else { return false }
             let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
             let selection = view.selectedRange()
-            switch (flags, event.charactersIgnoringModifiers?.lowercased()) {
-            case ([.command], "b"): perform(editing.toggle(.strong, marker: "**", selection: selection))
-            case ([.command], "i"): perform(editing.toggle(.emphasis, marker: "*", selection: selection))
-            case ([.command], "e"): perform(editing.toggle(.code, marker: "`", selection: selection))
-            case ([.command, .shift], "x"): perform(editing.toggle(.strikethrough, marker: "~~", selection: selection))
-            case ([.command], "k"): link(selection)
-            default: return false
+            // Digits and \\ by key, not character: shifted they are other
+            // characters, and not the same ones on every layout.
+            switch (flags, event.keyCode) {
+            case ([.command, .shift], Key.seven): perform(editing.make(.task, selection: selection, toggle: true))
+            case ([.command, .shift], Key.eight): perform(editing.make(.bullet, selection: selection, toggle: true))
+            case ([.command, .shift], Key.nine): perform(editing.make(.numbered, selection: selection, toggle: true))
+            case ([.command, .shift], Key.backslash), ([.command, .shift], Key.yen): perform(editing.codeBlock(selection))
+            case ([.command], Key.return), ([.command], Key.enter): perform(editing.check(selection))
+            default:
+                switch (flags, event.charactersIgnoringModifiers?.lowercased()) {
+                case ([.command], "b"): perform(editing.toggle(.strong, marker: "**", selection: selection))
+                case ([.command], "i"): perform(editing.toggle(.emphasis, marker: "*", selection: selection))
+                case ([.command], "e"): perform(editing.toggle(.code, marker: "`", selection: selection))
+                case ([.command, .shift], "x"), ([.command, .shift], "s"):
+                    perform(editing.toggle(.strikethrough, marker: "~~", selection: selection))
+                case ([.command], "k"): link(selection)
+                default: return false
+                }
             }
+            return true
+        }
+
+        /// Virtual key codes, the same keys on ANSI and JIS keyboards.
+        private enum Key {
+            static let seven: UInt16 = 0x1A, eight: UInt16 = 0x1C, nine: UInt16 = 0x19
+            static let backslash: UInt16 = 0x2A, yen: UInt16 = 0x5D
+            static let `return`: UInt16 = 0x24, enter: UInt16 = 0x4C
+        }
+
+        // MARK: Slash menu
+
+        /// What the `/` menu makes of the line, as Linear's does.
+        private enum SlashItem: CaseIterable {
+            case text, heading1, heading2, heading3, heading4, bullet, numbered, task, quote, code, divider, table, equation
+
+            var title: String {
+                switch self {
+                case .text: "Text"
+                case .heading1: "Heading 1"
+                case .heading2: "Heading 2"
+                case .heading3: "Heading 3"
+                case .heading4: "Heading 4"
+                case .bullet: "Bulleted list"
+                case .numbered: "Numbered list"
+                case .task: "Checklist"
+                case .quote: "Quote"
+                case .code: "Code block"
+                case .divider: "Divider"
+                case .table: "Table"
+                case .equation: "Equation"
+                }
+            }
+
+            var symbol: String {
+                switch self {
+                case .text: "text.alignleft"
+                case .heading1: "1.square"
+                case .heading2: "2.square"
+                case .heading3: "3.square"
+                case .heading4: "4.square"
+                case .bullet: "list.bullet"
+                case .numbered: "list.number"
+                case .task: "checklist"
+                case .quote: "text.quote"
+                case .code: "chevron.left.forwardslash.chevron.right"
+                case .divider: "minus"
+                case .table: "tablecells"
+                case .equation: "function"
+                }
+            }
+
+            /// The shortcut that does the same, shown beside it.
+            var shortcut: String? {
+                switch self {
+                case .task: "⇧⌘7"
+                case .bullet: "⇧⌘8"
+                case .numbered: "⇧⌘9"
+                case .code: "⇧⌘\\"
+                default: nil
+                }
+            }
+
+            func edit(_ e: LiveEditing, at p: Int) -> LiveEditing.Edit {
+                let here = NSRange(location: p, length: 0)
+                switch self {
+                case .text: return e.make(.paragraph, source: here)
+                case .heading1: return e.make(.heading(1), source: here)
+                case .heading2: return e.make(.heading(2), source: here)
+                case .heading3: return e.make(.heading(3), source: here)
+                case .heading4: return e.make(.heading(4), source: here)
+                case .bullet: return e.make(.bullet, source: here)
+                case .numbered: return e.make(.numbered, source: here)
+                case .task: return e.make(.task, source: here)
+                case .quote: return e.make(.quote, source: here)
+                case .code: return e.codeBlock(source: here)
+                case .divider: return e.insert(.divider, source: p)
+                case .table: return e.insert(.table, source: p)
+                case .equation: return e.insert(.equation, source: p)
+                }
+            }
+        }
+
+        /// A menu item's action, held by the item.
+        private final class MenuAction: NSObject {
+            let run: () -> Void
+            init(_ run: @escaping () -> Void) { self.run = run }
+            @objc func fire() { run() }
+        }
+
+        /// `/` just typed at the start of a line's text: a menu of blocks
+        /// under it. Choosing one takes the `/` and makes the line that
+        /// block; dismissing it leaves the `/` as typed.
+        private func slashMenu() {
+            guard !Snapshot.isHarness, let view, let layout, let container = view.textContainer, !view.hasMarkedText() else { return }
+            let at = view.selectedRange()
+            guard at.length == 0, at.location > 0, at.location <= projection.display.length else { return }
+            let shown = NSRange(location: at.location - 1, length: 1)
+            let slash = projection.sourceRange(shown)
+            guard projection.source.substring(with: slash) == "/",
+                  projection.display.paragraphRange(for: shown).location == shown.location,
+                  !projection.elements.contains(where: { if case .codeBlock = $0.kind { NSLocationInRange(slash.location, $0.scope) } else { false } })
+            else { return }
+
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            for item in SlashItem.allCases {
+                let action = MenuAction { [weak self] in self?.choose(item, replacing: slash) }
+                let m = NSMenuItem(title: item.title, action: #selector(MenuAction.fire), keyEquivalent: "")
+                m.target = action
+                m.representedObject = action
+                m.image = NSImage(systemSymbolName: item.symbol, accessibilityDescription: nil)
+                if let shortcut = item.shortcut {
+                    let title = NSMutableAttributedString(string: item.title + "  ")
+                    title.append(NSAttributedString(string: shortcut, attributes: [.foregroundColor: NSColor.secondaryLabelColor]))
+                    m.attributedTitle = title
+                }
+                menu.addItem(m)
+                if item == .text || item == .heading4 || item == .quote { menu.addItem(.separator()) }
+            }
+            let glyphs = layout.glyphRange(forCharacterRange: shown, actualCharacterRange: nil)
+            let r = layout.boundingRect(forGlyphRange: glyphs, in: container)
+            let origin = view.textContainerOrigin
+            menu.popUp(positioning: nil, at: NSPoint(x: origin.x + r.minX, y: origin.y + r.maxY + 4), in: view)
+        }
+
+        /// Take the `/` at source `slash` and make its line `item`, as one edit.
+        private func choose(_ item: SlashItem, replacing slash: NSRange) {
+            let current = projection.source
+            guard NSMaxRange(slash) <= current.length, current.substring(with: slash) == "/" else { return }
+            let without = current.replacingCharacters(in: slash, with: "")
+            guard case let .replace(r, s, selection) = item.edit(LiveEditing(text: without), at: slash.location) else { return }
+            let made = (without as NSString).replacingCharacters(in: r, with: s)
+            perform(.replace(NSRange(location: 0, length: current.length), with: made, selection: selection))
+        }
+
+        /// ⌘V of a URL over selected text: the text becomes a link to it.
+        func pasteLink(from pasteboard: NSPasteboard) -> Bool {
+            guard let view, let url = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !url.contains(where: \.isWhitespace),
+                  let scheme = URL(string: url)?.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme)
+            else { return false }
+            let selection = view.selectedRange()
+            guard selection.length > 0 else { return false }
+            let r = projection.sourceRange(selection)
+            let label = projection.source.substring(with: r)
+            guard !label.contains("\n"),
+                  !projection.elements.contains(where: { ($0.kind == .link || $0.kind.isBlockAtom) && NSIntersectionRange($0.range, r).length > 0 })
+            else { return false }
+            let link = "[\(label)](\(url))"
+            replace(r, with: link, select: NSRange(location: r.location + (link as NSString).length, length: 0))
             return true
         }
 
@@ -1032,11 +1253,42 @@ struct LiveEditor: NSViewRepresentable {
             case .button(.copy):
                 if case .image = projection.elements[element].kind { copyImage(element) } else { copyCode(element) }
             case .button(.edit): open(element)
+            case .button(.more): tableMenu(element)
             case .button(.language): chooseLanguage(element)
             case .button(.fullScreen): showFullScreen(element)
             case .button(.open): if let url = imageURL(element) { NSWorkspace.shared.open(url) }
             case .button(.delete): deleteBlock(element)
             }
+        }
+
+        /// A table's rows and columns, from the `…` of its bar: at the cell
+        /// the caret is in, or its last.
+        private func tableMenu(_ element: Int) {
+            guard let view, let layout, let r = layout.buttons(element).first(where: { $0.0 == .more })?.1 else { return }
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            let items: [(String, String, LiveEditing.TableChange)] = [
+                ("Add row below", "plus", .addRow),
+                ("Add column right", "plus", .addColumn),
+                ("Delete row", "minus", .deleteRow),
+                ("Delete column", "minus", .deleteColumn),
+                ("Delete table", "trash", .deleteTable),
+            ]
+            for (k, (title, symbol, change)) in items.enumerated() {
+                let action = MenuAction { [weak self] in
+                    guard let self, let view = self.view else { return }
+                    self.view?.window?.makeFirstResponder(view)
+                    self.perform(self.editing.change(change, table: element, selection: view.selectedRange()))
+                }
+                let item = NSMenuItem(title: title, action: #selector(MenuAction.fire), keyEquivalent: "")
+                item.target = action
+                item.representedObject = action
+                item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+                menu.addItem(item)
+                if k == 1 || k == 3 { menu.addItem(.separator()) }
+            }
+            let origin = view.textContainerOrigin
+            menu.popUp(positioning: nil, at: NSPoint(x: origin.x + r.minX, y: origin.y + r.maxY + 4), in: view)
         }
 
         /// The languages the language menu offers: what the fence says,
@@ -1427,7 +1679,6 @@ struct LiveEditor: NSViewRepresentable {
             switch e.kind {
             case .mathBlock: (range, multiline, title) = (e.content, true, "Equation")
             case .math: (range, multiline, title) = (e.content, false, "Inline equation")
-            case .table: (range, multiline, title) = (e.range, true, "Table")
             case .image: (range, multiline, title) = (e.content, false, "Image URL")
             case .link:
                 // Between "](" and ")".
@@ -1694,7 +1945,7 @@ extension LiveEditor.Coordinator: ModalTarget {
         if let element = projection.attachments[display] {
             let e = projection.elements[element]
             switch e.kind {
-            case .mathBlock, .table, .image:
+            case .mathBlock, .image, .rule:
                 return e.range.location
             default:
                 break
@@ -1901,6 +2152,8 @@ final class LiveTextView: CursorTextView {
     var selectAllInBlock: (() -> Bool)?
     /// Pastes a picture on the pasteboard; false if there is none.
     var pasteImage: ((NSPasteboard) -> Bool)?
+    /// Pastes a URL over the selection as a link to it; false if not one.
+    var pasteLink: ((NSPasteboard) -> Bool)?
     /// A key for the selected block, such as Space on a picture.
     var blockKey: ((NSEvent) -> Bool)?
 
@@ -1911,12 +2164,19 @@ final class LiveTextView: CursorTextView {
         // NSTextView leaves its drawing clipped to the text column.
         NSGraphicsContext.saveGraphicsState()
         super.draw(dirtyRect)
+        // With no glyphs NSTextView asks the layout to draw nothing, so a
+        // note that is only `> ` or `- ` showed no bar or bullet.
+        if let layout = layoutManager as? LiveLayout, textStorage?.length == 0 {
+            layout.drawBackground(forGlyphRange: NSRange(location: 0, length: 0), at: textContainerOrigin)
+            layout.drawGlyphs(forGlyphRange: NSRange(location: 0, length: 0), at: textContainerOrigin)
+        }
         NSGraphicsContext.restoreGraphicsState()
         (layoutManager as? LiveLayout)?.drawChrome(at: textContainerOrigin)
     }
 
     override func paste(_ sender: Any?) {
         if pasteImage?(.general) == true { return }
+        if pasteLink?(.general) == true { return }
         super.paste(sender)
     }
 
