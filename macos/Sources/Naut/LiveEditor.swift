@@ -685,8 +685,11 @@ struct LiveEditor: NSViewRepresentable {
             let dark = view.effectiveAppearance.isDark
             let width = view.textContainer.map { $0.size.width - 2 * $0.lineFragmentPadding } ?? Metrics.measure
             let small = NSFont(descriptor: mono.fontDescriptor, size: font.pointSize * 0.88) ?? mono
+            func renderKey(_ markdown: String, width: Double? = nil) -> LiveImages.Key {
+                .init(markdown: markdown, width: width, size: font.pointSize, dark: dark)
+            }
             func rendered(_ markdown: String, width: Double? = nil) -> NSImage? {
-                LiveImages.shared.image(.init(markdown: markdown, width: width, size: font.pointSize, dark: dark))
+                LiveImages.shared.image(renderKey(markdown, width: width))
             }
             // A point narrower than the line, as an equation's box: an
             // attachment as wide as its line can fail to fit by a rounding
@@ -758,9 +761,15 @@ struct LiveEditor: NSViewRepresentable {
                 // page.css: img { border-radius: var(--radius-sm) }
                 cell = LiveAttachmentCell(picture: image, size: size, radius: 6)
             default:
-                let image = picture ?? Self.placeholder(content, font: small)
-                // Centred on the text's x-height, where operators sit.
-                cell = LiveAttachmentCell(picture: image, size: image.size, baselineOffset: font.xHeight / 2 - image.size.height / 2)
+                // On the text's baseline, as the page sets it: the formula's
+                // own baseline, measured where it was drawn, on the line's.
+                // The source standing in sits on it as text does.
+                if let picture, let depth = LiveImages.shared.depth(renderKey("$\(content)$")) {
+                    cell = LiveAttachmentCell(picture: picture, size: picture.size, baselineOffset: -depth)
+                } else {
+                    let image = picture ?? Self.placeholder(content, font: small)
+                    cell = LiveAttachmentCell(picture: image, size: image.size, baselineOffset: small.descender)
+                }
             }
             let a = NSTextAttachment()
             a.attachmentCell = cell
@@ -962,9 +971,10 @@ struct LiveEditor: NSViewRepresentable {
             let end = NSRange(location: projection.display.length, length: 0)
             let typing = typingAttributes(at: end)
             let font = typing?[.font] as? NSFont
-            layout.endIndent = (typing?[.paragraphStyle] as? NSParagraphStyle)?.firstLineHeadIndent
-            guard font != layout.endFont else { return }
+            let indent = (typing?[.paragraphStyle] as? NSParagraphStyle)?.firstLineHeadIndent
+            guard font != layout.endFont || indent != layout.endIndent else { return }
             layout.endFont = font
+            layout.endIndent = indent
             guard storage.length > 0 else { return }
             let last = (storage.string as NSString).paragraphRange(for: NSRange(location: storage.length - 1, length: 0))
             layout.invalidateLayout(forCharacterRange: last, actualCharacterRange: nil)

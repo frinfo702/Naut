@@ -230,7 +230,7 @@ final class LiveAttachmentCell: NSTextAttachmentCell {
     let size: NSSize
     let radius: CGFloat
     /// Where the picture's bottom sits against the baseline: inline math
-    /// is centred on the text's x-height, blocks sit on the baseline.
+    /// reaches below it by its depth, blocks sit on it.
     let baselineOffset: CGFloat
 
     init(picture: NSImage, size: NSSize, radius: CGFloat = 0, baselineOffset: CGFloat = 0) {
@@ -371,8 +371,13 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
 
     /// Lines as tall as the line-height asks, with the text centred in
     /// them. The baseline and the used rect move together: the caret and
-    /// the input method's window follow the used rect, so they stay the
-    /// text's height and on it.
+    /// the input method's window and underline follow the used rect, so
+    /// they stay the text's height and on it.
+    ///
+    /// Inline math or a picture makes TextKit's line and used rect as
+    /// tall as itself. The used rect is the text's there too: the
+    /// underline of text being composed sat under the formula's depth,
+    /// not the text.
     func layoutManager(
         _ layoutManager: NSLayoutManager,
         shouldSetLineFragmentRect rect: UnsafeMutablePointer<NSRect>,
@@ -382,10 +387,52 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         forGlyphRange glyphs: NSRange
     ) -> Bool {
         let extra = self.extra(at: characterIndexForGlyph(at: glyphs.location))
-        rect.pointee.size.height += extra
-        used.pointee.origin.y += extra / 2
-        baselineOffset.pointee += extra / 2
+        guard let text = textExtent(characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)) else {
+            rect.pointee.size.height += extra
+            used.pointee.origin.y += extra / 2
+            baselineOffset.pointee += extra / 2
+            return true
+        }
+        // What is drawn reaches past the text into the line's leading
+        // before it makes the line taller, as in a CSS line box: a line
+        // with a small formula in it is as tall as its neighbours, its
+        // baseline where theirs is.
+        let baseline = rect.pointee.minY + baselineOffset.pointee
+        let ascent = baseline - used.pointee.minY
+        let descent = used.pointee.maxY - baseline
+        let above = max(0, extra / 2 - max(0, ascent - text.ascent))
+        let below = max(0, extra / 2 - max(0, descent - text.descent))
+        rect.pointee.size.height += above + below
+        baselineOffset.pointee += above
+        // The used rect: the text's, on the baseline where it now is.
+        used.pointee.origin.y = baseline + above - min(text.ascent, ascent)
+        used.pointee.size.height = min(text.ascent, ascent) + min(text.descent, descent)
         return true
+    }
+
+    /// How far the text of a line reaches above and below its baseline,
+    /// if something drawn shares the line with it: by its fonts, as
+    /// TextKit measures a line of text alone. Nil for a line of text
+    /// only, whose used rect is already that, and for a drawn block on
+    /// a line of its own, which is all its line has.
+    private func textExtent(_ line: NSRange) -> (ascent: CGFloat, descent: CGFloat)? {
+        guard let storage = textStorage else { return nil }
+        let string = storage.string as NSString
+        let mark = String(UnicodeScalar(LiveProjection.attachmentCharacter)!)
+        guard string.range(of: mark, options: .literal, range: line).location != NSNotFound else { return nil }
+        var ascent: CGFloat = 0, descent: CGFloat = 0
+        storage.enumerateAttribute(.font, in: line) { value, run, _ in
+            guard let font = value as? NSFont,
+                  (run.location..<NSMaxRange(run)).contains(where: {
+                      let c = string.character(at: $0)
+                      return c != LiveProjection.attachmentCharacter && c != 0x0A
+                  })
+            else { return }
+            let above = defaultBaselineOffset(for: font)
+            ascent = max(ascent, above)
+            descent = max(descent, defaultLineHeight(for: font) - above)
+        }
+        return ascent > 0 ? (ascent, descent) : nil
     }
 
     /// The empty line after a final newline: as tall as the line its
@@ -405,6 +452,10 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
             rect.size.height = text + extra
             used.origin.y = rect.minY + extra / 2
             used.size.height = text
+            // And as far in. TextKit aligns it as the paragraph before:
+            // below an equation or a picture, which are centred, the
+            // caret stood in the middle of the page until a key was typed.
+            if let indent = endIndent { used.origin.x = rect.minX + indent }
         } else {
             let extra = extra(at: max(0, (textStorage?.length ?? 0) - 1))
             rect.size.height += extra

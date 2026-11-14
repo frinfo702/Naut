@@ -208,7 +208,8 @@ enum EditorTest {
     }
 
     /// `--editor-test --play note keys out.png`: the note (`‸` the caret),
-    /// then the keys typed, `⏎` Return, `⇥` Tab, `⌫` Backspace; prints the
+    /// then the keys typed, `⏎` Return, `⇥` Tab, `⌫` Backspace, and text
+    /// after `【` left composing, as an input method's; prints the
     /// Markdown and saves the window, to see a case before writing it.
     static func play(_ note: String, keys: String, shot: String, model: Model, editor: LiveEditor.Coordinator, body: LiveTextView) async -> Never {
         let start = parse(note.replacingOccurrences(of: "\\n", with: "\n"))
@@ -216,7 +217,8 @@ enum EditorTest {
         editor.load(start.text)
         body.setSelectedRange(LiveProjection(start.text).displayRange(start.selection))
         try? await Task.sleep(for: .milliseconds(300))
-        for c in keys {
+        let parts = keys.split(separator: "【", maxSplits: 1, omittingEmptySubsequences: false)
+        for c in parts[0] {
             switch c {
             case "⏎": body.doCommand(by: #selector(NSResponder.insertNewline(_:)))
             case "⇥": body.doCommand(by: #selector(NSResponder.insertTab(_:)))
@@ -224,6 +226,10 @@ enum EditorTest {
             default: body.insertText(String(c), replacementRange: NSRange(location: NSNotFound, length: 0))
             }
             try? await Task.sleep(for: .milliseconds(30))
+        }
+        if parts.count > 1 {
+            let marked = String(parts[1])
+            body.setMarkedText(marked, selectedRange: NSRange(location: (marked as NSString).length, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
         }
         try? await Task.sleep(for: .milliseconds(500))
         body.testShowInsertionIndicator()
@@ -353,6 +359,68 @@ enum EditorTest {
                 failures.append("quote bar, \(name): \(editor.source.debugDescription) draws \(bars) for \(lines) line(s) of \(height)")
             }
         }
+        // A line with a small formula in it is a line like the others:
+        // as tall, its baseline as far down. The formula's picture was
+        // of its paragraph's whole line box, leading and all, and
+        // whatever it reached past the text was added to the line
+        // rather than taken from the line's own leading: the line stood
+        // taller and its text lower than its neighbours'.
+        do {
+            let layout = body.layoutManager as! LiveLayout
+            func firstLine() -> (height: CGFloat, baseline: CGFloat) {
+                layout.ensureLayout(for: body.textContainer!)
+                return (layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).height, layout.location(forGlyphAt: 0).y)
+            }
+            model.text = "a b"
+            editor.load("a b")
+            let plain = firstLine()
+            model.text = "a $E=mc^2$ b"
+            editor.load("a $E=mc^2$ b")
+            let key = LiveImages.Key(markdown: "$E=mc^2$", width: nil, size: layout.font(at: 0).pointSize, dark: body.effectiveAppearance.isDark)
+            for _ in 0..<100 where LiveImages.shared.depth(key) == nil {
+                try? await Task.sleep(for: .milliseconds(30))
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+            let math = firstLine()
+            if LiveImages.shared.depth(key) == nil || math != plain {
+                failures.append("inline math: its line is \(math.height) tall, the baseline \(math.baseline) down; a plain line \(plain.height) and \(plain.baseline)\(LiveImages.shared.depth(key) == nil ? " (the formula was not drawn)" : "")")
+            }
+        }
+        // Composing on a line inline math has made taller: the input
+        // method draws its underline and puts its candidates by the rect
+        // the view gives it, which is the line's used rect. That is the
+        // text's, as on a plain line: as tall, as far below the baseline.
+        do {
+            let layout = body.layoutManager as! LiveLayout
+            /// The input method's rect for the text composed: its height,
+            /// and how far below the baseline it ends.
+            func composed() -> (height: CGFloat, depth: CGFloat, line: CGFloat) {
+                body.setMarkedText("にほ", selectedRange: NSRange(location: 2, length: 0), replacementRange: none)
+                defer { body.unmarkText() }
+                let marked = body.markedRange()
+                let screen = body.firstRect(forCharacterRange: marked, actualRange: nil)
+                let rect = body.convert(body.window!.convertFromScreen(screen), from: nil)
+                let glyph = layout.glyphIndexForCharacter(at: marked.location)
+                let line = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+                let baseline = body.textContainerOrigin.y + line.minY + layout.location(forGlyphAt: glyph).y
+                return (rect.height, rect.maxY - baseline, line.height)
+            }
+            model.text = "a "
+            editor.load("a ")
+            body.setSelectedRange(NSRange(location: 2, length: 0))
+            let plain = composed()
+            let start = parse("a $\\dfrac{\\dfrac{a}{b}}{c}$ ‸")
+            model.text = start.text
+            editor.load(start.text)
+            body.setSelectedRange(LiveProjection(start.text).displayRange(start.selection))
+            for _ in 0..<100 where layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).height < plain.line + 8 {
+                try? await Task.sleep(for: .milliseconds(30))
+            }
+            let math = composed()
+            if math.line < plain.line + 8 || abs(math.height - plain.height) > 0.5 || abs(math.depth - plain.depth) > 0.5 {
+                failures.append("composing beside inline math: the input method's rect is \(math.height) tall and ends \(math.depth) below the baseline, on a plain line \(plain.height) and \(plain.depth); the line is \(math.line) tall, a plain one \(plain.line)")
+            }
+        }
         // A display equation is edited inside its block; Esc carries on
         // below it.
         let math = "a\n$$\nx\n$$\nb"
@@ -368,6 +436,45 @@ enum EditorTest {
             if body.selectedRange() != NSRange(location: 4, length: 0) { failures.append("equation: Esc left the selection at \(body.selectedRange())") }
         } else {
             failures.append("equation: the editor did not open")
+        }
+        // Below an equation that ends the note, the empty line starts at
+        // the left, as below text. TextKit lays that line out as the
+        // caret's text when the caret is on it and as the last
+        // character's when not, and Down makes the line before the caret
+        // is there: it was centred, as the equation is. Down from inside
+        // the equation first, then from the block: the second found the
+        // typing attributes as the first left them, and so no reason to
+        // lay the line out again.
+        do {
+            let layout = body.layoutManager as! LiveLayout
+            func endX() async -> CGFloat {
+                try? await Task.sleep(for: .milliseconds(100))
+                return layout.extraLineFragmentUsedRect.minX
+            }
+            model.text = "a\n"
+            editor.load("a\n")
+            body.setSelectedRange(NSRange(location: 2, length: 0))
+            let plain = await endX()
+            let ending = "a\n\n$$\ne=mc\n$$"
+            model.text = ending
+            editor.load(ending)
+            body.editFirstMath?()
+            if let inner = body.firstDescendant(MathBlockEditor.self) {
+                inner.source.setSelectedRange(NSRange(location: 4, length: 0))
+                inner.source.doCommand(by: #selector(NSResponder.moveDown(_:)))
+            }
+            let inside = await endX()
+            if editor.source != ending + "\n" || body.selectedRange() != NSRange(location: 5, length: 0) || inside != plain {
+                failures.append("below an equation: Down inside it gave \(editor.source.debugDescription), the caret at \(body.selectedRange()), its line starting at \(inside), below text at \(plain)")
+            }
+            model.text = ending
+            editor.load(ending)
+            body.setSelectedRange(NSRange(location: 3, length: 1))
+            body.doCommand(by: #selector(NSResponder.moveDown(_:)))
+            let below = await endX()
+            if editor.source != ending + "\n" || body.selectedRange() != NSRange(location: 5, length: 0) || below != plain {
+                failures.append("below an equation: Down on it gave \(editor.source.debugDescription), the caret at \(body.selectedRange()), its line starting at \(below), below text at \(plain)")
+            }
         }
         // Helix: the cursor sits on a block, which shows as selected; `d`
         // deletes it; in insert mode it is selected as with standard keys.

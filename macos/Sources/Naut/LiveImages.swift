@@ -24,6 +24,8 @@ final class LiveImages: NSObject, WKNavigationDelegate {
     }
 
     private var cache: [Key: NSImage] = [:]
+    /// How far below its text's baseline each image reaches, in points.
+    private var depths: [Key: CGFloat] = [:]
     /// Keys queued, rendering, or failed, so none is asked for twice.
     private var seen: Set<Key> = []
     private var queue: [Key] = []
@@ -57,6 +59,11 @@ final class LiveImages: NSObject, WKNavigationDelegate {
         return nil
     }
 
+    /// How far the rendered image reaches below the baseline of the text
+    /// in it: inline math sits on the line's baseline by this, as on the
+    /// page. Nil until the image is ready.
+    func depth(_ key: Key) -> CGFloat? { depths[key] }
+
     func webView(_ view: WKWebView, didFinish navigation: WKNavigation!) {
         loaded = true
         pump()
@@ -73,14 +80,17 @@ final class LiveImages: NSObject, WKNavigationDelegate {
         Task {
             // A failure stays in `seen`, so a broken formula isn't retried
             // per keystroke; the editor keeps showing its source.
-            if let image = await render(key) { cache[key] = image }
+            if let (image, depth) = await render(key) {
+                cache[key] = image
+                depths[key] = depth
+            }
             running = false
             NotificationCenter.default.post(name: Self.didRender, object: nil)
             pump()
         }
     }
 
-    private func render(_ key: Key) async -> NSImage? {
+    private func render(_ key: Key) async -> (NSImage, CGFloat)? {
         let html = Markdown.render(key.markdown).html
         // prefers-color-scheme follows the view's appearance.
         web.appearance = NSAppearance(named: key.dark ? .darkAqua : .aqua)
@@ -91,16 +101,35 @@ final class LiveImages: NSObject, WKNavigationDelegate {
             main.style.maxWidth = "none";
             main.innerHTML = '<div id="m" style="display:' + (width ? 'block;width:' + width + 'px;padding:2px 0' : 'inline-block;padding:2px 1px') + '">' + html + '</div>';
             main.querySelectorAll("p, div.math, math, div.table").forEach(e => e.style.margin = "0");
-            const r = document.getElementById("m").getBoundingClientRect();
-            return [r.left, r.top, r.width, r.height];
+            const math = main.querySelector("math, .math, .katex, mjx-container");
+            // Inline, the picture is the formula alone, a pixel around it
+            // for what a glyph draws past its box: its paragraph's line
+            // box has that line's leading above and below, and a line
+            // with the picture in it stood taller, and lower, by as much.
+            let r = document.getElementById("m").getBoundingClientRect();
+            if (!width && math) {
+                const f = math.getBoundingClientRect();
+                const left = Math.floor(f.left) - 1, top = Math.floor(f.top) - 1;
+                r = new DOMRect(left, top, Math.ceil(f.right) + 1 - left, Math.ceil(f.bottom) + 1 - top);
+            }
+            // The baseline: an empty inline-block's bottom sits on it. Put
+            // after the formula only while measured, so the snapshot is
+            // without it.
+            const probe = document.createElement("span");
+            probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+            if (math) math.after(probe); else document.getElementById("m").append(probe);
+            const baseline = probe.getBoundingClientRect().bottom;
+            probe.remove();
+            return [r.left, r.top, r.width, r.height, r.bottom - baseline];
             """
         guard let r = try? await web.callAsyncJavaScript(script, arguments: ["html": html, "size": key.size, "width": key.width ?? 0], contentWorld: .page) as? [Double],
-              r.count == 4, r[2] > 0, r[3] > 0
+              r.count == 5, r[2] > 0, r[3] > 0
         else { return nil }
         let config = WKSnapshotConfiguration()
         config.rect = CGRect(x: r[0], y: r[1], width: ceil(r[2]), height: ceil(r[3]))
         config.afterScreenUpdates = true
-        return try? await web.takeSnapshot(configuration: config)
+        guard let image = try? await web.takeSnapshot(configuration: config) else { return nil }
+        return (image, CGFloat(r[4]))
     }
 
     // MARK: - Pictures
