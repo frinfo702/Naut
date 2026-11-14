@@ -63,6 +63,10 @@ enum EditorTest {
         ("tab goes to the next cell", "| a‸ | b |\n| - | - |", [.tab], "| a | «b» |\n| - | - |"),
         ("tab past the last cell adds a row", "| a | b‸ |\n| - | - |", [.tab, .type("c")], "| a | b |\n| - | - |\n| c‸ |  |\n"),
         ("return goes to the cell below", "| a‸ | b |\n| - | - |\n| c | d |", [.enter], "| a | b |\n| - | - |\n| «c» | d |"),
+        ("typing after backspace below a table goes into its last cell", "| a | b |\n| - | - |\n| c |  |\n‸", [.backspace, .type("x")],
+         "| a | b |\n| - | - |\n| c | x‸ |"),
+        ("typing after backspace below a table's full last cell adds to it", "| a | b |\n| - | - |\n| c | d |\n‸\n\ny", [.backspace, .type("x")],
+         "| a | b |\n| - | - |\n| c | dx‸ |\n\ny"),
         ("return below a table makes an empty line, not a row", "| a | b |\n| - | - |\n‸", [.enter, .type("x")], "| a | b |\n| - | - |\n\nx‸"),
         ("> and Space on the last line shows as a quote", "a\n‸", [.type(">"), .type(" ")], "a\n> ‸"),
         ("backspace at a cell's start keeps the table", "| a | ‸b |\n| - | - |", [.backspace], "| a | ‸b |\n| - | - |"),
@@ -130,6 +134,9 @@ enum EditorTest {
         ("tab indents code", "```\n‸x\n```", [.tab], "```\n    ‸x\n```"),
 
         // ⌘A.
+        ("select all in a table selects the table", "x\n\n| a | b‸ |\n| - | - |\n| c | d |\n\ny", [.selectAll], "x\n\n| «a | b |\n| - | - |\n| c | d» |\n\ny"),
+        ("select all in a table, delete takes it whole", "x\n\n| a | b‸ |\n| - | - |\n| c | d |\n\ny", [.selectAll, .backspace], "x\n\n‸\n\ny"),
+        ("select all twice in a table selects the note", "| a | b‸ |\n| - | - |\n| c | d |\ny", [.selectAll, .selectAll], "| «a | b |\n| - | - |\n| c | d |\ny»"),
         ("select all in a code block", "a\n```\nco‸de\n```", [.selectAll], "a\n```\n«code»\n```"),
         ("select all twice", "a\n```\nco‸de\n```", [.selectAll, .selectAll], "«a\n```\ncode\n»```"),
         ("select all, delete, delete", "a\n```\nco‸de\n```\nb", [.selectAll, .backspace, .backspace], "a\n‸\nb"),
@@ -637,12 +644,15 @@ enum EditorTest {
         let display = p.display as String
         let blocks = p.attachments.filter { p.elements[$0.value].kind.isBlockAtom }.keys.sorted()
         let code = (p.display as NSString).range(of: "let x = 1\nprint(x)")
-        var shots: [(String, NSRange)] = [("caret", NSRange(location: 3, length: 0)), ("code", code), ("text", NSRange(location: 0, length: (display as NSString).length))]
+        let table = p.elements.first { $0.kind == .table }.map { p.displayRange($0.range) } ?? code
+        var shots: [(String, NSRange)] = [("caret", NSRange(location: 3, length: 0)), ("code", code), ("table", table), ("cell", NSRange(location: table.location, length: 1)),
+                                          ("text", NSRange(location: 0, length: (display as NSString).length))]
         for (i, at) in blocks.enumerated() { shots.append(("block\(i)", NSRange(location: at, length: 1))) }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         guard let view = body.window?.contentView else { return }
         for (name, r) in shots {
             body.setSelectedRange(r)
+            if name == "table" || name == "cell" { body.scrollRangeToVisible(r) }
             if r.length == 1 { body.scrollRangeToVisible(NSRange(location: r.location, length: min(4, (body.string as NSString).length - r.location))) }
                         try? await Task.sleep(for: .milliseconds(200))
             guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }

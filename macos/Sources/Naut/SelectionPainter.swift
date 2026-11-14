@@ -27,6 +27,8 @@ enum SelectionPainter {
             let line = layout.characterRange(forGlyphRange: lineGlyphs, actualGlyphRange: nil)
             let hit = NSIntersectionRange(line, selection)
             guard hit.length > 0 else { return }
+            // So does a table selected whole.
+            if (layout as? LiveLayout)?.inSelectedTable(hit.location) == true { return }
             var end = NSMaxRange(hit)
             while end > hit.location {
                 let c = text.character(at: end - 1)

@@ -548,6 +548,12 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
 
         let composing = firstTextView?.hasMarkedText() == true
         let current = firstTextView?.selectedRange() ?? selection
+        // A table's grid and header are TextKit's background too, which is
+        // not asked for below while there is a selection: the table went
+        // blank as soon as anything was selected. They are drawn here then.
+        if current.length > 0, !composing {
+            drawTables(in: visible, at: origin)
+        }
         if !composing {
             SelectionPainter.draw(in: self, glyphRange: glyphs, at: origin)
         }
@@ -558,6 +564,47 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         if current.length == 0 || composing {
             super.drawBackground(forGlyphRange: glyphs, at: origin)
         }
+    }
+
+    /// The cells of the tables in `visible`, as TextKit draws them, and
+    /// the ring of a table that is selected whole.
+    private func drawTables(in visible: NSRange, at origin: NSPoint) {
+        guard let storage = textStorage, let view = firstTextView else { return }
+        let text = storage.string as NSString
+        for t in state.tables {
+            let shown = NSIntersectionRange(t.lines, NSIntersectionRange(visible, NSRange(location: 0, length: storage.length)))
+            guard shown.length > 0 else { continue }
+            // All of its cells if it is selected whole, for the ring's box.
+            let whole = isSelectedWhole(t)
+            let drawn = whole ? NSIntersectionRange(t.lines, NSRange(location: 0, length: storage.length)) : shown
+            var box = NSRect.null
+            var i = text.paragraphRange(for: NSRange(location: drawn.location, length: 0)).location
+            while i < NSMaxRange(drawn) {
+                let cell = text.paragraphRange(for: NSRange(location: i, length: 0))
+                if let block = paragraphStyle(at: i)?.textBlocks.last {
+                    let frame = boundsRect(for: block, glyphRange: glyphRange(forCharacterRange: cell, actualCharacterRange: nil))
+                    block.drawBackground(withFrame: frame.offsetBy(dx: origin.x, dy: origin.y), in: view, characterRange: cell, layoutManager: self)
+                    box = box.union(frame)
+                }
+                i = NSMaxRange(cell)
+            }
+            if whole, !box.isNull {
+                Self.drawSelectionRing(box.offsetBy(dx: origin.x, dy: origin.y).insetBy(dx: -2, dy: -2), radius: 4)
+            }
+        }
+    }
+
+    /// Whether all of a table's cells are in the selection: it is then
+    /// selected as one thing, as a picture is, and shows a ring.
+    private func isSelectedWhole(_ t: State.Table) -> Bool {
+        let s = firstTextView?.selectedRange() ?? selection
+        return s.length > 0 && s.location <= t.lines.location && NSMaxRange(s) >= NSMaxRange(t.lines) - 1
+    }
+
+    /// Whether display `i` is in a table selected whole, whose ring
+    /// stands for the highlight of its cells' text.
+    func inSelectedTable(_ i: Int) -> Bool {
+        state.tables.contains { NSLocationInRange(i, $0.lines) && isSelectedWhole($0) }
     }
 
     override func drawGlyphs(forGlyphRange glyphs: NSRange, at origin: NSPoint) {
@@ -757,7 +804,11 @@ extension LiveLayout.State {
             case let .codeBlock(language):
                 code.append(.init(lines: p.displayLines(e.content), language: language, element: i))
             case .table:
-                tables.append(.init(lines: p.displayLines(e.range), element: i))
+                // Every cell's paragraph, to the last one's end: the last
+                // row's cells are paragraphs of their own, not one line.
+                let start = p.display(at: e.range.location)
+                let end = p.display(at: e.cells.last?.last.map { NSMaxRange($0) } ?? NSMaxRange(e.range))
+                tables.append(.init(lines: p.display.paragraphRange(for: NSRange(location: start, length: max(0, end - start))), element: i))
             case .code:
                 inlineCode.append(p.displayRange(e.range))
             case .quote:

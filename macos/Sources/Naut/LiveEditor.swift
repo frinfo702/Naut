@@ -660,10 +660,24 @@ struct LiveEditor: NSViewRepresentable {
             return true
         }
 
-        /// ⌘A in a code block selects its code; again, the note.
+        /// Whether display range `r` has some of a table in it.
+        private func reachesTable(_ r: NSRange) -> Bool {
+            layout?.state.tables.contains { NSIntersectionRange($0.lines, r).length > 0 } ?? false
+        }
+
+        /// ⌘A in a code block selects its code, in a table the table;
+        /// again, the note.
         func selectAllInBlock() -> Bool {
             guard let view, let layout else { return false }
             let s = view.selectedRange()
+            if let table = layout.state.tables.first(where: { s.location >= $0.lines.location && NSMaxRange(s) < NSMaxRange($0.lines) }) {
+                let end = min(NSMaxRange(table.lines), projection.display.length)
+                let last = end > table.lines.location && projection.display.character(at: end - 1) == 0x0A ? end - 1 : end
+                let all = NSRange(location: table.lines.location, length: last - table.lines.location)
+                guard all.length > 0, s != all else { return false }
+                place(all)
+                return true
+            }
             guard let code = layout.state.code.first(where: { s.location >= $0.lines.location && NSMaxRange(s) < NSMaxRange($0.lines) }) else { return false }
             let content = NSRange(location: code.lines.location, length: code.lines.length - 1)
             guard content.length > 0, s != content else { return false }
@@ -861,6 +875,12 @@ struct LiveEditor: NSViewRepresentable {
                     return true
                 }
                 perform(editing.newline(selection, preferring: caretSource))
+                return true
+            case #selector(NSResponder.deleteBackward(_:)) where selection.length > 0 && reachesTable(selection),
+                 #selector(NSResponder.deleteForward(_:)) where selection.length > 0 && reachesTable(selection):
+                // The text view deletes a selection over a text table cell
+                // by cell, so a table selected whole was emptied, not taken.
+                perform(editing.delete(selection, selection: selection))
                 return true
             case #selector(NSResponder.deleteBackward(_:)) where selection.length == 0:
                 // At the start of a line's text, backspace takes the line's

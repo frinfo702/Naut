@@ -406,6 +406,17 @@ private func typedAtEnd(_ text: String, _ s: String) -> (text: String, selection
     #expect(edited(e.delete(NSRange(location: 1, length: 7), selection: NSRange(location: 1, length: 7))) == "x\ny")
 }
 
+/// Backspace on the empty line below a table leaves the caret after the
+/// table's closing pipe; text typed there once made a fourth column.
+@Test func liveTypingPastATablesLastCellGoesIntoIt() {
+    let note = "| a | b |\n| - | - |\n| c | d |"
+    let e = LiveEditing(text: note)
+    let end = e.projection.display.length
+    let typed = apply(e.type("x", over: caret(end), preferring: (note as NSString).length), to: note)
+    #expect(typed?.text == "| a | b |\n| - | - |\n| c | dx |")
+    #expect(LiveProjection(typed!.text).elements.first { $0.kind == .table }?.cells.map(\.count) == [2, 2])
+}
+
 @Test func copyingATableGivesItsMarkdown() {
     let note = "a\n| x | y |\n| - | - |\nb"
     let p = LiveProjection(note)

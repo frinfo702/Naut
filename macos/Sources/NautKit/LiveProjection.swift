@@ -172,7 +172,16 @@ public struct LiveProjection {
         var position = p == 0 ? 0 : NSMaxRange(units[p - 1])
         // The gap of hidden syntax `p` stands for runs to the next unit.
         let gapEnd = p < units.count ? units[p].location : source.length
-        if let preferring, preferring >= position, preferring <= gapEnd { position = preferring }
+        if let preferring, preferring >= position, preferring <= gapEnd {
+            position = preferring
+            // Past a table's last cell are its closing pipe and spaces,
+            // where the caret is left by a Backspace that joined the line
+            // below: text there would be one more cell, a column the other
+            // rows don't have. It goes into the last cell.
+            for e in elements where e.kind == .table && e.range.location < position && position <= NSMaxRange(e.range) {
+                if let last = e.cells.last?.last, position > NSMaxRange(last) { position = NSMaxRange(last) }
+            }
+        }
         let start = position
         while position < source.length, blockSyntax.contains(position) { position += 1 }
         if newline {
