@@ -253,7 +253,11 @@ class CursorTextView: NSTextView {
         // lost selection does, because the custom selection background is
         // ours to paint.
         if range.length > 0 || old.length > 0 { needsDisplay = true }
-        if !cursor.isPaused { cursor.restartBlinking() }
+        if isKeyMove {
+            holdCursorSolid()
+        } else if !cursor.isPaused {
+            cursor.restartBlinking()
+        }
     }
 
     /// During a drag TextKit updates the selection here with
@@ -269,6 +273,25 @@ class CursorTextView: NSTextView {
         updateCursor()
         if stillSelecting || old.length > 0 || ranges.contains(where: { $0.rangeValue.length > 0 }) {
             needsDisplay = true
+        }
+        if isKeyMove { holdCursorSolid() }
+    }
+
+    /// True while a key is moving the caret: an arrow, a Vim or Helix
+    /// motion, a jump to a line's end. A caret that blinks out while it
+    /// travels is hard to follow.
+    private var isKeyMove: Bool {
+        NSApp.currentEvent?.type == .keyDown
+    }
+
+    /// Solid while typing or moving, blinking again after a short pause.
+    /// The old system indicator did the same; a caret that blinks mid-word
+    /// or mid-move reads as a flicker.
+    private func holdCursorSolid() {
+        cursor.pauseBlinking()
+        blinkResume?.invalidate()
+        blinkResume = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.cursor.restartBlinking() }
         }
     }
 
@@ -313,14 +336,7 @@ class CursorTextView: NSTextView {
     override func didChangeText() {
         super.didChangeText()
         updateCursor()
-        // Solid while typing, blinking again after a short pause. The old
-        // system indicator did the same; a caret that blinks mid-word
-        // reads as a flicker.
-        cursor.pauseBlinking()
-        blinkResume?.invalidate()
-        blinkResume = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.cursor.restartBlinking() }
-        }
+        holdCursorSolid()
     }
 
     override func layout() {
