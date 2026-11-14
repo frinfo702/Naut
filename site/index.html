@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Naut — Markdown notes for the Mac</title>
+    <meta name="description" content="Markdown notes on your Mac. One switch puts a note on the web." />
+    <meta name="theme-color" content="#000000" />
+    <meta property="og:title" content="Naut" />
+    <meta property="og:description" content="Markdown notes on your Mac. One switch puts a note on the web." />
+    <meta property="og:image" content="https://frinfo702.github.io/Naut/images/blossom.jpg" />
+    <link rel="icon" href="images/icon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="images/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #000;
+        --surface: #0d0d0d;
+        --line: rgba(255, 255, 255, 0.1);
+        --fg: #f4f2ee;
+        --dim: rgba(244, 242, 238, 0.58);
+        --faint: rgba(244, 242, 238, 0.36);
+        --accent: #e8263d; /* the poppies in the field */
+        --sans: "Geist", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+        --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+        --measure: 1120px;
+        --gutter: clamp(16px, 4vw, 40px);
+        color-scheme: dark;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 400 17px/1.6 var(--sans);
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      a {
+        color: inherit;
+      }
+      code {
+        font-family: var(--mono);
+        font-size: 0.9em;
+      }
+      img {
+        display: block;
+        max-width: 100%;
+        height: auto;
+      }
+      .wrap {
+        max-width: var(--measure);
+        margin: 0 auto;
+        padding: 0 var(--gutter);
+      }
+      .label {
+        font: 500 12px/1 var(--mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--faint);
+      }
+
+      /* Nav */
+      nav {
+        position: absolute;
+        inset: 0 0 auto;
+        z-index: 2;
+      }
+      nav .wrap {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 72px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 600;
+        font-size: 17px;
+        text-decoration: none;
+      }
+      .brand img {
+        width: 30px;
+        height: 30px;
+        margin: -2px;
+      }
+      nav ul {
+        display: flex;
+        gap: 28px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        font-size: 14px;
+      }
+      nav ul a {
+        color: var(--dim);
+        text-decoration: none;
+        transition: color 0.15s;
+      }
+      nav ul a:hover {
+        color: var(--fg);
+      }
+
+      /* Hero */
+      .hero {
+        position: relative;
+        min-height: min(100svh, 860px);
+        display: flex;
+        align-items: center;
+        overflow: hidden;
+      }
+      .hero-art {
+        position: absolute;
+        inset: 0 0 0 40%;
+        background: url("images/blossom.jpg") 50% 50% / cover no-repeat;
+        mask-image: radial-gradient(ellipse 60% 75% at 55% 50%, #000 35%, transparent 75%);
+        -webkit-mask-image: radial-gradient(ellipse 60% 75% at 55% 50%, #000 35%, transparent 75%);
+        animation: develop 2.4s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      }
+      @keyframes develop {
+        from {
+          opacity: 0;
+          transform: scale(1.04);
+          filter: contrast(1.6) brightness(0.4);
+        }
+      }
+      .hero .wrap {
+        position: relative;
+        width: 100%;
+        padding-top: 120px;
+        padding-bottom: 96px;
+      }
+      h1 {
+        margin: 0;
+        max-width: 11ch;
+        font-size: clamp(44px, 7.4vw, 92px);
+        font-weight: 500;
+        line-height: 0.98;
+        letter-spacing: -0.035em;
+      }
+      .lede {
+        max-width: 27em;
+        margin: 28px 0 40px;
+        font-size: clamp(17px, 1.6vw, 20px);
+        color: var(--dim);
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 14px 20px;
+      }
+      .button {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        height: 48px;
+        padding: 0 22px;
+        border-radius: 999px;
+        background: var(--fg);
+        color: #000;
+        font-weight: 500;
+        font-size: 16px;
+        text-decoration: none;
+        transition:
+          transform 0.16s ease-out,
+          background 0.16s;
+      }
+      .button:hover {
+        background: #fff;
+      }
+      .button:active {
+        transform: scale(0.97);
+      }
+      .button svg {
+        width: 18px;
+        height: 18px;
+      }
+      .meta {
+        font: 400 13px/1.4 var(--mono);
+        color: var(--faint);
+      }
+
+      /* Copyable command */
+      .cmd {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        max-width: 100%;
+        padding: 0 6px 0 18px;
+        height: 48px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(13, 13, 13, 0.72);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        font: 400 14px/1 var(--mono);
+      }
+      .cmd code {
+        overflow-x: auto;
+        white-space: nowrap;
+        scrollbar-width: none;
+      }
+      .cmd code::before {
+        content: "$ ";
+        color: var(--faint);
+      }
+      .copy {
+        flex: none;
+        width: 36px;
+        height: 36px;
+        display: grid;
+        place-items: center;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--dim);
+        cursor: pointer;
+        transition:
+          background 0.15s,
+          color 0.15s;
+      }
+      .copy:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--fg);
+      }
+      .copy svg {
+        width: 16px;
+        height: 16px;
+      }
+      .copy .done {
+        display: none;
+      }
+      .copy.copied .idle {
+        display: none;
+      }
+      .copy.copied .done {
+        display: block;
+        color: var(--fg);
+      }
+
+      /* Screenshot */
+      .shot {
+        position: relative;
+        margin: 0 auto;
+        padding: 0 var(--gutter);
+        max-width: 1280px;
+      }
+      .shot figure {
+        margin: 0;
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow:
+          0 0 0 1px #000,
+          0 40px 120px -20px rgba(255, 255, 255, 0.08),
+          0 30px 60px -30px #000;
+      }
+      .shot::before {
+        /* Light from above, as off the window's lit edge. */
+        content: "";
+        position: absolute;
+        inset: -80px 10% auto;
+        height: 200px;
+        background: radial-gradient(closest-side, rgba(255, 255, 255, 0.08), transparent);
+        pointer-events: none;
+      }
+
+      /* Features */
+      .features {
+        padding-top: clamp(96px, 14vw, 180px);
+        padding-bottom: 40px;
+      }
+      .feature {
+        display: grid;
+        grid-template-columns: 1fr 1.25fr;
+        align-items: center;
+        gap: clamp(32px, 6vw, 80px);
+        margin-bottom: clamp(96px, 12vw, 160px);
+      }
+      .feature:nth-child(even) .art {
+        order: -1;
+      }
+      .feature > *,
+      .ways > * {
+        min-width: 0;
+      }
+      .feature h2 {
+        margin: 16px 0 18px;
+        font-size: clamp(30px, 3.6vw, 44px);
+        font-weight: 500;
+        line-height: 1.08;
+        letter-spacing: -0.025em;
+      }
+      .feature p {
+        margin: 0 0 14px;
+        color: var(--dim);
+      }
+      .feature p code {
+        font: 400 0.88em var(--mono);
+        color: var(--fg);
+      }
+      .art {
+        position: relative;
+        aspect-ratio: 1456 / 816;
+        background: center / cover no-repeat;
+        mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, #000 45%, transparent 78%);
+        -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, #000 45%, transparent 78%);
+      }
+      .art.towers {
+        background-image: url("images/towers.jpg");
+      }
+      .art.colosseum {
+        background-image: url("images/colosseum.jpg");
+      }
+      .art.field {
+        background-image: url("images/field.jpg");
+      }
+
+      .small-features {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 1px;
+        margin-bottom: clamp(96px, 12vw, 160px);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        overflow: hidden;
+        background: var(--line);
+      }
+      .small-features div {
+        padding: 28px 28px 30px;
+        background: var(--bg);
+      }
+      .small-features h3 {
+        margin: 0 0 8px;
+        font-size: 16px;
+        font-weight: 500;
+      }
+      .small-features p {
+        margin: 0;
+        font-size: 15px;
+        color: var(--dim);
+      }
+
+      /* Install */
+      .install {
+        padding-bottom: clamp(96px, 12vw, 160px);
+      }
+      .install h2 {
+        margin: 16px 0 40px;
+        font-size: clamp(30px, 3.6vw, 44px);
+        font-weight: 500;
+        letter-spacing: -0.025em;
+      }
+      .ways {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 20px;
+      }
+      .way {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        min-width: 0;
+        padding: 26px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--surface);
+      }
+      .way h3 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 500;
+      }
+      .way p {
+        margin: 0;
+        font-size: 15px;
+        color: var(--dim);
+      }
+      .way .cmd {
+        height: auto;
+        min-height: 44px;
+        padding: 10px 6px 10px 14px;
+        font-size: 13px;
+      }
+      .way .cmd code {
+        white-space: pre;
+        line-height: 1.6;
+      }
+      .way .cmd code::before {
+        content: none;
+      }
+      .way .button {
+        align-self: flex-start;
+      }
+      .note {
+        margin-top: 28px;
+        font-size: 14px;
+        color: var(--faint);
+      }
+      .note code {
+        font-family: var(--mono);
+        color: var(--dim);
+      }
+
+      footer {
+        border-top: 1px solid var(--line);
+      }
+      footer .wrap {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding-top: 28px;
+        padding-bottom: 40px;
+        font-size: 14px;
+        color: var(--faint);
+      }
+      footer a {
+        color: var(--dim);
+        text-decoration: none;
+      }
+      footer a:hover {
+        color: var(--fg);
+      }
+
+      @media (max-width: 860px) {
+        nav ul li:not(:last-child) {
+          display: none;
+        }
+        .hero-art {
+          inset: 0;
+          background-position: 60% 30%;
+          opacity: 0.4;
+        }
+        .feature {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .feature .art,
+        .feature:nth-child(even) .art {
+          order: -1;
+        }
+        .small-features,
+        .ways {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        footer .wrap {
+          flex-direction: column;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+        .hero-art {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <div class="wrap">
+        <a class="brand" href="#"><img src="images/icon.png" alt="" />Naut</a>
+        <ul>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#install">Install</a></li>
+          <li><a href="https://github.com/frinfo702/Naut">GitHub</a></li>
+        </ul>
+      </div>
+    </nav>
+
+    <header class="hero">
+      <div class="hero-art" role="img" aria-label="White blossoms drawn in halftone dots"></div>
+      <div class="wrap">
+        <h1>Notes, in plain Markdown.</h1>
+        <p class="lede">
+          Naut is a quiet place to write on your Mac. Every note is a <code>.md</code> file you own, and one switch
+          puts it on the web, looking exactly as it does while you write.
+        </p>
+        <div class="actions">
+          <a class="button" href="https://github.com/frinfo702/Naut/releases/latest/download/Naut.dmg">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12m0 0-5-5m5 5 5-5M5 20h14" /></svg>
+            Download for Mac
+          </a>
+          <span class="meta"><span data-version>Latest</span> · macOS 14+ · Apple silicon</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="shot" aria-label="Screenshot">
+      <figure>
+        <img
+          src="images/app.jpg"
+          width="2400"
+          height="1520"
+          alt="A Naut window showing a note with a paragraph, a rendered equation and highlighted Zig code"
+        />
+      </figure>
+    </section>
+
+    <main class="features wrap" id="features">
+      <article class="feature">
+        <div>
+          <span class="label">01 — Files</span>
+          <h2>Yours, as plain text.</h2>
+          <p>
+            Notes live in <code>~/Documents/Naut</code> as ordinary Markdown files. Sync them, grep them, keep them in
+            git. No database, no account, nothing to export.
+          </p>
+        </div>
+        <div class="art towers" role="img" aria-label="Towers at night, lit windows as dots"></div>
+      </article>
+
+      <article class="feature">
+        <div>
+          <span class="label">02 — The page</span>
+          <h2>Math and code, rendered as you type.</h2>
+          <p>
+            Write on the page itself: headings, equations and code take their final shape while the caret is still in
+            them. TeX becomes MathML and code is highlighted when the note renders, so pages need no scripts and work
+            offline.
+          </p>
+        </div>
+        <div class="art colosseum" role="img" aria-label="The Colosseum in halftone"></div>
+      </article>
+
+      <article class="feature">
+        <div>
+          <span class="label">03 — Publishing</span>
+          <h2>One switch puts it on the web.</h2>
+          <p>
+            Publishing runs on your own Cloudflare account. Naut sets up a Worker and a KV namespace once; after that,
+            the globe button sends a note to <code>naut.&lt;you&gt;.workers.dev</code>. The page readers get is the
+            preview you saw.
+          </p>
+        </div>
+        <div class="art field" role="img" aria-label="A field of red and white flowers below a hill, in dots"></div>
+      </article>
+
+      <div class="small-features">
+        <div>
+          <h3>Splits and panes</h3>
+          <p>Split right or down, float a pane, maximize one. Keep two notes side by side.</p>
+        </div>
+        <div>
+          <h3>Vim and Helix keys</h3>
+          <p>Modal editing in the live page, with the cursor each mode asks for.</p>
+        </div>
+        <div>
+          <h3>Zen mode</h3>
+          <p>⌃⌘Z hides everything but the note.</p>
+        </div>
+      </div>
+    </main>
+
+    <section class="install wrap" id="install">
+      <span class="label">Install</span>
+      <h2>Get Naut.</h2>
+      <div class="ways">
+        <div class="way">
+          <h3>Download</h3>
+          <p>Open the disk image and drag Naut to Applications.</p>
+          <a class="button" href="https://github.com/frinfo702/Naut/releases/latest/download/Naut.dmg">Naut.dmg</a>
+        </div>
+        <div class="way">
+          <h3>Homebrew</h3>
+          <p>Naut's repository is its own tap.</p>
+          <div class="cmd">
+            <code>brew tap frinfo702/naut https://github.com/frinfo702/Naut
+brew install --cask naut</code>
+            <button class="copy" type="button" aria-label="Copy">
+              <svg class="idle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h8" /></svg>
+              <svg class="done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
+            </button>
+          </div>
+        </div>
+        <div class="way">
+          <h3>From source</h3>
+          <p>Needs Xcode; Zig comes from the Nix flake.</p>
+          <div class="cmd">
+            <code>git clone https://github.com/frinfo702/Naut
+cd Naut && nix develop -c zig build run</code>
+            <button class="copy" type="button" aria-label="Copy">
+              <svg class="idle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h8" /></svg>
+              <svg class="done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <p class="note">
+        Naut keeps itself current: <code>Naut → Check for Updates…</code> installs the newest release in place.
+      </p>
+    </section>
+
+    <footer>
+      <div class="wrap">
+        <span>Naut · <span data-version>Latest</span></span>
+        <span>
+          <a href="https://github.com/frinfo702/Naut">GitHub</a> ·
+          <a href="https://github.com/frinfo702/Naut/releases">Releases</a>
+        </span>
+      </div>
+    </footer>
+
+    <script>
+      for (const button of document.querySelectorAll(".copy")) {
+        button.addEventListener("click", async () => {
+          const text = button.previousElementSibling.textContent.trim();
+          try {
+            await navigator.clipboard.writeText(text);
+          } catch {
+            return;
+          }
+          button.classList.add("copied");
+          setTimeout(() => button.classList.remove("copied"), 1400);
+        });
+      }
+
+      // The newest release's number, next to the download buttons.
+      fetch("https://api.github.com/repos/frinfo702/Naut/releases/latest", {
+        headers: { Accept: "application/vnd.github+json" },
+      })
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((release) => {
+          for (const el of document.querySelectorAll("[data-version]")) el.textContent = release.tag_name;
+        })
+        .catch(() => {});
+    </script>
+  </body>
+</html>
