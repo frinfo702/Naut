@@ -85,6 +85,10 @@ final class Updater {
         }
         let folder = app.deletingLastPathComponent()
         guard fm.isWritableFile(atPath: folder.path) else { throw UpdateError.readOnly(folder) }
+        // macOS's App Management protection can refuse to let an app
+        // without a Developer ID team change its own bundle, though the
+        // folder is writable. Find out now rather than after the download.
+        try Self.probe(app)
         guard let image = release.assets.first(where: { $0.name.hasSuffix(".dmg") }) else {
             throw UpdateError.noDiskImage
         }
@@ -124,7 +128,11 @@ final class Updater {
         // Swap, putting the old one back if the new one won't go in. The
         // old one is left in `work`, which goes when we return.
         let old = work.appending(path: "Old.app", directoryHint: .isDirectory)
-        try fm.moveItem(at: app, to: old)
+        do {
+            try fm.moveItem(at: app, to: old)
+        } catch {
+            throw Self.isPermission(error) ? UpdateError.appManagement : error
+        }
         do {
             try fm.moveItem(at: staged, to: app)
         } catch {
@@ -132,6 +140,25 @@ final class Updater {
             throw error
         }
         return app
+    }
+
+    /// Writes and removes a file inside `app`, as the swap will need to.
+    nonisolated static func probe(_ app: URL) throws {
+        let file = app.appending(path: "Contents/.naut-update-probe")
+        do {
+            try Data().write(to: file)
+            try FileManager.default.removeItem(at: file)
+        } catch {
+            throw isPermission(error) ? UpdateError.appManagement : error
+        }
+    }
+
+    nonisolated static func isPermission(_ error: any Error) -> Bool {
+        let error = error as NSError
+        if error.domain == NSCocoaErrorDomain {
+            return [NSFileWriteNoPermissionError, NSFileReadNoPermissionError].contains(error.code)
+        }
+        return error.domain == NSPOSIXErrorDomain && [Int(EPERM), Int(EACCES)].contains(error.code)
     }
 
     /// Quits, and opens `app` once we are gone.
@@ -280,15 +307,21 @@ final class Updater {
         alert.informativeText = (error as? UpdateError)?.description ?? error.localizedDescription
         alert.addButton(withTitle: "OK")
         if release != nil { alert.addButton(withTitle: "Download Manually") }
+        let blocked = if case .appManagement = error as? UpdateError { true } else { false }
+        if blocked { alert.addButton(withTitle: "Open Settings") }
         NSApp.activate()
-        if alert.runModal() == .alertSecondButtonReturn, let release {
-            NSWorkspace.shared.open(release.htmlUrl)
+        switch alert.runModal() {
+        case .alertSecondButtonReturn:
+            if let release { NSWorkspace.shared.open(release.htmlUrl) }
+        case .alertThirdButtonReturn:
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles")!)
+        default: break
         }
     }
 }
 
 enum UpdateError: Error, CustomStringConvertible {
-    case noRelease, notABundle, notInstalled, readOnly(URL), noDiskImage, download, checksum, noApp, notNaut, signature
+    case noRelease, notABundle, notInstalled, readOnly(URL), appManagement, noDiskImage, download, checksum, noApp, notNaut, signature
     case tool(String, String)
 
     var description: String {
@@ -297,6 +330,8 @@ enum UpdateError: Error, CustomStringConvertible {
         case .notABundle: "This copy of Naut isn’t an app bundle, so it can’t replace itself."
         case .notInstalled: "Move Naut to your Applications folder first, then check again."
         case let .readOnly(folder): "Naut can’t write to \(folder.path)."
+        case .appManagement:
+            "macOS won’t let Naut replace itself. Turn Naut on in System Settings › Privacy & Security › App Management, quit and reopen Naut, then check again — or download the update manually."
         case .noDiskImage: "The release has no disk image."
         case .download: "The download failed."
         case .checksum: "The download is damaged: its checksum doesn’t match."
