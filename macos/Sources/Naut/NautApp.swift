@@ -9,7 +9,12 @@ struct NautApp: App {
     init() {
         // Launched as a bare SwiftPM binary (swift run) there is no bundle
         // to make us a regular app; do it by hand so we get a Dock icon.
-        NSApplication.shared.setActivationPolicy(.regular)
+        // Test runs stay in the background instead: see Headless.
+        if Snapshot.isHarness {
+            Headless.install()
+        } else {
+            NSApplication.shared.setActivationPolicy(.regular)
+        }
     }
 
     var body: some Scene {

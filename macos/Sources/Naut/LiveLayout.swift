@@ -268,6 +268,10 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
     /// The text view's selection, in display positions, kept by the editor.
     var selection = NSRange(location: 0, length: 0)
 
+    /// The font text typed at the end of the note will have, kept by the
+    /// editor. The empty line after a final newline is that tall.
+    var endFont: NSFont?
+
     /// Body text's CSS line-height, from Settings.
     var lineHeight: Double = Store.Density.compact.lineHeight
 
@@ -306,13 +310,28 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         return true
     }
 
-    /// The empty line after a final newline. Same spacing, same caret.
+    /// The empty line after a final newline: as tall as the line its
+    /// first character will make, wherever the caret is.
+    ///
+    /// TextKit sizes it by the typing attributes, which are the caret's:
+    /// with the caret on a heading the line was a heading tall, and the
+    /// page changed height as the caret moved, then again as the first
+    /// key was typed at the end. Below a code block its gap was the
+    /// code's, and it grew as that key went in.
     override func setExtraLineFragmentRect(_ rect: NSRect, usedRect: NSRect, textContainer container: NSTextContainer) {
-        let extra = self.extra(at: max(0, (textStorage?.length ?? 0) - 1))
         var rect = rect
         var used = usedRect
-        rect.size.height += extra
-        used.origin.y += extra / 2
+        if let font = endFont {
+            let text = defaultLineHeight(for: font)
+            let extra = extra(for: font)
+            rect.size.height = text + extra
+            used.origin.y = rect.minY + extra / 2
+            used.size.height = text
+        } else {
+            let extra = extra(at: max(0, (textStorage?.length ?? 0) - 1))
+            rect.size.height += extra
+            used.origin.y += extra / 2
+        }
         super.setExtraLineFragmentRect(rect, usedRect: used, textContainer: container)
     }
 
@@ -320,8 +339,11 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
     /// at character `i`. From the font rather than the line's height, so
     /// a tall picture doesn't get a tall gap.
     private func extra(at i: Int) -> CGFloat {
-        let font = self.font(at: i)
-        return max(0, font.pointSize * lineHeight - defaultLineHeight(for: font))
+        extra(for: font(at: i))
+    }
+
+    private func extra(for font: NSFont) -> CGFloat {
+        max(0, font.pointSize * lineHeight - defaultLineHeight(for: font))
     }
 
     // MARK: Drawing
@@ -489,18 +511,6 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
     func mathRect(at character: Int) -> NSRect? {
         guard let container = textContainers.first, let storage = textStorage, character < storage.length else { return nil }
         return boundingRect(forGlyphRange: glyphRange(forCharacterRange: NSRange(location: character, length: 1), actualCharacterRange: nil), in: container)
-    }
-
-    /// The code block whose caret is inside: its language label shows.
-    /// An empty block has no characters of its own; its caret is at its
-    /// start. `selection` is the text view's, kept here by the editor.
-    var editingCode: State.Code? {
-        guard selection.length == 0 else { return nil }
-        return state.code.first {
-            $0.lines.length == 0
-                ? selection.location == $0.lines.location
-                : selection.location >= $0.lines.location && selection.location < NSMaxRange($0.lines)
-        }
     }
 
     func codeBlockRect(_ lines: NSRange) -> NSRect? {

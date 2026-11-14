@@ -9,7 +9,7 @@ import WebKit
 ///
 /// `Naut --caret-test` focuses the Live Preview body, then its title, and
 /// fails if the body's caret survives the hand-off. It needs no person,
-/// just a session where the app can be activated.
+/// and never takes the keyboard from the person at the Mac (see Headless).
 ///
 /// This exists so changes to the UI can be checked without a person
 /// looking: screencapture needs Screen Recording permission, which agents
@@ -58,11 +58,13 @@ enum Snapshot {
     /// to scroll, ending in a `$$` block.
     static var isMathScrollTest: Bool { CommandLine.arguments.contains("--math-scroll-test") }
 
-    /// `Naut --code-scroll-test --note Name`: with the caret on the last
-    /// line of a code block that ends the note, scrolled to the bottom,
-    /// type spaces and fail if the page moves. It edits the note: use a
-    /// scratch one long enough to scroll, ending in a fenced code block.
-    static var isCodeScrollTest: Bool { CommandLine.arguments.contains("--code-scroll-test") }
+    /// `Naut --end-scroll-test --note Name`: scrolled to the bottom, move
+    /// the caret from the top of the note to the last line of a code block
+    /// that ends it, then to the empty line below, type keys at each and
+    /// fail if the page scrolls or changes height. It edits the note: use
+    /// a scratch one long enough to scroll that starts with a heading and
+    /// ends in a fenced code block.
+    static var isEndScrollTest: Bool { CommandLine.arguments.contains("--end-scroll-test") }
 
     /// `Naut --dollar-test --note Name`: type a second `$` after a line's
     /// lone `$`, and fail unless that makes a closed equation, open for
@@ -81,7 +83,7 @@ enum Snapshot {
     /// Any of the harnesses above. They open notes too, and must not change
     /// the user's tabs, favorites or recent notes.
     static var isHarness: Bool {
-        path != nil || EditorTest.isEnabled || isTabEditTest || isCaretTest || isModalTest || isTitleSwitchTest || isMathEditTest || isMathScrollTest || isCodeScrollTest || isDollarTest || isSplitTest
+        path != nil || EditorTest.isEnabled || isTabEditTest || isCaretTest || isModalTest || isTitleSwitchTest || isMathEditTest || isMathScrollTest || isEndScrollTest || isDollarTest || isSplitTest
     }
 
     /// `Naut --snapshot out.png --publish-popover [--note Name]` captures
@@ -206,7 +208,6 @@ enum Snapshot {
         // `--edit-math` opens the note's first display equation in place.
         if CommandLine.arguments.contains("--edit-math"),
            let body = window.contentView?.descendants(of: LiveTextView.self).first {
-            NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             body.editFirstMath?()
             try? await Task.sleep(for: settle)
@@ -237,7 +238,6 @@ enum Snapshot {
         // captures that window instead.
         if CommandLine.arguments.contains("--view-image"),
            let body = window.contentView?.descendants(of: LiveTextView.self).first {
-            NSApp.activate(ignoringOtherApps: true)
             body.viewFirstImage?()
             try? await Task.sleep(for: settle)
             guard let viewer = NSApp.windows.first(where: { $0.identifier == ImageViewer.id }),
@@ -305,7 +305,6 @@ enum Snapshot {
         guard let body = NSApp.windows.lazy.compactMap({
             $0.contentView?.descendants(of: CursorTextView.self).first
         }).first, let window = body.window else { return }
-        NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         for _ in 0..<20 where !window.isKeyWindow {
             try? await Task.sleep(for: .milliseconds(50))
@@ -331,7 +330,6 @@ enum Snapshot {
 
     @MainActor static func runModalTest() async {
         try? await Task.sleep(for: settle)
-        NSApp.activate(ignoringOtherApps: true)
         try? await Task.sleep(for: .milliseconds(100))
 
         guard let body = NSApp.windows.lazy.compactMap({
@@ -472,7 +470,6 @@ enum Snapshot {
         // The snapshot app was launched from a terminal, so it has to ask
         // for focus explicitly.
         try? await Task.sleep(for: settle)
-        NSApp.activate(ignoringOtherApps: true)
         try? await Task.sleep(for: .milliseconds(100))
 
         guard let body = NSApp.windows.lazy.compactMap({
@@ -499,9 +496,16 @@ enum Snapshot {
         guard title.currentEditor() != nil else { fail("caret test: title did not begin editing") }
         guard window.isKeyWindow else { fail("caret test: window lost key") }
         guard body.testInsertionHidden else { fail("caret test: body caret survived the title hand-off") }
+        // The title's caret is the note's, with its blink setting: the
+        // window's shared field editor blinked even with blinking off.
+        guard let titleEditor = title.currentEditor() as? CursorTextView else {
+            fail("caret test: title is not edited with the note's caret")
+        }
+        guard titleEditor.cursorBlink == body.cursorBlink, titleEditor.cursorShape == body.cursorShape else {
+            fail("caret test: title caret does not follow the cursor settings")
+        }
 
         // And it must come back when focus returns to the note.
-        NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         for _ in 0..<20 where !window.isKeyWindow {
             try? await Task.sleep(for: .milliseconds(50))
@@ -522,7 +526,6 @@ enum Snapshot {
         let first = store.notes[0], second = store.notes[1]
         store.selection = first.id
         try? await Task.sleep(for: .milliseconds(300))
-        NSApp.activate(ignoringOtherApps: true)
         guard let body = NSApp.windows.lazy.compactMap({
             $0.contentView?.descendants(of: LiveTextView.self).first
         }).first, let window = body.window, let title = body.titleField
@@ -562,7 +565,6 @@ enum Snapshot {
         try? await Task.sleep(for: .milliseconds(300))
         store.selection = target.id
         try? await Task.sleep(for: .milliseconds(300))
-        NSApp.activate(ignoringOtherApps: true)
         guard let body = NSApp.windows.lazy.compactMap({ $0.contentView?.descendants(of: LiveTextView.self).first }).first,
               let window = body.window
         else { fail("tab edit test: no live editor") }
@@ -585,7 +587,6 @@ enum Snapshot {
     @MainActor static func runMathEditTest(store: Store) async {
         try? await Task.sleep(for: settle)
         guard store.text.contains("$$") else { fail("math edit test: the note has no display equation") }
-        NSApp.activate(ignoringOtherApps: true)
         guard let body = NSApp.windows.lazy.compactMap({ $0.contentView?.descendants(of: LiveTextView.self).first }).first,
               let window = body.window
         else { fail("math edit test: no live editor") }
@@ -616,7 +617,6 @@ enum Snapshot {
 
     @MainActor static func runMathScrollTest(store: Store) async {
         try? await Task.sleep(for: settle)
-        NSApp.activate(ignoringOtherApps: true)
         guard let body = NSApp.windows.lazy.compactMap({ $0.contentView?.descendants(of: LiveTextView.self).first }).first,
               let window = body.window, let scroll = body.enclosingScrollView
         else { fail("math scroll test: no live editor") }
@@ -654,45 +654,64 @@ enum Snapshot {
         exit(0)
     }
 
-    @MainActor static func runCodeScrollTest(store _: Store) async {
+    @MainActor static func runEndScrollTest() async {
         try? await Task.sleep(for: settle)
-        NSApp.activate(ignoringOtherApps: true)
         guard let body = NSApp.windows.lazy.compactMap({ $0.contentView?.descendants(of: LiveTextView.self).first }).first,
-              let window = body.window, let scroll = body.enclosingScrollView
-        else { fail("code scroll test: no live editor") }
+              let window = body.window, let scroll = body.enclosingScrollView, let document = scroll.documentView
+        else { fail("end scroll test: no live editor") }
         window.makeKeyAndOrderFront(nil)
-        guard window.makeFirstResponder(body) else { fail("code scroll test: body did not take focus") }
-        // The end of the code's last line: the display ends in it.
-        let end = (body.string as NSString).length
-        body.setSelectedRange(NSRange(location: max(0, end - 1), length: 0))
-        body.scrollRangeToVisible(body.selectedRange())
-        if let document = scroll.documentView {
-            scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, document.frame.height - scroll.contentView.bounds.height)))
-            scroll.reflectScrolledClipView(scroll.contentView)
-        }
-        try? await Task.sleep(for: .seconds(1))
-        let settled = scroll.contentView.bounds.origin.y
-        final class Seen { var y: [CGFloat] = [] }
+        guard window.makeFirstResponder(body) else { fail("end scroll test: body did not take focus") }
+        // The page as it is at each moment, not just where it ends up: a
+        // moment somewhere else is the shake.
+        func page() -> [CGFloat] { [scroll.contentView.bounds.origin.y, document.frame.height, body.frame.height] }
+        @MainActor final class Seen { var pages: [[CGFloat]] = [] }
         let seen = Seen()
         scroll.contentView.postsBoundsChangedNotifications = true
-        let observer = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: nil) { n in
-            seen.y.append((n.object as! NSView).bounds.origin.y)
-        }
-        for _ in 0..<6 {
-            body.insertText(" ", replacementRange: body.selectedRange())
-            try? await Task.sleep(for: .milliseconds(300))
-        }
-        NotificationCenter.default.removeObserver(observer)
-        seen.y.append(scroll.contentView.bounds.origin.y)
-        guard seen.y.allSatisfy({ abs($0 - settled) < 1 }) else {
-            fail("code scroll test: the page moved while typing: \(settled) → \(seen.y)")
+        document.postsFrameChangedNotifications = true
+        body.postsFrameChangedNotifications = true
+        // From the end of the code's last line back: the empty line after
+        // the code, then the code's last line.
+        for back in [0, 1] {
+            // From the heading, whose typing attributes a move used to keep.
+            body.setSelectedRange(NSRange(location: 0, length: 0))
+            let end = (body.string as NSString).length
+            body.setSelectedRange(NSRange(location: max(0, end - back), length: 0))
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, document.frame.height - scroll.contentView.bounds.height)))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            try? await Task.sleep(for: .seconds(1))
+            let settled = page()
+            seen.pages = []
+            let observers = [
+                (NSView.boundsDidChangeNotification, scroll.contentView as NSView),
+                (NSView.frameDidChangeNotification, document),
+                (NSView.frameDidChangeNotification, body),
+            ].map { name, object in
+                NotificationCenter.default.addObserver(forName: name, object: object, queue: nil) { _ in
+                    MainActor.assumeIsolated { seen.pages.append(page()) }
+                }
+            }
+            // Through the window, as a key typed: AppKit's own insertion is
+            // laid out before the note is styled again.
+            for _ in 0..<4 {
+                let space = NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ",
+                    isARepeat: false, keyCode: 49
+                )
+                if let space { body.keyDown(with: space) }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
+            seen.pages.append(page())
+            guard seen.pages.allSatisfy({ zip($0, settled).allSatisfy { abs($0 - $1) < 0.5 } }) else {
+                fail("end scroll test: \(back) from the end, the page moved while typing (scroll, page, text): \(settled) → \(seen.pages)")
+            }
         }
         exit(0)
     }
 
     @MainActor static func runDollarTest(store: Store) async {
         try? await Task.sleep(for: settle)
-        NSApp.activate(ignoringOtherApps: true)
         guard let body = NSApp.windows.lazy.compactMap({ $0.contentView?.descendants(of: LiveTextView.self).first }).first,
               let window = body.window
         else { fail("dollar test: no live editor") }
@@ -717,7 +736,6 @@ enum Snapshot {
 
     @MainActor static func runSplitTest(store: Store) async {
         try? await Task.sleep(for: settle)
-        NSApp.activate(ignoringOtherApps: true)
         guard let window = NSApp.windows.first(where: { $0.contentView?.descendants(of: LiveTextView.self).isEmpty == false }),
               let content = window.contentView
         else { fail("split test: no live editor") }

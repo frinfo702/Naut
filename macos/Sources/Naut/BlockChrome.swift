@@ -149,11 +149,10 @@ extension LiveLayout {
         }
         guard dragging == nil else { return }
 
-        // A code block's bar also shows while its code is edited, with the
-        // language the fence would otherwise keep.
+        // Only the pointer brings a bar up: the caret inside a block is
+        // typing, not reaching for its controls.
         var shown = Set<Int>()
         if let element = hovered { shown.insert(element) }
-        if let code = editingCode { shown.insert(code.element) }
         if let element = copiedCode { shown.insert(element) }
         for element in shown.sorted() {
             guard let kind = kind(of: element) else { continue }

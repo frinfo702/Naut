@@ -185,7 +185,6 @@ enum EditorTest {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = NSHostingView(rootView: Host(model: model))
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
         try? await Task.sleep(for: .milliseconds(500))
         guard let body = window.contentView?.firstDescendant(LiveTextView.self),
               let editor = body.delegate as? LiveEditor.Coordinator

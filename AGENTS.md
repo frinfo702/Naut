@@ -26,7 +26,10 @@ A file for [guiding coding agents](https://agents.md/).
     `--hover-block N [--hover-button K]` shows the Nth block's chrome
     (handle, button bar, a picture's resize handles) as if the pointer
     were on it, and the name of its Kth button.
-    Needs no Screen Recording permission. Look at a snapshot after every
+    Needs no Screen Recording permission, and like every `--*-test`
+    run never activates the app or takes the keyboard (see
+    `Headless.swift`), so it is safe to run while someone works at the Mac.
+    Look at a snapshot after every
     UI change; "it builds" is not "it looks right".
 - **Editor regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --editor-test [--shots dir]`
   - Drives a Live Preview editor of its own (no note is opened) through
@@ -52,11 +55,12 @@ A file for [guiding coding agents](https://agents.md/).
   - Opens the note's `$$` block at the bottom of the window, types spaces,
     and fails if the page moves at any moment. Use a scratch note long
     enough to scroll that ends in a `$$` block.
-- **Code scroll regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --code-scroll-test --note Name`
-  - With the caret on the last line of a code block that ends the note,
-    scrolled to the bottom, types spaces and fails if the page moves at
-    any moment. Use a scratch note long enough to scroll that ends in a
-    fenced code block.
+- **End scroll regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --end-scroll-test --note Name`
+  - Scrolled to the bottom, moves the caret from the top of the note to
+    the last line of the code block that ends it, then to the empty line
+    below, types spaces at each and fails if the page scrolls or changes
+    height at any moment. Use a scratch note long enough to scroll that
+    starts with a heading and ends in a fenced code block.
 - **Dollar regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --dollar-test --note Name`
   - Types a second `$` after a line's lone `$`, and fails unless that
     makes a closed, empty equation, open for editing, above the text that

@@ -60,7 +60,12 @@ struct LiveEditor: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let storage = NSTextStorage()
         let layout = LiveLayout()
-        layout.allowsNonContiguousLayout = true
+        // Contiguous: every restyle invalidates the lines it touches, and
+        // non-contiguous layout then sized the text to an estimate of them,
+        // often far off. The page grew and shrank under the reader on every
+        // key typed near the end of a note, and the text view scrolled to
+        // its caret in between. Laid out in order, the size is the layout's.
+        layout.allowsNonContiguousLayout = false
         storage.addLayoutManager(layout)
         let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
@@ -120,6 +125,10 @@ struct LiveEditor: NSViewRepresentable {
         view.blockKey = { [weak c] in c?.blockKey($0) ?? false }
 
         let title = NSTextField(string: "")
+        let titleCell = CursorFieldCell(textCell: "")
+        titleCell.editor.cursorShape = cursorShape
+        titleCell.editor.cursorBlink = cursorBlink
+        title.cell = titleCell
         title.isBordered = false
         title.drawsBackground = false
         title.focusRingType = .none
@@ -197,14 +206,17 @@ struct LiveEditor: NSViewRepresentable {
         if c.cursorShape != cursorShape {
             c.cursorShape = cursorShape
             view.cursorShape = cursorShape
+            (view.titleField?.cell as? CursorFieldCell)?.editor.cursorShape = cursorShape
         }
         if c.cursorBlink != cursorBlink {
             c.cursorBlink = cursorBlink
             view.cursorBlink = cursorBlink
+            (view.titleField?.cell as? CursorFieldCell)?.editor.cursorBlink = cursorBlink
         }
         if c.themeRevision != themeRevision {
             c.themeRevision = themeRevision
             view.updateCursorColor()
+            (view.titleField?.cell as? CursorFieldCell)?.editor.updateCursorColor()
             (view.titleField?.currentEditor() as? NSTextView)?.insertionPointColor = .themeCursor
             c.refresh()
         }
@@ -279,10 +291,19 @@ struct LiveEditor: NSViewRepresentable {
         /// "after its closing `**`"; this can, so text typed next goes where
         /// the caret really is.
         private var caretSource: Int?
-        /// Whether the last selection was already the end of the display:
-        /// the typing-attribute fix below is needed on entering the extra
-        /// line, not once per keystroke typed there.
-        private var wasAtEnd = false
+        /// Typing attributes worked out, and for what: a caret move, a
+        /// restyle, AppKit's own reset and the end of the note each ask for
+        /// them, and each answer parses and styles the whole note.
+        private var typingCache: [TypingKey: [NSAttributedString.Key: Any]?] = [:]
+
+        private struct TypingKey: Hashable {
+            let source: String
+            let selection: NSRange
+            let preferring: Int?
+            let font: NSFont
+            let mono: NSFont
+        }
+
         /// The source position of an empty line made for the caret between
         /// two blocks that touch, as in Linear: nothing can be typed between
         /// an equation and the code block right below it otherwise. It goes
@@ -455,8 +476,8 @@ struct LiveEditor: NSViewRepresentable {
             if let c = layout.copiedCode, layout.kind(of: c) == nil { layout.copiedCode = nil }
             view.updateHover()
             view.window?.invalidateCursorRects(for: view)
-            if let a = typingAttributes(at: view.selectedRange()) { view.typingAttributes = a }
-            relayoutEnd()
+            updateEndFont()
+            updateTypingAttributes()
             positionMath()
         }
 
@@ -827,6 +848,16 @@ struct LiveEditor: NSViewRepresentable {
         /// Fine for notes of a few thousand lines; style only the paragraph
         /// it lands in if long ones ever lag.
         private func typingAttributes(at selection: NSRange) -> [NSAttributedString.Key: Any]? {
+            let key = TypingKey(source: source, selection: selection, preferring: caretSource, font: font, mono: mono)
+            if let a = typingCache[key] { return a }
+            // The caret's and the end's, for this source.
+            if typingCache.keys.contains(where: { $0.source != source }) || typingCache.count > 8 { typingCache.removeAll() }
+            let a = workOutTypingAttributes(at: selection)
+            typingCache[key] = a
+            return a
+        }
+
+        private func workOutTypingAttributes(at selection: NSRange) -> [NSAttributedString.Key: Any]? {
             guard selection.length == 0, NSMaxRange(selection) <= projection.display.length,
                   case let .replace(r, s, after) = editing.type("x", over: selection, preferring: caretSource)
             else { return nil }
@@ -850,18 +881,41 @@ struct LiveEditor: NSViewRepresentable {
             return a
         }
 
+        /// Tell the layout how tall the empty line after a final newline is:
+        /// the line text typed there would make. It is laid out again when
+        /// that changes, as below a heading that has just been typed.
+        private func updateEndFont() {
+            guard let layout, let storage = view?.textStorage else { return }
+            let end = NSRange(location: projection.display.length, length: 0)
+            let font = typingAttributes(at: end)?[.font] as? NSFont
+            guard font != layout.endFont else { return }
+            layout.endFont = font
+            guard storage.length > 0 else { return }
+            let last = (storage.string as NSString).paragraphRange(for: NSRange(location: storage.length - 1, length: 0))
+            layout.invalidateLayout(forCharacterRange: last, actualCharacterRange: nil)
+        }
+
+        /// Give the caret where it is now the typing attributes text typed
+        /// there will have. AppKit doesn't on a move: measured, they stayed
+        /// the last caret's, a heading's, until a key was typed. That key
+        /// went in as a heading, its line a heading tall, until the note was
+        /// styled again a moment later: the page jumped on the first key
+        /// after every click or arrow.
+        private func updateTypingAttributes() {
+            guard let view, !applying, pending == nil, !view.hasMarkedText(),
+                  let a = typingAttributes(at: view.selectedRange()),
+                  !(a as NSDictionary).isEqual(to: view.typingAttributes)
+            else { return }
+            view.typingAttributes = a
+            relayoutEnd()
+        }
+
         /// TextKit lays out the empty line after a final newline with the
         /// typing attributes current when it lays out the end of the text,
         /// and doesn't again when they change. Measured: after a move to
         /// that line its rect was still the code's (indented, monospaced),
-        /// or a heading's. So once the typing attributes are set (after the
-        /// selection changes, not while they are being decided, when the
-        /// old ones are still in force), lay the last paragraph out again.
-        ///
-        /// Only with the caret on that line: elsewhere its attributes don't
-        /// show, and the last paragraph may be the very line being typed
-        /// into. Laid out again on every key, a code block that ended the
-        /// note shrank the text for a moment and the page shook.
+        /// or a heading's. So when they change with the caret there, lay
+        /// the last paragraph out again; elsewhere they don't show.
         private func relayoutEnd() {
             guard let layout, let view, let storage = view.textStorage, storage.length > 0,
                   view.selectedRange() == NSRange(location: storage.length, length: 0),
@@ -879,17 +933,7 @@ struct LiveEditor: NSViewRepresentable {
             // display's to say again.
             if let at = caretSource, view.selectedRange() != NSRange(location: projection.display(at: at), length: 0) { caretSource = nil }
             layout?.selection = view.selectedRange()
-            // The empty line after the final newline has no character to
-            // take its typing attributes from. Without this, down from a
-            // code block left the caret indented as code, and spaced like
-            // it, because the attributes stayed from the line above.
-            let length = (view.string as NSString).length
-            let atEnd = view.selectedRange().location == length
-            if atEnd, !wasAtEnd, let a = typingAttributes(at: view.selectedRange()) {
-                view.typingAttributes = a
-            }
-            wasAtEnd = atEnd
-            relayoutEnd()
+            updateTypingAttributes()
             // Selected blocks draw their own highlight; a selection also
             // hides the caret indicator.
             view.needsDisplay = true
@@ -971,11 +1015,70 @@ struct LiveEditor: NSViewRepresentable {
             case let .resize(edge): resizeImage(element, edge: edge)
             case .button(.copy):
                 if case .image = projection.elements[element].kind { copyImage(element) } else { copyCode(element) }
-            case .button(.edit), .button(.language): open(element)
+            case .button(.edit): open(element)
+            case .button(.language): chooseLanguage(element)
             case .button(.fullScreen): showFullScreen(element)
             case .button(.open): if let url = imageURL(element) { NSWorkspace.shared.open(url) }
             case .button(.delete): deleteBlock(element)
             }
+        }
+
+        /// The languages the language menu offers: what the fence says,
+        /// and the name it shows. libnaut highlights each of them.
+        static let languages: [(id: String, name: String)] = [
+            ("bash", "Bash"), ("c", "C"), ("cpp", "C++"), ("go", "Go"), ("hcl", "HCL"),
+            ("java", "Java"), ("javascript", "JavaScript"), ("json", "JSON"), ("kotlin", "Kotlin"),
+            ("lua", "Lua"), ("nix", "Nix"), ("python", "Python"), ("ruby", "Ruby"), ("rust", "Rust"),
+            ("sql", "SQL"), ("swift", "Swift"), ("toml", "TOML"), ("typescript", "TypeScript"),
+            ("yaml", "YAML"), ("zig", "Zig"),
+        ]
+
+        /// The info string of code block `e`'s opening fence: after its ```.
+        private func languageRange(_ e: LiveMarkdown.Element) -> NSRange {
+            let fence = e.markers[0]
+            let ticks = (projection.source.substring(with: fence) as NSString).range(of: "^[ \\t]*[`~]{3}[ \\t]*", options: .regularExpression)
+            return NSRange(location: fence.location + ticks.length, length: fence.length - ticks.length)
+        }
+
+        /// Pick code block `i`'s language from a menu under its label.
+        /// "Other…" writes one by hand, in the popover.
+        private func chooseLanguage(_ i: Int) {
+            guard let view, let layout, let rect = layout.languageRect(i), i < projection.elements.count,
+                  case let .codeBlock(current) = projection.elements[i].kind else { return }
+            closePopover()
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            func item(_ title: String, _ id: String?) -> NSMenuItem {
+                let it = NSMenuItem(title: title, action: #selector(languageChosen(_:)), keyEquivalent: "")
+                it.target = self
+                it.tag = i
+                it.representedObject = id
+                it.state = id == current ? .on : .off
+                return it
+            }
+            menu.addItem(item("Plain text", ""))
+            menu.addItem(.separator())
+            if !current.isEmpty, !Self.languages.contains(where: { $0.id == current }) {
+                menu.addItem(item(current, current))
+                menu.addItem(.separator())
+            }
+            for l in Self.languages { menu.addItem(item(l.name, l.id)) }
+            menu.addItem(.separator())
+            menu.addItem(item("Other…", nil))
+            let at = rect.offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)
+            menu.popUp(positioning: nil, at: NSPoint(x: at.minX, y: view.isFlipped ? at.maxY + 4 : at.minY - 4), in: view)
+        }
+
+        @objc private func languageChosen(_ sender: NSMenuItem) {
+            let i = sender.tag
+            guard let view, i < projection.elements.count, case .codeBlock = projection.elements[i].kind else { return }
+            guard let id = sender.representedObject as? String else {
+                open(i)
+                return
+            }
+            let selection = view.selectedRange()
+            replace(languageRange(projection.elements[i]), with: id, select: NSRange(location: 0, length: 0))
+            place(selection)
         }
 
         /// Where picture element `i` is: a URL as written, or a path
@@ -1315,10 +1418,7 @@ struct LiveEditor: NSViewRepresentable {
                 let m = e.markers[1]
                 (range, multiline, title) = (NSRange(location: m.location + 2, length: m.length - 3), false, "Link URL")
             case .codeBlock:
-                // After the ``` of the opening fence.
-                let fence = e.markers[0]
-                let ticks = (s.substring(with: fence) as NSString).range(of: "^[ \\t]*[`~]{3}[ \\t]*", options: .regularExpression)
-                (range, multiline, title) = (NSRange(location: fence.location + ticks.length, length: fence.length - ticks.length), false, "Language")
+                (range, multiline, title) = (languageRange(e), false, "Language")
             default:
                 return
             }
@@ -1904,7 +2004,9 @@ final class LiveTextView: CursorTextView {
     }
 
     @objc private func scrolled() {
-        updateHover()
+        // A wheel scroll is the user's hand on the pointer; the caret
+        // scrolling itself into view is not.
+        updateHover(byPointer: NSApp.currentEvent?.type == .scrollWheel)
     }
 
     /// NSTextView scrolls its selection into view whenever it resizes, as
@@ -1933,7 +2035,7 @@ final class LiveTextView: CursorTextView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        updateHover()
+        updateHover(byPointer: true)
         super.mouseMoved(with: event)
         // NSTextView sets the I-beam on every move, over the cursor rects.
         chromeCursor?.set()
@@ -1950,19 +2052,21 @@ final class LiveTextView: CursorTextView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        updateHover()
+        updateHover(byPointer: true)
         super.mouseEntered(with: event)
     }
 
     override func mouseExited(with event: NSEvent) {
-        updateHover()
+        updateHover(byPointer: true)
         super.mouseExited(with: event)
     }
 
     /// Show the copy button on the code block under the pointer, as the
     /// preview does. Called when the pointer moves, when the window or the
-    /// layout changes, and after each edit.
-    func updateHover() {
+    /// layout changes, and after each edit. Only the user's own pointer
+    /// (`byPointer`) brings a bar up; an edit or a caret scroll that slides
+    /// a block under a pointer left still may only take one down.
+    func updateHover(byPointer: Bool = false) {
         guard let layout = layoutManager as? LiveLayout else { return }
         let point: NSPoint? = window.flatMap { window in
             guard window.isKeyWindow else { return nil }
@@ -1970,7 +2074,8 @@ final class LiveTextView: CursorTextView {
             guard bounds.contains(p) else { return nil }
             return NSPoint(x: p.x - textContainerOrigin.x, y: p.y - textContainerOrigin.y)
         }
-        let hit = point.flatMap { layout.chromeHit(at: $0) }
+        var hit = point.flatMap { layout.chromeHit(at: $0) }
+        if !byPointer, let h = hit, h.element != layout.hovered { hit = nil }
         guard layout.hovered != hit?.element || layout.hoveredControl != hit?.control else { return }
         layout.hovered = hit?.element
         layout.hoveredControl = hit?.control
@@ -2006,26 +2111,37 @@ final class LiveTextView: CursorTextView {
         laidOut?()
     }
 
+    /// The text's height by its line boxes, once the layout has reached the
+    /// end; nil before.
+    ///
+    /// TextKit sizes the view to the used rect, and `LiveLayout` sets each
+    /// line's used rect inside its box, centred, as tall as the text. After
+    /// some edits TextKit measured the last line to the bottom of its box,
+    /// after others to the bottom of its text, so the page changed height
+    /// by half a line gap between one key and the next. The boxes are the
+    /// lines as laid out and drawn; the page ends where the last one does.
+    ///
+    /// Read without laying anything out: this runs while TextKit resizes
+    /// the view, and layout from here re-entered that resize, which then
+    /// scrolled the page to the caret before the outer one scrolled back.
+    private var laidOutHeight: CGFloat? {
+        guard let layout = layoutManager, let storage = textStorage,
+              layout.firstUnlaidCharacterIndex() >= storage.length
+        else { return nil }
+        var bottom: CGFloat = 0
+        let glyphs = layout.numberOfGlyphs
+        if glyphs > 0 {
+            bottom = layout.lineFragmentRect(forGlyphAt: glyphs - 1, effectiveRange: nil, withoutAdditionalLayout: true).maxY
+        }
+        let extra = layout.extraLineFragmentRect
+        if extra.height > 0 { bottom = max(bottom, extra.maxY) }
+        return ceil(bottom + 2 * textContainerInset.height)
+    }
+
     /// Keep lines to page.css's measure, centred, like the preview.
     override func setFrameSize(_ size: NSSize) {
         var size = size
-        // Non-contiguous layout sizes the text to an estimate while it isn't
-        // all laid out, as after every restyle, often far shorter than the
-        // note. A page shrunk to that was pulled up under the reader and
-        // fell back once the layout caught up: it shook on every key typed
-        // into an equation at the end of a note. Shrinking past what is on
-        // screen goes by the real layout instead; below the screen, an
-        // estimate does no harm.
-        if size.height < frame.height, let clip = enclosingScrollView?.contentView,
-           frame.minY + size.height < clip.bounds.maxY,
-           let layout = layoutManager, let container = textContainer {
-            // ponytail: lays out the whole note when its end is on screen.
-            // Fine for notes of thousands of lines; past that, lay out only
-            // to the end of the screen.
-            layout.ensureLayout(for: container)
-            let needed = ceil(layout.usedRect(for: container).maxY + 2 * textContainerInset.height)
-            size.height = max(size.height, needed, minSize.height)
-        }
+        if let height = laidOutHeight { size.height = max(height, minSize.height) }
         let old = textContainer?.size.width
         super.setFrameSize(size)
         let side = max(Metrics.editorInset, (size.width - Metrics.measure) / 2)

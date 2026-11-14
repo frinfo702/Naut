@@ -118,7 +118,7 @@ struct ContentView: View {
             if Snapshot.isTabEditTest { await Snapshot.runTabEditTest(store: store) }
             if Snapshot.isMathEditTest { await Snapshot.runMathEditTest(store: store) }
             if Snapshot.isMathScrollTest { await Snapshot.runMathScrollTest(store: store) }
-            if Snapshot.isCodeScrollTest { await Snapshot.runCodeScrollTest(store: store) }
+            if Snapshot.isEndScrollTest { await Snapshot.runEndScrollTest() }
             if Snapshot.isDollarTest { await Snapshot.runDollarTest(store: store) }
             if Snapshot.isSplitTest { await Snapshot.runSplitTest(store: store) }
             #endif

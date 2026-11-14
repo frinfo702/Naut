@@ -436,3 +436,17 @@ class CursorTextView: NSTextView {
     var testInsertionRect: NSRect { insertionRect }
 #endif
 }
+
+/// A text field cell whose field editor is a `CursorTextView`, so a field
+/// typed in, as the note's title, has the note's caret: its shape, colour
+/// and blink setting. The window's shared field editor draws the system
+/// caret, which blinks whatever the setting says.
+final class CursorFieldCell: NSTextFieldCell {
+    let editor: CursorTextView = {
+        let editor = CursorTextView()
+        editor.isFieldEditor = true
+        return editor
+    }()
+
+    override func fieldEditor(for controlView: NSView) -> NSTextView? { editor }
+}
