@@ -2476,6 +2476,33 @@ final class LiveTextView: CursorTextView {
         return ceil(bottom + 2 * textContainerInset.height)
     }
 
+    /// The text starts at the inset, whatever the view's height.
+    ///
+    /// AppKit works the origin out from the container's used rect: in a
+    /// view shorter than that rect and both insets, it centres the rect
+    /// instead. `LiveLayout` sets each line's used rect inside its box,
+    /// so the used rect isn't the text's extent, and TextKit sizes the
+    /// view by its height alone: a note whose first line is a heading
+    /// has a used rect that starts half that line's leading down, and
+    /// the view could be that much too short by AppKit's reckoning. The
+    /// whole text then stood a few points higher, from the key that made
+    /// a note outgrow the window (a Return below a list, a table cell
+    /// wrapping) until the next change of height.
+    override var textContainerOrigin: NSPoint {
+        NSPoint(x: super.textContainerOrigin.x, y: bounds.minY + textContainerInset.height)
+    }
+
+    /// Make the view as tall as its lines, once they are laid out to the
+    /// end. TextKit resizes the view only when the used rect's height
+    /// says so, and that isn't the line boxes' (see `laidOutHeight`): a
+    /// note just past filling the window stayed the window's height, its
+    /// last line reaching below the view, until a later key.
+    func fitHeight() {
+        guard let height = laidOutHeight else { return }
+        let fitted = max(height, minSize.height)
+        if abs(frame.height - fitted) >= 0.5 { setFrameSize(NSSize(width: frame.width, height: fitted)) }
+    }
+
     /// Keep lines to page.css's measure, centred, like the preview.
     override func setFrameSize(_ size: NSSize) {
         var size = size

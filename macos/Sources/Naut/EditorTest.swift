@@ -406,6 +406,35 @@ enum EditorTest {
                 failures.append("end line, \(name): the empty line was \(empty.rect), its text at y \(empty.used.minY); typed in, \(line), at y \(used.minY)")
             }
         }
+        // The text stays where it is as the note outgrows the window.
+        // The view is at least the window's height; on the key that made
+        // the lines taller than that, AppKit found the view too short for
+        // the used rect and both insets, and centred the text in it: the
+        // whole note stood some points higher until the next key. Below a
+        // heading, whose used rect starts half its leading down; Return
+        // below a list was one such key, a table cell wrapping another.
+        for (name, note, key) in [("Return below a list", "## a\n- b\n‸", "\r"), ("a table cell wrapping", "## a\n\n| a | b | c‸ |\n| - | - | - |\n| 1 | 2 | 3 |", "wwwwwwwwwwww ")] {
+            let start = parse(note)
+            model.text = start.text
+            editor.load(start.text)
+            body.setSelectedRange(LiveProjection(start.text).displayRange(start.selection))
+            let layout = body.layoutManager as! LiveLayout
+            layout.ensureLayout(for: body.textContainer!)
+            let inset = body.textContainerInset.height
+            var moved: [String] = []
+            for i in 0 ..< 40 {
+                for c in key { if c == "\r" { body.doCommand(by: #selector(NSResponder.insertNewline(_:))) } else { body.insertText(String(c), replacementRange: none) } }
+                layout.ensureLayout(for: body.textContainer!)
+                let glyphs = layout.numberOfGlyphs
+                let bottom = max(layout.extraLineFragmentRect.maxY, glyphs > 0 ? layout.lineFragmentRect(forGlyphAt: glyphs - 1, effectiveRange: nil).maxY : 0)
+                let fitted = max(body.minSize.height, ceil(bottom + 2 * inset))
+                if body.textContainerOrigin.y != inset || abs(body.frame.height - fitted) >= 0.5 {
+                    moved.append("after \(i + 1): the text starts \(body.textContainerOrigin.y) down, not \(inset); the view is \(body.frame.height) tall, its lines \(fitted)")
+                }
+            }
+            if body.frame.height <= body.minSize.height { failures.append("page, \(name): the note never outgrew the window") }
+            if let first = moved.first { failures.append("page, \(name): \(first) (\(moved.count) of 40 keys)") }
+        }
         // A line with a small formula in it is a line like the others:
         // as tall, its baseline as far down. The formula's picture was
         // of its paragraph's whole line box, leading and all, and

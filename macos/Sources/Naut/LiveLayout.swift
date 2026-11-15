@@ -414,6 +414,13 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         return true
     }
 
+    /// The view follows the line boxes, not the used rect TextKit sizes
+    /// it by.
+    func layoutManager(_ layoutManager: NSLayoutManager, didCompleteLayoutFor textContainer: NSTextContainer?, atEnd layoutFinishedFlag: Bool) {
+        guard layoutFinishedFlag else { return }
+        (textContainer?.textView as? LiveTextView)?.fitHeight()
+    }
+
     /// How far the text of a line reaches above and below its baseline,
     /// if something drawn shares the line with it: by its fonts, as
     /// TextKit measures a line of text alone. Nil for a line of text
