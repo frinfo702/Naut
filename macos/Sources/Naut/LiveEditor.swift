@@ -713,8 +713,8 @@ struct LiveEditor: NSViewRepresentable {
             layout?.state.tables.contains { NSIntersectionRange($0.lines, r).length > 0 } ?? false
         }
 
-        /// ⌘A in a code block selects its code, in a table the table;
-        /// again, the note.
+        /// ⌘A in a code block selects its code, in a table the cell's
+        /// text, then the table; again, the note.
         func selectAllInBlock() -> Bool {
             guard let view, let layout else { return false }
             let s = view.selectedRange()
@@ -722,6 +722,11 @@ struct LiveEditor: NSViewRepresentable {
                 let end = min(NSMaxRange(table.lines), projection.display.length)
                 let last = end > table.lines.location && projection.display.character(at: end - 1) == 0x0A ? end - 1 : end
                 let all = NSRange(location: table.lines.location, length: last - table.lines.location)
+                // An empty cell has nothing to select: the table at once.
+                if let cell = editing.cellText(holding: s), cell.length > 0, s != cell, cell != all {
+                    place(cell)
+                    return true
+                }
                 guard all.length > 0, s != all else { return false }
                 place(all)
                 return true

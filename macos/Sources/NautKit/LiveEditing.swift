@@ -580,6 +580,14 @@ public struct LiveEditing {
         return nil
     }
 
+    /// The display range of the text of the table cell that holds all of
+    /// display `selection`. Nil if no one cell does.
+    public func cellText(holding selection: NSRange) -> NSRange? {
+        let s = projection.sourceRange(selection)
+        guard let c = cell(at: s.location), NSMaxRange(s) <= NSMaxRange(c.range) else { return nil }
+        return projection.displayRange(c.range)
+    }
+
     /// Text typed into a cell: a pipe would end it, and it has one line.
     private func cellText(_ s: String) -> String {
         s.replacingOccurrences(of: "\\|", with: "|").replacingOccurrences(of: "|", with: "\\|")
