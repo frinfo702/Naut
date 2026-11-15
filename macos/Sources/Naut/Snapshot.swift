@@ -41,6 +41,15 @@ enum Snapshot {
     /// focus, gave the new note the old note's title.
     static var isTitleSwitchTest: Bool { CommandLine.arguments.contains("--title-switch-test") }
 
+    /// `Naut --title-open-test [--from-palette]`: fail if the note the app
+    /// opens on has its title selected instead of the keyboard in its
+    /// text; with `--from-palette`, the same for a note opened from the
+    /// command palette. The bug this covers: a window that becomes key
+    /// gives the keyboard to its first key view, which was the title, and
+    /// a text field that takes the keyboard selects all of its text.
+    static var isTitleOpenTest: Bool { CommandLine.arguments.contains("--title-open-test") }
+    static var fromPalette: Bool { CommandLine.arguments.contains("--from-palette") }
+
     /// `Naut --math-edit-test --note Name`: type into the note's first
     /// display equation in place, and fail unless the note's source
     /// follows, the editor stays over its block, and Esc returns to the
@@ -83,7 +92,7 @@ enum Snapshot {
     /// Any of the harnesses above. They open notes too, and must not change
     /// the user's tabs, favorites or recent notes.
     static var isHarness: Bool {
-        path != nil || EditorTest.isEnabled || isTabEditTest || isCaretTest || isModalTest || isTitleSwitchTest || isMathEditTest || isMathScrollTest || isEndScrollTest || isDollarTest || isSplitTest
+        path != nil || EditorTest.isEnabled || isTabEditTest || isCaretTest || isModalTest || isTitleSwitchTest || isTitleOpenTest || isMathEditTest || isMathScrollTest || isEndScrollTest || isDollarTest || isSplitTest
     }
 
     /// `Naut --snapshot out.png --publish-popover [--note Name]` captures
@@ -132,6 +141,7 @@ enum Snapshot {
     /// scope before capturing.
     static var palette: CommandPalette.Scope? {
         let args = CommandLine.arguments
+        if isTitleOpenTest { return fromPalette ? .root : nil }
         guard path != nil, let i = args.firstIndex(of: "--palette"), i + 1 < args.count else { return nil }
         switch args[i + 1] {
         case "theme": return .theme
@@ -547,6 +557,52 @@ enum Snapshot {
         let names = Set(store.notes.map(\.name))
         guard names.contains(first.name), names.contains(second.name) else {
             fail("title switch test: a note was renamed (\(first.name), \(second.name) → \(names.sorted()))")
+        }
+        exit(0)
+    }
+
+    @MainActor static func runTitleOpenTest(store: Store) async {
+        try? await Task.sleep(for: settle)
+        // The longest title: the likeliest to be the query's first row.
+        guard let target = store.notes.filter({ $0.id != store.selection }).max(by: { $0.title.count < $1.title.count }) else {
+            fail("title open test: needs two notes")
+        }
+        guard let window = NSApp.windows.first(where: { $0.contentView?.descendants(of: LiveTextView.self).first != nil }) else {
+            fail("title open test: no live editor")
+        }
+        window.makeKeyAndOrderFront(nil)
+        for _ in 0 ..< 20 where !window.isKeyWindow {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        guard !fromPalette else { return await openFromPalette(target, in: window, store: store) }
+        guard let body = window.contentView?.descendants(of: LiveTextView.self).first, let title = body.titleField else {
+            fail("title open test: no live editor")
+        }
+        guard title.currentEditor() == nil else { fail("title open test: the app opened with the note's title selected") }
+        guard window.firstResponder === body else {
+            fail("title open test: the note's text does not have the keyboard (\(type(of: window.firstResponder as Any)))")
+        }
+        exit(0)
+    }
+
+    @MainActor private static func openFromPalette(_ target: Note, in window: NSWindow, store: Store) async {
+        // The palette, open since launch: type the note's name, press Return.
+        guard let field = window.contentView?.descendants(of: NSTextField.self).first(where: { $0.isEditable && !($0 is TitleField) }),
+              let palette = field.delegate, window.makeFirstResponder(field), let editor = field.currentEditor() as? NSTextView
+        else { fail("title open test: the palette's field did not take the keyboard") }
+        field.stringValue = target.title
+        palette.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: field))
+        try? await Task.sleep(for: .milliseconds(300))
+        _ = palette.control?(field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:)))
+        try? await Task.sleep(for: .milliseconds(500))
+
+        guard store.selection == target.id else { fail("title open test: the palette did not open \(target.title)") }
+        guard let body = window.contentView?.descendants(of: LiveTextView.self).first, let title = body.titleField else {
+            fail("title open test: no live editor after opening")
+        }
+        guard title.currentEditor() == nil else { fail("title open test: the note opened with its title selected") }
+        guard window.firstResponder === body else {
+            fail("title open test: the note's text did not take the keyboard (\(type(of: window.firstResponder as Any)))")
         }
         exit(0)
     }

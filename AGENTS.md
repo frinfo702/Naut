@@ -57,6 +57,10 @@ A file for [guiding coding agents](https://agents.md/).
 - **Title switch regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --title-switch-test`
   - Focuses the Live Preview title, switches to another note, and fails
     if that note was renamed with the old note's title.
+- **Title open regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --title-open-test [--from-palette]`
+  - Fails if the note the app opens on has its title selected rather
+    than the keyboard in its text; with `--from-palette`, the same for a
+    note opened from the command palette. Needs two notes.
 - **Equation regression (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --math-edit-test --note Name`
   - Types into the note's first `$$` block in place, and fails unless the
     source follows, the editor stays over its block, and Esc returns to

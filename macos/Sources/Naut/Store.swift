@@ -128,6 +128,10 @@ final class Store {
     /// editor. The focused pane's editor takes the keyboard when it changes.
     private(set) var focusRequest = 0
 
+    /// Give the keyboard back to the focused pane, as when the command
+    /// palette closes: its field had it, and leaves the window.
+    func focusPane() { focusRequest += 1 }
+
     /// What splitting and closing do to the sizes of the other panes.
     var paneScaling = PaneScaling(rawValue: UserDefaults.standard.string(forKey: "paneScaling") ?? "") ?? .adaptive {
         didSet {

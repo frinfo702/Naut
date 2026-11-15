@@ -125,7 +125,7 @@ struct LiveEditor: NSViewRepresentable {
         view.pasteLink = { [weak c] in c?.pasteLink(from: $0) ?? false }
         view.blockKey = { [weak c] in c?.blockKey($0) ?? false }
 
-        let title = NSTextField(string: "")
+        let title = TitleField(string: "")
         let titleCell = CursorFieldCell(textCell: "")
         titleCell.editor.cursorShape = cursorShape
         titleCell.editor.cursorBlink = cursorBlink
@@ -2517,6 +2517,15 @@ final class LiveTextView: CursorTextView {
         pboard.declareTypes([.string], owner: nil)
         return pboard.setString(copySource(selectedRange()), forType: .string)
     }
+}
+
+/// The note's title. Clicked into, or reached from the text, never handed
+/// the keyboard by AppKit: when the view that had it leaves the window, as
+/// the command palette's field does on opening a note, AppKit gives it to
+/// the next key view, and a text field that takes the keyboard selects all
+/// of its text. The note opened with its title selected.
+final class TitleField: NSTextField {
+    override var canBecomeKeyView: Bool { false }
 }
 
 /// The scroll view's document: the title, then the text, stacked.
