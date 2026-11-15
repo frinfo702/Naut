@@ -89,7 +89,19 @@ pub fn build(b: *std.Build) void {
     xcframework.has_side_effects = true;
 
     const swift_config = if (optimize == .debug) "debug" else "release";
-    const swift = b.addSystemCommand(&.{ "swift", "build", "-c", swift_config, "--package-path", "macos" });
+    // The SDK goes to the linking clang as -isysroot too. SwiftPM's build
+    // system hands it only --sysroot, which clang takes no SDK version
+    // from, so the binary claimed its deployment target (14.0) as the SDK
+    // it was built with. AppKit and SwiftUI keep their old behaviour for
+    // an app built that long ago: closed with its red button, the window
+    // never came back from the Dock icon.
+    const swift = b.addSystemCommand(&.{
+        "sh", "-c",
+        \\exec swift build -c "$1" --package-path macos \
+        \\  -Xswiftc -Xclang-linker -Xswiftc -isysroot \
+        \\  -Xswiftc -Xclang-linker -Xswiftc "$(xcrun --show-sdk-path)"
+        , "sh", swift_config,
+    });
     swift.setCwd(b.path("."));
     swift.has_side_effects = true;
     swift.step.dependOn(&xcframework.step);

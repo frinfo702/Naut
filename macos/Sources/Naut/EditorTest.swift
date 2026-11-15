@@ -331,6 +331,8 @@ enum EditorTest {
             bench(CommandLine.arguments[i + 1], model: model, editor: editor, body: body)
         }
         window.makeFirstResponder(body)
+        // The windows open before any math, table or picture is drawn.
+        let shown = Set(NSApp.windows.filter(\.isVisible).map(ObjectIdentifier.init))
 
         var failures: [String] = []
         for (name, before, keys, after) in cases {
@@ -731,6 +733,13 @@ enum EditorTest {
         body.setSelectedRange(NSRange(location: 0, length: 0))
         press("j")
         if body.selectedRange().location != newline + 1 { failures.append("source lines: j went to \(body.selectedRange().location), not \(newline + 1)") }
+        // Drawing math and tables must not leave a window of its own on
+        // screen: AppKit counts any visible one, so with the note's window
+        // closed the Dock icon's reopen would bring nothing back.
+        let left = NSApp.windows.filter { $0.isVisible && !shown.contains(ObjectIdentifier($0)) }
+        if !left.isEmpty {
+            failures.append("windows: drawing left \(left.count) more visible: \(left.map { $0.identifier?.rawValue ?? "\(type(of: $0))" })")
+        }
         if !failures.isEmpty { fail(failures) }
         if let i = CommandLine.arguments.firstIndex(of: "--shots"), i + 1 < CommandLine.arguments.count {
             await shoot(model, editor, body, into: URL(filePath: CommandLine.arguments[i + 1]))

@@ -11,8 +11,6 @@ final class LiveImages: NSObject, WKNavigationDelegate {
     static let shared = LiveImages()
     /// Posted when an image is ready; editors lay out again.
     static let didRender = Notification.Name("LiveImagesDidRender")
-    /// Snapshot skips this window.
-    static let windowID = NSUserInterfaceItemIdentifier("naut.render")
 
     /// A Markdown snippet rendered as the page would.
     struct Key: Hashable {
@@ -36,14 +34,10 @@ final class LiveImages: NSObject, WKNavigationDelegate {
         let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1600, height: 900))
         web.setValue(false, forKey: "drawsBackground")
         web.navigationDelegate = self
-        // WebKit only paints in a window; park one off screen.
-        let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 1600, height: 900), styleMask: .borderless, backing: .buffered, defer: false)
-        window.identifier = Self.windowID
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
-        window.isExcludedFromWindowsMenu = true
-        window.contentView = web
-        window.orderFrontRegardless()
+        // No window of its own: takeSnapshot paints a web view that is in
+        // none, at the screen's scale. One parked off screen was still a
+        // visible window to AppKit, so with the note's window closed the
+        // Dock icon's reopen found one "open" and brought nothing back.
         web.loadHTMLString(Markdown.page("", title: "", toc: false), baseURL: nil)
         return web
     }()

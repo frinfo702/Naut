@@ -200,7 +200,7 @@ enum Snapshot {
         // SwiftUI names the Settings window's identifier after the scene.
         let isSettings = { (w: NSWindow) in w.identifier?.rawValue.contains("Settings") == true }
         guard var window = NSApp.windows.first(where: {
-                  $0.isVisible && $0.contentView != nil && $0.identifier != LiveImages.windowID
+                  $0.isVisible && $0.contentView != nil
                       && $0.identifier != ImageViewer.id && isSettings($0) == settings
               }),
               var view = window.contentView?.superview ?? window.contentView
