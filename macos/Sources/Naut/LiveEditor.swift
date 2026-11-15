@@ -310,6 +310,9 @@ struct LiveEditor: NSViewRepresentable {
         /// an equation and the code block right below it otherwise. It goes
         /// again once the caret leaves it empty; typing there keeps it.
         private var gap: Int?
+        /// Where across the text Up and Down in a table are keeping the
+        /// caret, while it is still where they left it.
+        private var tableGoal: (caret: Int, x: CGFloat)?
         private var closingGap = false
 
         /// The title as the store has it.
@@ -660,27 +663,47 @@ struct LiveEditor: NSViewRepresentable {
             return true
         }
 
-        /// Up or Down from a table cell's first or last line goes to the
-        /// cell above or below it. True if the caret went there.
+        /// Up or Down in a table: through the lines of a cell whose text
+        /// wraps, then to the cell above or below, onto its nearest line,
+        /// across the text where the caret was. True if the caret went
+        /// there.
+        ///
+        /// None of it is left to the text view, which looks for the line
+        /// above or below at the x it last moved to, anywhere in the text:
+        /// from a wrapped cell that could be in another column.
         private func moveInTable(_ p: Int, down: Bool) -> Bool {
             guard let view, let layout, let storage = view.textStorage, storage.length > 0,
                   let table = layout.state.tables.first(where: { $0.lines.location <= p && p <= NSMaxRange($0.lines) }) else { return false }
-            // A cell whose text wraps is walked line by line first.
-            let cell = (storage.string as NSString).paragraphRange(for: NSRange(location: p, length: 0))
-            func line(_ i: Int) -> CGFloat {
-                layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: min(i, storage.length - 1)), effectiveRange: nil).minY
-            }
-            guard line(p) == line(down ? max(cell.location, NSMaxRange(cell) - 1) : cell.location) else { return false }
-            if let to = editing.vertical(from: p, preferring: caretSource, down: down) {
-                place(NSRange(location: to, length: 0))
-            } else if down, NSMaxRange(table.lines) >= projection.display.length, (source as NSString).hasSuffix("\n") == false {
-                // Down from the last row of a table that ends the note
-                // makes the line below, as from any block.
-                let end = (source as NSString).length
-                replace(NSRange(location: end, length: 0), with: "\n", select: NSRange(location: end + 1, length: 0))
+            let text = storage.string as NSString
+            let x = tableGoal.flatMap { $0.caret == p ? $0.x : nil } ?? layout.caretX(p)
+            // The position after the table is on the line below it.
+            let cell = text.paragraphRange(for: NSRange(location: p, length: 0))
+            let rows = cell.length > 0 && NSMaxRange(cell) <= NSMaxRange(table.lines) ? layout.rows(of: cell) : []
+            let next = rows.firstIndex { NSLocationInRange(min(p, storage.length - 1), $0.characters) }.map { $0 + (down ? 1 : -1) }
+            let to: Int
+            if let next, rows.indices.contains(next) {
+                to = layout.position(atX: x, in: rows[next])
             } else {
-                return false
+                switch editing.vertical(from: p, preferring: caretSource, down: down) {
+                case let .cell(r):
+                    let rows = layout.rows(of: text.paragraphRange(for: NSRange(location: r.location, length: 0)))
+                    guard let row = down ? rows.first : rows.last else { return false }
+                    to = min(max(layout.position(atX: x, in: row), r.location), NSMaxRange(r))
+                case let .line(at):
+                    to = at
+                case nil:
+                    // Down from the last row of a table that ends the note
+                    // makes the line below, as from any block.
+                    guard down, NSMaxRange(table.lines) >= projection.display.length, (source as NSString).hasSuffix("\n") == false else { return false }
+                    let end = (source as NSString).length
+                    replace(NSRange(location: end, length: 0), with: "\n", select: NSRange(location: end + 1, length: 0))
+                    view.scrollRangeToVisible(view.selectedRange())
+                    return true
+                }
             }
+            place(NSRange(location: to, length: 0))
+            // A short line on the way doesn't pull the caret in for good.
+            tableGoal = (view.selectedRange().location, x)
             view.scrollRangeToVisible(view.selectedRange())
             return true
         }

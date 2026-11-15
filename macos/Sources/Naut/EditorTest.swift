@@ -148,6 +148,15 @@ enum EditorTest {
         ("down from a table's last row leaves it", "| a | b |\n| - | - |\n| c‸ | d |\n\ny", [.down, .type("x")], "| a | b |\n| - | - |\n| c | d |\nx‸\ny"),
         ("down from the last row of a table ending the note makes a line", "| a | b |\n| - | - |\n| c | d‸ |", [.down, .type("x")], "| a | b |\n| - | - |\n| c | d |\nx‸"),
         ("up from a table's first row leaves it", "x\n\n| a | b‸ |\n| - | - |\n| c | d |", [.up, .type("z")], "x\nz‸\n| a | b |\n| - | - |\n| c | d |"),
+        // A cell whose text wraps, here to three lines.
+        ("up into a wrapped cell goes to its last line", "| a | b | c |\n| - | - | - |\n| これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます | e | f |\n| ‸g | h | i |\n", [.up, .type("x")],
+         "| a | b | c |\n| - | - | - |\n| これは折り返される長い日本語の文章でセルの幅を超えて何行にもわx‸たって続いていきます | e | f |\n| g | h | i |\n"),
+        ("up through a wrapped cell goes to the cell above", "| a | b | c |\n| - | - | - |\n| これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます | e | f |\n| ‸g | h | i |\n", [.up, .up, .up, .up, .type("x")],
+         "| x‸a | b | c |\n| - | - | - |\n| これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます | e | f |\n| g | h | i |\n"),
+        ("down through a wrapped cell goes to the cell below", "| a | b | c |\n| - | - | - |\n| ‸これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます | e | f |\n| g | h | i |\n", [.down, .down, .down, .type("x")],
+         "| a | b | c |\n| - | - | - |\n| これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます | e | f |\n| x‸g | h | i |\n"),
+        ("up in a wrapped cell stays in its column", "| a | b | c |\n| - | - | - |\n| これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます | これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます | これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます |\n‸y", [.up, .up, .type("x")],
+         "| a | b | c |\n| - | - | - |\n| これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます | これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます | これは折り返される長い日本語の文章でセルの幅を超えてx‸何行にもわたって続いていきます |\ny"),
         ("select all in a table selects the table", "x\n\n| a | b‸ |\n| - | - |\n| c | d |\n\ny", [.selectAll], "x\n\n| «a | b |\n| - | - |\n| c | d» |\n\ny"),
         ("select all in a table, delete takes it whole", "x\n\n| a | b‸ |\n| - | - |\n| c | d |\n\ny", [.selectAll, .backspace], "x\n\n‸\n\ny"),
         ("select all twice in a table selects the note", "| a | b‸ |\n| - | - |\n| c | d |\ny", [.selectAll, .selectAll], "| «a | b |\n| - | - |\n| c | d |\ny»"),
@@ -229,8 +238,9 @@ enum EditorTest {
     }
 
     /// `--editor-test --play note keys out.png`: the note (`‸` the caret),
-    /// then the keys typed, `⏎` Return, `⇥` Tab, `⌫` Backspace, and text
-    /// after `【` left composing, as an input method's; prints the
+    /// then the keys typed, `⏎` Return, `⇥` Tab, `⌫` Backspace, `↑` and
+    /// `↓` the arrows, and text after `【` left composing, as an input
+    /// method's; prints the
     /// Markdown and saves the window, to see a case before writing it.
     static func play(_ note: String, keys: String, shot: String, model: Model, editor: LiveEditor.Coordinator, body: LiveTextView) async -> Never {
         let start = parse(note.replacingOccurrences(of: "\\n", with: "\n"))
@@ -244,6 +254,8 @@ enum EditorTest {
             case "⏎": body.doCommand(by: #selector(NSResponder.insertNewline(_:)))
             case "⇥": body.doCommand(by: #selector(NSResponder.insertTab(_:)))
             case "⌫": body.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+            case "↑": body.doCommand(by: #selector(NSResponder.moveUp(_:)))
+            case "↓": body.doCommand(by: #selector(NSResponder.moveDown(_:)))
             default: body.insertText(String(c), replacementRange: NSRange(location: NSNotFound, length: 0))
             }
             try? await Task.sleep(for: .milliseconds(30))

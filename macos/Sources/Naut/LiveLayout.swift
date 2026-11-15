@@ -737,6 +737,52 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         return boundingRect(forGlyphRange: glyphRange(forCharacterRange: NSRange(location: character, length: 1), actualCharacterRange: nil), in: container)
     }
 
+    /// A line of a paragraph as it is laid out: one of several where the
+    /// text wraps.
+    struct Row {
+        var rect: NSRect
+        var glyphs: NSRange
+        var characters: NSRange
+    }
+
+    /// The rows the paragraph `characters` is laid out in, top to bottom.
+    func rows(of characters: NSRange) -> [Row] {
+        let glyphs = glyphRange(forCharacterRange: characters, actualCharacterRange: nil)
+        var rows: [Row] = []
+        var at = glyphs.location
+        while at < NSMaxRange(glyphs) {
+            var range = NSRange()
+            let rect = lineFragmentRect(forGlyphAt: at, effectiveRange: &range)
+            rows.append(Row(rect: rect, glyphs: range, characters: characterRange(forGlyphRange: range, actualGlyphRange: nil)))
+            at = NSMaxRange(range)
+        }
+        return rows
+    }
+
+    /// Where the caret at character `p` is across the text.
+    func caretX(_ p: Int) -> CGFloat {
+        guard let container = textContainers.first, let length = textStorage?.length, length > 0 else { return 0 }
+        let glyph = glyphIndexForCharacter(at: min(p, length - 1))
+        if p >= length { return boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).maxX }
+        return lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).minX + location(forGlyphAt: glyph).x
+    }
+
+    /// The caret position in `row` nearest `x`.
+    func position(atX x: CGFloat, in row: Row) -> Int {
+        guard let container = textContainers.first, let text = textStorage?.string as NSString?, row.glyphs.length > 0 else { return row.characters.location }
+        var fraction: CGFloat = 0
+        let hit = glyphIndex(for: NSPoint(x: x, y: row.rect.midY), in: container, fractionOfDistanceThroughGlyph: &fraction)
+        guard hit >= row.glyphs.location else { return row.characters.location }
+        let last = NSMaxRange(row.glyphs) - 1
+        var p = characterIndexForGlyph(at: min(hit, last))
+        if hit > last || fraction > 0.5, text.character(at: p) != 0x0A { p = NSMaxRange(text.rangeOfComposedCharacterSequence(at: p)) }
+        // The end of a row that wraps is the start of the next, where the
+        // caret would be drawn: stop before its last character instead.
+        let end = NSMaxRange(row.characters)
+        if p >= end, end < text.length, end > row.characters.location { p = text.rangeOfComposedCharacterSequence(at: end - 1).location }
+        return p
+    }
+
     /// A table's box: its cells' lines, with their padding and borders,
     /// across the text's width as the table is.
     func tableRect(_ lines: NSRange) -> NSRect? {

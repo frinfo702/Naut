@@ -651,25 +651,35 @@ public struct LiveEditing {
         return .replace(caret(end), with: "\n" + row + (end == source.length ? "\n" : ""), selection: caret(end + 3 + 3 * col))
     }
 
+    /// Where Up or Down takes the caret out of a table cell.
+    public enum Vertical: Equatable, Sendable {
+        /// The cell above or below: the display range of its text.
+        case cell(NSRange)
+        /// The display position of the line above or below the table.
+        case line(Int)
+    }
+
     /// Where the caret at display `p` in a table cell goes with the Down
-    /// arrow (`down`) or Up: as far into the cell below or above, the
-    /// same column; from its last or first row, to the line below or above
-    /// the table. Nil outside a table, and where the note has no such line.
+    /// arrow (`down`) or Up, once it is on the cell's last or first line:
+    /// the cell below or above, the same column; from its last or first
+    /// row, the line below or above the table. Nil outside a table, and
+    /// where the note has no such line.
     ///
     /// The cells of a row are paragraphs side by side, which the text view
-    /// steps through as lines: Down went to the row's last cell.
-    public func vertical(from p: Int, preferring: Int? = nil, down: Bool) -> Int? {
+    /// steps through as lines: Down went to the row's last cell. Where in
+    /// the cell is the caller's to say, which knows how its text wraps:
+    /// the same offset is on the first line of a cell of several, so Up
+    /// from below never reached the others.
+    public func vertical(from p: Int, preferring: Int? = nil, down: Bool) -> Vertical? {
         guard let c = cell(at: projection.insertion(at: p, preferring: preferring).position) else { return nil }
         let row = c.row + (down ? 1 : -1)
         guard c.table.cells.indices.contains(row) else {
             let all = projection.displayRange(c.table.range)
-            if down { return NSMaxRange(all) < projection.display.length ? NSMaxRange(all) + 1 : nil }
-            return all.location > 0 ? all.location - 1 : nil
+            if down { return NSMaxRange(all) < projection.display.length ? .line(NSMaxRange(all) + 1) : nil }
+            return all.location > 0 ? .line(all.location - 1) : nil
         }
         guard c.col < c.table.cells[row].count else { return nil }
-        let from = projection.displayRange(c.range)
-        let to = projection.displayRange(c.table.cells[row][c.col])
-        return to.location + min(max(0, p - from.location), to.length)
+        return .cell(projection.displayRange(c.table.cells[row][c.col]))
     }
 
     /// What the table menu does to a table.
