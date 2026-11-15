@@ -1019,10 +1019,13 @@ struct LiveEditor: NSViewRepresentable {
             let end = NSRange(location: projection.display.length, length: 0)
             let typing = typingAttributes(at: end)
             let font = typing?[.font] as? NSFont
-            let indent = (typing?[.paragraphStyle] as? NSParagraphStyle)?.firstLineHeadIndent
-            guard font != layout.endFont || indent != layout.endIndent else { return }
+            let style = typing?[.paragraphStyle] as? NSParagraphStyle
+            let indent = style?.firstLineHeadIndent
+            let before = style?.paragraphSpacingBefore ?? 0
+            guard font != layout.endFont || indent != layout.endIndent || before != layout.endSpacingBefore else { return }
             layout.endFont = font
             layout.endIndent = indent
+            layout.endSpacingBefore = before
             guard storage.length > 0 else { return }
             let last = (storage.string as NSString).paragraphRange(for: NSRange(location: storage.length - 1, length: 0))
             layout.invalidateLayout(forCharacterRange: last, actualCharacterRange: nil)

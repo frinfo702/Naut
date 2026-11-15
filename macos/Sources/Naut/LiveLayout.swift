@@ -349,6 +349,10 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
     /// editor: an empty list item there has no character of its own to
     /// carry one, and the last character's is the line above's.
     var endIndent: CGFloat?
+    /// The space above a line started at the end of the note, kept by the
+    /// editor: a heading's, or a code block's first line's. The empty
+    /// line has no character to carry it either.
+    var endSpacingBefore: CGFloat = 0
 
     /// Body text's CSS line-height, from Settings.
     var lineHeight: Double = Store.Density.compact.lineHeight
@@ -443,14 +447,22 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
     /// page changed height as the caret moved, then again as the first
     /// key was typed at the end. Below a code block its gap was the
     /// code's, and it grew as that key went in.
+    ///
+    /// And it stands as far below the line above: TextKit gives the empty
+    /// line no paragraph spacing. After `## ` at the end of a note the
+    /// caret stood right under the text above, and dropped by a
+    /// heading's margin as the first character went in.
     override func setExtraLineFragmentRect(_ rect: NSRect, usedRect: NSRect, textContainer container: NSTextContainer) {
         var rect = rect
         var used = usedRect
         if let font = endFont {
             let text = defaultLineHeight(for: font)
             let extra = extra(for: font)
-            rect.size.height = text + extra
-            used.origin.y = rect.minY + extra / 2
+            // Not on the note's first line: TextKit gives a paragraph
+            // at the top of the page no space above.
+            let before = (textStorage?.length ?? 0) > 0 ? endSpacingBefore : 0
+            rect.size.height = before + text + extra
+            used.origin.y = rect.minY + before + extra / 2
             used.size.height = text
             // And as far in. TextKit aligns it as the paragraph before:
             // below an equation or a picture, which are centred, the

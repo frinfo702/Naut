@@ -376,6 +376,31 @@ enum EditorTest {
                 failures.append("quote bar, \(name): \(editor.source.debugDescription) draws \(bars) for \(lines) line(s) of \(height)")
             }
         }
+        // A block started at the end of the note stands where its first
+        // character will: the empty line had the heading's font but not
+        // the space above it, and the line dropped by that as the first
+        // key after `## ` went in.
+        for (name, before, keys) in [
+            ("## below a line", "a\n‸", "## "), ("### below a line", "a\n‸", "### "), ("## below an empty line", "a\n\n‸", "## "),
+            ("## below a code block", "```\ncode\n```\n‸", "## "), ("## in an empty note", "‸", "## "), ("- below a heading", "## a\n‸", "- "),
+        ] {
+            let start = parse(before)
+            model.text = start.text
+            editor.load(start.text)
+            body.setSelectedRange(LiveProjection(start.text).displayRange(start.selection))
+            for c in keys { body.insertText(String(c), replacementRange: none) }
+            let layout = body.layoutManager as! LiveLayout
+            layout.ensureLayout(for: body.textContainer!)
+            let empty = layout.endLine ?? (.zero, .zero)
+            body.insertText("x", replacementRange: none)
+            layout.ensureLayout(for: body.textContainer!)
+            let glyph = layout.glyphIndexForCharacter(at: body.selectedRange().location - 1)
+            let line = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let used = layout.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
+            if abs(empty.used.minY - used.minY) > 0.5 || abs(empty.rect.height - line.height) > 0.5 {
+                failures.append("end line, \(name): the empty line was \(empty.rect), its text at y \(empty.used.minY); typed in, \(line), at y \(used.minY)")
+            }
+        }
         // A line with a small formula in it is a line like the others:
         // as tall, its baseline as far down. The formula's picture was
         // of its paragraph's whole line box, leading and all, and
