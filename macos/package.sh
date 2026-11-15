@@ -10,6 +10,13 @@
 # certificate in the keychain. With NOTARY_APPLE_ID, NOTARY_TEAM_ID and
 # NOTARY_PASSWORD (an app-specific password) too, the image is notarized
 # and stapled, and Gatekeeper opens it without a word.
+#
+# macOS remembers "may read Documents" (where the notes are) against the
+# app's designated requirement. An ad hoc signature's is its code hash,
+# which no two builds share: every update was a stranger that had to ask
+# again. So an ad hoc build names its requirement itself, the bundle
+# identifier, which every version has. A Developer ID's own requirement
+# (identifier and team) already holds across versions.
 set -eu
 
 version=${1:?usage: macos/package.sh X.Y.Z}
@@ -23,7 +30,10 @@ plist=$app/Contents/Info.plist
 if [ -n "${SIGN_IDENTITY:-}" ]; then
 	codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$app"
 else
-	codesign --force --sign - "$app"
+	id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$plist")
+	codesign --force --sign - --requirements "=designated => identifier \"$id\"" "$app"
+	# Fails if the requirement was not taken: the hash would be back.
+	codesign --display --requirements - "$app" 2>/dev/null | grep -qx "designated => identifier \"$id\""
 fi
 codesign --verify --strict "$app"
 
