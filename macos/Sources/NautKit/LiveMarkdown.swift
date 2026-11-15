@@ -200,6 +200,11 @@ public enum LiveMarkdown {
 
     /// The cells of table row `line`: between its unescaped pipes, the
     /// outer ones optional, as GFM reads them.
+    ///
+    /// A cell's text ends one space short of its pipe, the padding, and
+    /// keeps any spaces before that: a space typed at the end of a cell
+    /// is text until the next word comes. Trimmed away, the caret after
+    /// it was past the cell, which the display shows as the next one.
     private static func cells(in line: NSRange, _ text: NSString) -> [NSRange] {
         var pipes: [Int] = []
         var i = line.location
@@ -217,8 +222,9 @@ public enum LiveMarkdown {
         return segments.map { s in
             var r = s
             while r.length > 0, [0x20, 0x09].contains(text.character(at: r.location)) { r = NSRange(location: r.location + 1, length: r.length - 1) }
-            while r.length > 0, [0x20, 0x09].contains(text.character(at: NSMaxRange(r) - 1)) { r.length -= 1 }
-            if r.length == 0 { return NSRange(location: s.location + min(1, s.length), length: 0) }
+            // Nothing but spaces: all between the padding at either end.
+            if r.length == 0 { return NSRange(location: s.location + min(1, s.length), length: max(0, s.length - 2)) }
+            if [0x20, 0x09].contains(text.character(at: NSMaxRange(r) - 1)) { r.length -= 1 }
             return r
         }
     }

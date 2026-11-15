@@ -53,9 +53,13 @@ public struct LiveEditing {
             return .replace(range, with: s, selection: caret(range.location + length(s)))
         }
         let at = projection.insertion(at: r.location, preferring: preferring, newline: s.contains("\n"))
-        if cell(at: at.position) != nil, at.before.isEmpty, at.after.isEmpty {
+        if let c = cell(at: at.position), at.before.isEmpty, at.after.isEmpty {
             let s = cellText(s)
-            return .replace(caret(at.position), with: s, selection: caret(at.position + length(s)))
+            // A space at the end of a cell with no padding before its pipe
+            // would be that padding, not text: the padding goes after it.
+            let padded = at.position == NSMaxRange(c.range) && (s.hasSuffix(" ") || s.hasSuffix("\t"))
+                && !(at.position < source.length && [0x20, 0x09].contains(source.character(at: at.position)))
+            return .replace(caret(at.position), with: s + (padded ? " " : ""), selection: caret(at.position + length(s)))
         }
         // `$$` on a line of its own makes the equation at once, closed: an
         // open `$$` would take everything down to the next one into it.
