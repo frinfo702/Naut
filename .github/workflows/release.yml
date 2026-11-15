@@ -1,7 +1,8 @@
 name: Release
 
 # Run from the Actions tab: pick which part of vX.Y.Z to raise. Builds
-# Naut.app, packs it into Naut.dmg and publishes both as a GitHub release.
+# Naut.app, packs it into Naut.dmg and Naut.zip and publishes them as a
+# GitHub release.
 # The app's Check for Updates and the Homebrew cask (Casks/naut.rb) both
 # read the latest release, so nothing else needs bumping.
 on:
@@ -84,5 +85,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          gh release create "v$VERSION" dist/Naut.dmg dist/Naut.dmg.sha256 \
+          gh release create "v$VERSION" dist/Naut.dmg dist/Naut.dmg.sha256 dist/Naut.zip dist/Naut.zip.sha256 \
             --target "$GITHUB_SHA" --title "Naut $VERSION" --generate-notes

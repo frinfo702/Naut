@@ -3,8 +3,13 @@ import CryptoKit
 import Security
 
 /// Check for Updates…: asks GitHub for the newest release, and if it is
-/// newer than this build, downloads its disk image, checks it, swaps it in
-/// for this bundle and relaunches.
+/// newer than this build, downloads its zip of the app, checks it, swaps it
+/// in for this bundle and relaunches.
+///
+/// Not the disk image: a mounted image is a removable volume to macOS, and
+/// reading it needs a privacy permission Naut doesn't have, so the read
+/// fails with “you don’t have permission”. Unzipping into our own
+/// folder needs nothing.
 ///
 /// There is no helper app, as Sparkle has: the bundle can be renamed while
 /// we run (the running binary stays mapped), so the new one is moved into
@@ -89,8 +94,8 @@ final class Updater {
         // without a Developer ID team change its own bundle, though the
         // folder is writable. Find out now rather than after the download.
         try Self.probe(app)
-        guard let image = release.assets.first(where: { $0.name.hasSuffix(".dmg") }) else {
-            throw UpdateError.noDiskImage
+        guard let archive = release.assets.first(where: { $0.name.hasSuffix(".zip") }) else {
+            throw UpdateError.noArchive
         }
 
         showProgress("Downloading Naut \(version)…")
@@ -98,30 +103,22 @@ final class Updater {
         let work = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: app, create: true)
         defer { try? fm.removeItem(at: work) }
 
-        let dmg = work.appending(path: image.name)
-        let (downloaded, response) = try await URLSession.shared.download(from: image.browserDownloadUrl)
+        let zip = work.appending(path: archive.name)
+        let (downloaded, response) = try await URLSession.shared.download(from: archive.browserDownloadUrl)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw UpdateError.download }
-        try fm.moveItem(at: downloaded, to: dmg)
-        if let sum = release.assets.first(where: { $0.name == image.name + ".sha256" }) {
+        try fm.moveItem(at: downloaded, to: zip)
+        if let sum = release.assets.first(where: { $0.name == archive.name + ".sha256" }) {
             let (data, _) = try await URLSession.shared.data(from: sum.browserDownloadUrl)
             let expected = (String(bytes: data, encoding: .utf8) ?? "").split(separator: " ").first.map { $0.lowercased() }
-            guard try await Self.sha256(of: dmg) == expected else { throw UpdateError.checksum }
+            guard try await Self.sha256(of: zip) == expected else { throw UpdateError.checksum }
         }
 
         showProgress("Installing Naut \(version)…")
-        let mount = work.appending(path: "mount", directoryHint: .isDirectory)
-        let staged = work.appending(path: "New.app", directoryHint: .isDirectory)
-        try await Self.run("/usr/bin/hdiutil", ["attach", dmg.path, "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount.path])
-        do {
-            let found = try fm.contentsOfDirectory(at: mount, includingPropertiesForKeys: nil)
-                .first { $0.pathExtension == "app" }
-            guard let found else { throw UpdateError.noApp }
-            try await Self.run("/usr/bin/ditto", [found.path, staged.path])
-        } catch {
-            _ = try? await Self.run("/usr/bin/hdiutil", ["detach", mount.path, "-force"])
-            throw error
-        }
-        _ = try? await Self.run("/usr/bin/hdiutil", ["detach", mount.path, "-force"])
+        let unpacked = work.appending(path: "unpacked", directoryHint: .isDirectory)
+        try await Self.run("/usr/bin/ditto", ["-x", "-k", zip.path, unpacked.path])
+        guard let staged = try fm.contentsOfDirectory(at: unpacked, includingPropertiesForKeys: nil)
+            .first(where: { $0.pathExtension == "app" })
+        else { throw UpdateError.noApp }
 
         try Self.verify(staged, replacing: app)
 
@@ -321,7 +318,7 @@ final class Updater {
 }
 
 enum UpdateError: Error, CustomStringConvertible {
-    case noRelease, notABundle, notInstalled, readOnly(URL), appManagement, noDiskImage, download, checksum, noApp, notNaut, signature
+    case noRelease, notABundle, notInstalled, readOnly(URL), appManagement, noArchive, download, checksum, noApp, notNaut, signature
     case tool(String, String)
 
     var description: String {
@@ -332,11 +329,11 @@ enum UpdateError: Error, CustomStringConvertible {
         case let .readOnly(folder): "Naut can’t write to \(folder.path)."
         case .appManagement:
             "macOS won’t let Naut replace itself. Turn Naut on in System Settings › Privacy & Security › App Management, quit and reopen Naut, then check again — or download the update manually."
-        case .noDiskImage: "The release has no disk image."
+        case .noArchive: "The release has no zip of the app."
         case .download: "The download failed."
         case .checksum: "The download is damaged: its checksum doesn’t match."
-        case .noApp: "The disk image has no app in it."
-        case .notNaut: "The disk image doesn’t hold Naut."
+        case .noApp: "The zip has no app in it."
+        case .notNaut: "The zip doesn’t hold Naut."
         case .signature: "The new version’s signature isn’t valid, or isn’t from the same developer."
         case let .tool(name, output): "\(name) failed: \(output.trimmingCharacters(in: .whitespacesAndNewlines))"
         }

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Turns zig-out/Naut.app (from `zig build -Doptimize=fast`) into
-# dist/Naut.dmg and dist/Naut.dmg.sha256, as .github/workflows/release.yml
-# publishes them.
+# dist/Naut.dmg for people to install, and dist/Naut.zip for Check for
+# Updates (which can't read a mounted image), each with a .sha256, as
+# .github/workflows/release.yml publishes them.
 #
 #   macos/package.sh 1.2.3
 #
@@ -44,5 +45,8 @@ if [ -n "${SIGN_IDENTITY:-}" ]; then
 	fi
 fi
 
-# The updater checks the download against this.
-(cd "$out" && shasum -a 256 Naut.dmg >Naut.dmg.sha256)
+# What the updater downloads; ditto keeps the signature intact.
+ditto -c -k --keepParent "$app" "$out/Naut.zip"
+
+# The updater checks the download against these.
+(cd "$out" && shasum -a 256 Naut.dmg >Naut.dmg.sha256 && shasum -a 256 Naut.zip >Naut.zip.sha256)
