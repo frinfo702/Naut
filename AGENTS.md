@@ -42,7 +42,7 @@ A file for [guiding coding agents](https://agents.md/).
     each kind of block selected.
 - **Play keys (macOS app)**: `zig-out/Naut.app/Contents/MacOS/Naut --editor-test --play 'note\n‸' 'keys' out.png`
   - Loads the note (`\n` a newline, `‸` the caret) into the test editor,
-    types the keys (`⏎` Return, `⇥` Tab, `⌫` Backspace, `↑` and `↓` the
+    types the keys (`⏎` Return, `↵` Shift-Return, `⇥` Tab, `⌫` Backspace, `↑` and `↓` the
     arrows; text after `【` is left composing, as an input method's), prints the
     Markdown with the caret and saves the window. Reproduce a report with
     it, then write the case into `EditorTest.cases`.

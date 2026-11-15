@@ -114,6 +114,7 @@ struct LiveEditor: NSViewRepresentable {
         view.widthChanged = { [weak c] in c?.widthChanged() }
         view.click = { [weak c] in c?.click(at: $0, count: $1) ?? false }
         view.selectAllInBlock = { [weak c] in c?.selectAllInBlock() ?? false }
+        view.breakLineInCell = { [weak c] in c?.breakLineInCell() ?? false }
         view.key = { [weak c] in c?.key($0) ?? false }
         view.modalKey = { [weak c] in c?.handleModal($0) ?? false }
         view.copySource = { [weak c] in c?.copyMarkdown(of: $0) ?? "" }
@@ -708,6 +709,14 @@ struct LiveEditor: NSViewRepresentable {
             return true
         }
 
+        /// Shift-Return in a table cell starts a new line in it, where
+        /// Return goes to the cell below. True if it did.
+        func breakLineInCell() -> Bool {
+            guard let selection = view?.selectedRange(), let edit = editing.lineBreak(selection, preferring: caretSource) else { return false }
+            perform(edit)
+            return true
+        }
+
         /// Whether display range `r` has some of a table in it.
         private func reachesTable(_ r: NSRange) -> Bool {
             layout?.state.tables.contains { NSIntersectionRange($0.lines, r).length > 0 } ?? false
@@ -921,6 +930,8 @@ struct LiveEditor: NSViewRepresentable {
             guard !view.hasMarkedText() else { return false }
             let selection = view.selectedRange()
             switch selector {
+            case #selector(NSResponder.insertLineBreak(_:)) where breakLineInCell():
+                return true
             case #selector(NSResponder.insertNewline(_:)):
                 // Return on a selected block edits it.
                 if selection.length == 1, let i = projection.attachments[selection.location] {
@@ -2239,6 +2250,7 @@ final class LiveTextView: CursorTextView {
     var click: ((NSPoint, Int) -> Bool)?
     /// ⌘A inside a code block; true if it selected the code.
     var selectAllInBlock: (() -> Bool)?
+    var breakLineInCell: (() -> Bool)?
     /// Pastes a picture on the pasteboard; false if there is none.
     var pasteImage: ((NSPasteboard) -> Bool)?
     /// Pastes a URL over the selection as a link to it; false if not one.
@@ -2270,6 +2282,14 @@ final class LiveTextView: CursorTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // Shift-Return is Return to the text view's key bindings, which
+        // say nothing of the Shift: it is told apart here.
+        if window?.firstResponder === self, !hasMarkedText(), !keymap.isModal || modalMode == .insert,
+           [36, 76].contains(event.keyCode), event.modifierFlags.intersection([.shift, .control, .option, .command]) == .shift,
+           breakLineInCell?() == true {
+            TypingSound.shared.keyDown(event)
+            return
+        }
         if window?.firstResponder === self, !hasMarkedText(), blockKey?(event) == true { return }
         super.keyDown(with: event)
     }

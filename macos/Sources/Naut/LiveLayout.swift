@@ -775,7 +775,7 @@ final class LiveLayout: NSLayoutManager, NSLayoutManagerDelegate {
         guard hit >= row.glyphs.location else { return row.characters.location }
         let last = NSMaxRange(row.glyphs) - 1
         var p = characterIndexForGlyph(at: min(hit, last))
-        if hit > last || fraction > 0.5, text.character(at: p) != 0x0A { p = NSMaxRange(text.rangeOfComposedCharacterSequence(at: p)) }
+        if hit > last || fraction > 0.5, ![0x0A, 0x2028].contains(text.character(at: p)) { p = NSMaxRange(text.rangeOfComposedCharacterSequence(at: p)) }
         // The end of a row that wraps is the start of the next, where the
         // caret would be drawn: stop before its last character instead.
         let end = NSMaxRange(row.characters)

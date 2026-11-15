@@ -22,6 +22,8 @@ import Foundation
 /// - A table's cells are a paragraph each, edited in place: the pipes and
 ///   spaces between two cells (and the delimiter row) are one newline in
 ///   the display, and the editor lays the paragraphs out as a grid.
+///   A `<br>` in a cell is one line separator (U+2028): a new line of
+///   the same paragraph, so of the same cell.
 /// - Math blocks, pictures and inline math are one U+FFFC each,
 ///   which the editor draws as an attachment: atomic, by construction.
 ///
@@ -48,8 +50,12 @@ public struct LiveProjection {
     /// What separates two table cells, each shown as one newline: from
     /// one cell's text to the next one's. In source order.
     public let cellBreaks: [NSRange]
+    /// The `<br>` of table cells, each shown as one line separator. In
+    /// source order.
+    public let lineBreaks: [NSRange]
 
     public static let attachmentCharacter: unichar = 0xFFFC
+    public static let lineSeparator: unichar = 0x2028
 
     public init(_ text: String) {
         self.init(text, elements: LiveMarkdown.parse(text))
@@ -99,6 +105,22 @@ public struct LiveProjection {
             }
         }
         atoms.sort { $0.range.location < $1.range.location }
+        // A cell's `<br>`, where it is text: not in code or an equation.
+        let literal = elements.filter { $0.kind == .code }.map(\.range) + atoms.map(\.range)
+        var lines: [NSRange] = []
+        for e in elements where e.kind == .table {
+            for cell in e.cells.joined() {
+                var i = cell.location
+                while i < NSMaxRange(cell) {
+                    if let tag = Self.lineBreakTag(in: source, at: i, before: NSMaxRange(cell)), !literal.contains(where: { NSLocationInRange(i, $0) }) {
+                        lines.append(tag)
+                        i = NSMaxRange(tag)
+                    } else {
+                        i += 1
+                    }
+                }
+            }
+        }
 
         var display: [unichar] = []
         var units: [NSRange] = []
@@ -107,6 +129,7 @@ public struct LiveProjection {
         units.reserveCapacity(source.length)
         var next = 0
         var nextBreak = 0
+        var nextLine = 0
         var i = 0
         while i < source.length {
             if nextBreak < breaks.count, breaks[nextBreak].location == i {
@@ -114,6 +137,13 @@ public struct LiveProjection {
                 units.append(breaks[nextBreak])
                 i = NSMaxRange(breaks[nextBreak])
                 nextBreak += 1
+                continue
+            }
+            if nextLine < lines.count, lines[nextLine].location == i {
+                display.append(Self.lineSeparator)
+                units.append(lines[nextLine])
+                i = NSMaxRange(lines[nextLine])
+                nextLine += 1
                 continue
             }
             if next < atoms.count, atoms[next].range.location == i {
@@ -138,6 +168,7 @@ public struct LiveProjection {
         self.fences = fences
         self.atoms = atoms
         cellBreaks = breaks
+        lineBreaks = lines
     }
 
     // MARK: - Mapping
@@ -265,6 +296,16 @@ public struct LiveProjection {
     /// Whether a list item's text starts with a task box, `[ ] ` or `[x] `.
     public static func isTask(_ text: NSString, _ content: NSRange) -> Bool {
         content.length >= 4 && ["[ ] ", "[x] ", "[X] "].contains(text.substring(with: NSRange(location: content.location, length: 4)))
+    }
+
+    /// The `<br>`, `<br/>` or `<br />` at `i`, in any case, ending by `end`.
+    static func lineBreakTag(in text: NSString, at i: Int, before end: Int) -> NSRange? {
+        guard text.character(at: i) == 0x3C else { return nil }
+        for tag in ["<br>", "<br/>", "<br />"] where i + tag.utf16.count <= end {
+            let r = NSRange(location: i, length: tag.utf16.count)
+            if text.substring(with: r).lowercased() == tag { return r }
+        }
+        return nil
     }
 
     /// `r` without newlines at its end.

@@ -30,6 +30,10 @@ enum EditorTest {
         static let backspace = Key.command(#selector(NSResponder.deleteBackward(_:)))
         static let delete = Key.command(#selector(NSResponder.deleteForward(_:)))
         static let enter = Key.command(#selector(NSResponder.insertNewline(_:)))
+        /// Shift-Return, as the keyboard sends it.
+        case shiftReturn
+        /// Control-Return.
+        static let lineBreak = Key.command(#selector(NSResponder.insertLineBreak(_:)))
         static let tab = Key.command(#selector(NSResponder.insertTab(_:)))
         static let backtab = Key.command(#selector(NSResponder.insertBacktab(_:)))
         static let left = Key.command(#selector(NSResponder.moveLeft(_:)))
@@ -157,6 +161,17 @@ enum EditorTest {
          "| a | b | c |\n| - | - | - |\n| これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます | e | f |\n| x‸g | h | i |\n"),
         ("up in a wrapped cell stays in its column", "| a | b | c |\n| - | - | - |\n| これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます | これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます | これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます |\n‸y", [.up, .up, .type("x")],
          "| a | b | c |\n| - | - | - |\n| これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます | これは折り返される長い日本語の文章でセルの幅を超えて何行にもわたって続いていきます | これは折り返される長い日本語の文章でセルの幅を超えてx‸何行にもわたって続いていきます |\ny"),
+        // Shift-Return in a cell.
+        ("shift-return in a cell breaks its line", "| a | b‸c |\n| - | - |\n| d | e |", [.shiftReturn, .type("x")], "| a | b<br>x‸c |\n| - | - |\n| d | e |"),
+        ("control-return in a cell breaks its line", "| a | b‸c |\n| - | - |\n| d | e |", [.lineBreak, .type("x")], "| a | b<br>x‸c |\n| - | - |\n| d | e |"),
+        ("shift-return over a cell's text breaks its line", "| a | b«cd»e |\n| - | - |\n| d | e |", [.shiftReturn], "| a | b<br>‸e |\n| - | - |\n| d | e |"),
+        ("shift-return outside a table is return", "- a‸b", [.shiftReturn], "- a\n- ‸b"),
+        ("backspace after a cell's line break takes it", "| a | b<br>‸c |\n| - | - |\n| d | e |", [.backspace], "| a | b‸c |\n| - | - |\n| d | e |"),
+        ("delete before a cell's line break takes it", "| a | b‸<br>c |\n| - | - |\n| d | e |", [.delete], "| a | b‸c |\n| - | - |\n| d | e |"),
+        ("up and down walk a cell's broken lines", "| a | b<br>c<br>‸d |\n| - | - |\n| d | e |", [.up, .type("1"), .up, .type("2"), .down, .down, .down, .type("3")],
+         "| a | b2<br>1c<br>d |\n| - | - |\n| d | e3‸ |"),
+        ("select all in a cell takes its lines", "| a | b<br>‸c |\n| - | - |\n| d | e |", [.selectAll], "| a | «b<br>c» |\n| - | - |\n| d | e |"),
+        ("a br outside a table is text", "a‸b", [.type("<br>")], "a<br>‸b"),
         ("select all in a table selects the cell", "x\n\n| a | b‸ |\n| - | - |\n| c | d |\n\ny", [.selectAll], "x\n\n| a | «b» |\n| - | - |\n| c | d |\n\ny"),
         ("select all twice in a table selects the table", "x\n\n| a | b‸ |\n| - | - |\n| c | d |\n\ny", [.selectAll, .selectAll], "x\n\n| «a | b |\n| - | - |\n| c | d» |\n\ny"),
         ("select all in an empty cell selects the table", "| a | ‸ |\n| - | - |\n| c | d |\n\ny", [.selectAll], "| «a |  |\n| - | - |\n| c | d» |\n\ny"),
@@ -241,8 +256,8 @@ enum EditorTest {
     }
 
     /// `--editor-test --play note keys out.png`: the note (`‸` the caret),
-    /// then the keys typed, `⏎` Return, `⇥` Tab, `⌫` Backspace, `↑` and
-    /// `↓` the arrows, and text after `【` left composing, as an input
+    /// then the keys typed, `⏎` Return, `↵` Shift-Return, `⇥` Tab, `⌫` Backspace,
+    /// `↑` and `↓` the arrows, and text after `【` left composing, as an input
     /// method's; prints the
     /// Markdown and saves the window, to see a case before writing it.
     static func play(_ note: String, keys: String, shot: String, model: Model, editor: LiveEditor.Coordinator, body: LiveTextView) async -> Never {
@@ -257,6 +272,7 @@ enum EditorTest {
             case "⏎": body.doCommand(by: #selector(NSResponder.insertNewline(_:)))
             case "⇥": body.doCommand(by: #selector(NSResponder.insertTab(_:)))
             case "⌫": body.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+            case "↵": body.doCommand(by: #selector(NSResponder.insertLineBreak(_:)))
             case "↑": body.doCommand(by: #selector(NSResponder.moveUp(_:)))
             case "↓": body.doCommand(by: #selector(NSResponder.moveDown(_:)))
             default: body.insertText(String(c), replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -337,6 +353,13 @@ enum EditorTest {
                     body.insertText(text, replacementRange: none)
                 case .selectAll: body.selectAll(nil)
                 case .undo: body.history?.undo()
+                case .shiftReturn:
+                    let event = NSEvent.keyEvent(
+                        with: .keyDown, location: .zero, modifierFlags: [.shift],
+                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                        characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36
+                    )
+                    if let event { body.keyDown(with: event) }
                 case let .shortcut(c, keyCode, shift):
                     let event = NSEvent.keyEvent(
                         with: .keyDown, location: .zero, modifierFlags: shift ? [.command, .shift] : [.command],

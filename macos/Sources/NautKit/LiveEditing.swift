@@ -588,6 +588,14 @@ public struct LiveEditing {
         return projection.displayRange(c.range)
     }
 
+    /// Shift-Return over display `selection` in a table cell: a new line
+    /// in the cell. The cell is one line of the Markdown, so the break is
+    /// a `<br>` there. Nil where no one cell holds the selection.
+    public func lineBreak(_ selection: NSRange, preferring: Int? = nil) -> Edit? {
+        guard cellText(holding: selection) != nil else { return nil }
+        return type("<br>", over: selection, preferring: preferring)
+    }
+
     /// Text typed into a cell: a pipe would end it, and it has one line.
     private func cellText(_ s: String) -> String {
         s.replacingOccurrences(of: "\\|", with: "|").replacingOccurrences(of: "|", with: "\\|")

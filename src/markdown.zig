@@ -14,6 +14,8 @@
 //!
 //! Raw HTML in the source is escaped, never passed through. Rendered pages
 //! get published to the web, so a note must not be able to inject script.
+//! The one exception is `<br>` in a table cell, which is a line of the
+//! source and has no other way to break its text.
 //! For the same reason link destinations with a scheme other than http,
 //! https or mailto are replaced with "#".
 //!
@@ -52,6 +54,10 @@ pub const Renderer = struct {
     /// Number of times each heading slug has been used, so duplicates
     /// get "-1", "-2" suffixes like GitHub does.
     slugs: std.StringHashMapUnmanaged(u32) = .empty,
+
+    /// Whether the inlines being rendered are a table cell's, where
+    /// `<br>` breaks the line.
+    in_cell: bool = false,
 
     pub fn init(alloc: Allocator) Renderer {
         return .{ .alloc = alloc };
@@ -359,6 +365,8 @@ pub const Renderer = struct {
                 .none => try w.print("<{s}>", .{tag}),
                 else => try w.print("<{s} style=\"text-align:{s}\">", .{ tag, @tagName(a) }),
             }
+            self.in_cell = true;
+            defer self.in_cell = false;
             try self.inlines(w, cell);
             try w.print("</{s}>", .{tag});
         }
@@ -469,7 +477,11 @@ pub const Renderer = struct {
                     continue;
                 },
 
-                '<' => if (autolink(text, i)) |l| {
+                '<' => if (self.in_cell and lineBreakTag(text, i) != null) {
+                    try w.writeAll("<br>");
+                    i = lineBreakTag(text, i).?;
+                    continue;
+                } else if (autolink(text, i)) |l| {
                     try w.writeAll("<a href=\"");
                     try escapeUrl(w, l.url);
                     try w.writeAll("\">");
@@ -884,6 +896,14 @@ fn autolink(text: []const u8, start: usize) ?Link {
     return .{ .label = url, .url = url, .title = null, .end = end + 1 };
 }
 
+/// The end of the `<br>`, `<br/>` or `<br />` at `start`, in any case.
+fn lineBreakTag(text: []const u8, start: usize) ?usize {
+    for ([_][]const u8{ "<br>", "<br/>", "<br />" }) |tag| {
+        if (text.len - start >= tag.len and std.ascii.eqlIgnoreCase(text[start..][0..tag.len], tag)) return start + tag.len;
+    }
+    return null;
+}
+
 fn writeTitle(w: *Writer, title: ?[]const u8) Writer.Error!void {
     const t = title orelse return;
     try w.writeAll(" title=\"");
@@ -1073,6 +1093,12 @@ test "markdown: table with alignment" {
         "</thead>\n<tbody>\n" ++
         "<tr><td style=\"text-align:left\"><code>x</code></td><td style=\"text-align:right\">y</td></tr>\n" ++
         "</tbody>\n</table></div>\n");
+}
+
+test "markdown: br breaks the line in a table cell only" {
+    try expectHtml("| a<br>b | `<br>`<BR/>**c<br />d** |\n| - | - |\n\nx<br>y", "<div class=\"table\"><table>\n<thead>\n" ++
+        "<tr><th>a<br>b</th><th><code>&lt;br&gt;</code><br><strong>c<br>d</strong></th></tr>\n" ++
+        "</thead>\n<tbody>\n</tbody>\n</table></div>\n<p>x&lt;br&gt;y</p>\n");
 }
 
 test "markdown: ordered marker at end of line" {
