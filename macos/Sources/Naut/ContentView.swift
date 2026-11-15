@@ -66,6 +66,7 @@ struct ContentView: View {
                     }
                 }
             }
+            .withoutSharedBackground()
         }
         .toolbar {
             if store.keymap.isModal || store.showCharacterCount {
@@ -257,6 +258,20 @@ private struct FittedPopover: ViewModifier {
             content.presentationSizing(.fitted)
         } else {
             content
+        }
+    }
+}
+
+extension ToolbarContent {
+    /// From macOS 26 the toolbar wraps its items in one glass capsule, which
+    /// swallows the sidebar button and the title along with the tab strip.
+    /// They draw their own backgrounds, so they go without it.
+    @ToolbarContentBuilder
+    func withoutSharedBackground() -> some ToolbarContent {
+        if #available(macOS 26, *) {
+            sharedBackgroundVisibility(.hidden)
+        } else {
+            self
         }
     }
 }
